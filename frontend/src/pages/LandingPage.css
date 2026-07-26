@@ -82,10 +82,20 @@
   min-height: 100vh;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   text-align: center;
-  padding: 120px 24px 80px;
+  padding: 120px clamp(24px, 8vw, 96px) 80px;
   overflow: hidden;
+}
+
+.hero-photo {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 78% center;
 }
 
 .hero-blobs {
@@ -138,17 +148,26 @@
   position: absolute;
   inset: 0;
   z-index: 1;
+  /* The source photo has its own baked-in logo/headline on its left third;
+     this gradient must fully hide that (not just tint it) so it doesn't
+     ghost behind our live, responsive heading — hence the hard 0.99 stop
+     rather than a soft fade all the way from 0%. */
   background:
-    linear-gradient(180deg, rgba(6, 11, 35, 0.35) 0%, rgba(6, 11, 35, 0.85) 65%, var(--tm-bg) 100%),
-    linear-gradient(120deg, rgba(139, 92, 246, 0.15), rgba(168, 85, 247, 0.08));
+    linear-gradient(180deg, rgba(6, 11, 35, 0.25) 0%, rgba(6, 11, 35, 0.85) 65%, var(--tm-bg) 100%),
+    linear-gradient(100deg, rgba(6, 11, 35, 0.99) 0%, rgba(6, 11, 35, 0.99) 46%, rgba(6, 11, 35, 0.55) 64%, rgba(6, 11, 35, 0.2) 82%),
+    linear-gradient(135deg, rgba(139, 92, 246, 0.35), rgba(168, 85, 247, 0.18) 45%, rgba(192, 132, 252, 0.1));
 }
 
 .hero-content {
   position: relative;
   z-index: 2;
   max-width: 760px;
+  text-align: left;
   animation: fadeUp 0.8s ease both;
 }
+
+.hero-eyebrow, .hero-sub { text-align: left; margin-left: 0; }
+.hero-actions { justify-content: flex-start; }
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(24px); }
@@ -303,77 +322,20 @@
   font-size: 0.78rem;
 }
 
-.browser-preview {
-  display: flex;
-  min-height: 340px;
-}
-
-.preview-sidebar {
-  width: 160px;
-  flex-shrink: 0;
-  background: var(--tm-bg);
-  border-right: 1px solid var(--tm-card-border);
-  padding: 18px 14px;
-}
-
-.preview-logo {
-  width: 70%;
-  height: 12px;
-  border-radius: 4px;
-  background: linear-gradient(135deg, var(--tm-primary), var(--tm-accent));
-  margin-bottom: 24px;
-}
-
-.preview-nav-item {
-  height: 9px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.25);
-  margin-bottom: 14px;
-  width: 85%;
-}
-
-.preview-main {
-  flex: 1;
-  padding: 20px 24px;
-}
-
-.preview-topbar {
-  height: 14px;
-  width: 40%;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.12);
-  margin-bottom: 20px;
-}
-
-.preview-cards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.preview-card {
-  height: 56px;
-  border-radius: 10px;
-  background: var(--tm-card);
+.preview-skeleton {
+  max-width: 980px;
+  height: 420px;
+  margin: 0 auto;
+  border-radius: 18px;
   border: 1px solid var(--tm-card-border);
+  background: linear-gradient(90deg, var(--tm-bg-soft) 25%, rgba(255,255,255,0.04) 37%, var(--tm-bg-soft) 63%);
+  background-size: 400% 100%;
+  animation: skeletonPulse 1.6s ease-in-out infinite;
 }
 
-.preview-chart {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  height: 120px;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--tm-card);
-  border: 1px solid var(--tm-card-border);
-}
-
-.preview-bar {
-  flex: 1;
-  border-radius: 4px 4px 0 0;
-  background: linear-gradient(180deg, var(--tm-accent), var(--tm-primary));
+@keyframes skeletonPulse {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
 }
 
 /* ─── Footer ─── */
@@ -388,13 +350,21 @@
 /* ─── Responsive ─── */
 @media (max-width: 900px) {
   .feature-grid { grid-template-columns: repeat(2, 1fr); }
-  .preview-sidebar { display: none; }
 }
 
 @media (max-width: 640px) {
   .feature-grid { grid-template-columns: 1fr; }
-  .preview-cards { grid-template-columns: repeat(2, 1fr); }
   .landing-nav-actions { gap: 6px; }
   .btn-primary, .btn-ghost { padding: 8px 14px; font-size: 0.8rem; }
-  .hero { padding-top: 100px; }
+  .hero { padding-top: 100px; justify-content: center; }
+  .hero-content { text-align: center; }
+  .hero-eyebrow, .hero-sub { text-align: center; }
+  .hero-actions { justify-content: center; }
+  .hero-photo { object-position: 65% center; }
+  .hero-overlay {
+    background:
+      linear-gradient(180deg, rgba(6, 11, 35, 0.4) 0%, rgba(6, 11, 35, 0.9) 65%, var(--tm-bg) 100%),
+      linear-gradient(180deg, rgba(6, 11, 35, 0.88), rgba(6, 11, 35, 0.88)),
+      linear-gradient(135deg, rgba(139, 92, 246, 0.35), rgba(168, 85, 247, 0.18));
+  }
 }

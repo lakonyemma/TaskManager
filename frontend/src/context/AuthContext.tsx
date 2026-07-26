@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  authFetch, clearTokens, getStoredRefreshToken, getStoredToken,
-  jsonHeaders, persistTokens, SessionExpiredError,
+  authFetch, clearPendingInvite, clearTokens, EmailNotVerifiedError, getPendingInvite, getStoredRefreshToken,
+  getStoredToken, jsonHeaders, persistTokens, SessionExpiredError,
 } from '../lib/api'
 import { AuthContext, type UserSession } from './auth-context'
 
@@ -33,13 +33,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user?.fontStyle) document.documentElement.setAttribute('data-font', user.fontStyle)
   }, [user])
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, remember = true) => {
     const res = await fetch('/api/auth/login', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ email, password }) })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.message || 'Unable to sign in')
-    persistTokens(data.accessToken, data.refreshToken)
+    if (!res.ok) {
+      if (res.status === 403 && data.emailNotVerified) throw new EmailNotVerifiedError(data.message, data.email || email)
+      throw new Error(data.message || 'Unable to sign in')
+    }
+    persistTokens(data.accessToken, data.refreshToken, remember)
     setUser(data.user)
     setSessionNotice('')
+
+    // Redeem a workspace invite that was accepted during registration, back
+    // when there was no session yet to redeem it with.
+    const pendingInvite = getPendingInvite()
+    if (pendingInvite) {
+      try { await authFetch(`/api/invitations/${pendingInvite}/accept`, { method: 'POST' }) } catch { /* invite may have expired; not fatal to login */ }
+      clearPendingInvite()
+    }
+
     return data.user as UserSession
   }, [])
 
@@ -47,10 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await fetch('/api/auth/register', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(payload) })
     const data = await res.json()
     if (!res.ok) throw new Error(data.message || 'Unable to create account')
-    persistTokens(data.accessToken, data.refreshToken)
-    setUser(data.user)
-    setSessionNotice('')
-    return data.user as UserSession
+    // No tokens are issued at this point — the account needs email
+    // verification before it can be signed into.
+    return data as { message: string; email: string }
   }, [])
 
   const logout = useCallback(async () => {

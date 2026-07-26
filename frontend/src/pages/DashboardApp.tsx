@@ -1,7 +1,15 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
+  Activity as ActivityIcon, Settings as SettingsIcon, Bell, LogOut, X, UserPlus, Menu,
+  type LucideIcon,
+} from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { authFetch, jsonHeaders, SessionExpiredError } from '../lib/api'
+import { StatSummaryCards, StatusDoughnutChart, StatusBarChart, CompletionTrendChart, type StatusCounts, type TrendPoint } from '../components/TaskCharts'
+import TaskCalendar from '../components/TaskCalendar'
+import Modal from '../components/Modal'
 import '../App.css'
 
 type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'settings'
@@ -14,18 +22,16 @@ type Session = { id: string; userAgent?: string | null; ipAddress?: string | nul
 type ActivityEntry = { id: string; action: string; createdAt: string; user?: { firstname: string; lastName: string } | null; workspace?: { name: string } | null; task?: { title: string } | null }
 
 const statusColumns = ['TODO', 'IN_PROGRESS', 'REVIEW', 'COMPLETED']
-const navItems: { page: NavPage; label: string; icon: string }[] = [
-  { page: 'dashboard', label: 'Dashboard', icon: '⌂' },
-  { page: 'tasks', label: 'My Tasks', icon: '☑' },
-  { page: 'boards', label: 'Boards', icon: '☰' },
-  { page: 'calendar', label: 'Calendar', icon: '▦' },
-  { page: 'team', label: 'Team', icon: '☺' },
-  { page: 'reports', label: 'Reports', icon: '↗' },
-  { page: 'activity', label: 'Activity', icon: '⧖' },
-  { page: 'settings', label: 'Settings', icon: '⚙' },
+const navItems: { page: NavPage; label: string; icon: LucideIcon }[] = [
+  { page: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { page: 'tasks', label: 'My Tasks', icon: ClipboardCheck },
+  { page: 'boards', label: 'Boards', icon: KanbanSquare },
+  { page: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { page: 'team', label: 'Team', icon: Users },
+  { page: 'reports', label: 'Reports', icon: ChartColumn },
+  { page: 'activity', label: 'Activity', icon: ActivityIcon },
+  { page: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 const LANGUAGES: Record<string, string> = {
   en: 'English', sw: 'Kiswahili', fr: 'Français', ko: '한국어', es: 'Español', zh: '中文', lg: 'Luganda'
@@ -113,9 +119,8 @@ export default function DashboardApp() {
   const [notifCount, setNotifCount] = useState(0)
   const [notifList, setNotifList] = useState<{ id: string; message: string; isRead: boolean; createdAt: string }[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
-  const [calMonth, setCalMonth] = useState(new Date().getMonth())
-  const [calYear, setCalYear] = useState(new Date().getFullYear())
-  const [calDayTasks, setCalDayTasks] = useState<Task[] | null>(null)
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'info' | 'success' | 'error'>('info')
   const [reportsSummary, setReportsSummary] = useState<{ total: number; completed: number; inProgress: number; overdue: number } | null>(null)
@@ -133,6 +138,8 @@ export default function DashboardApp() {
   const [settingsLang, setSettingsLang] = useState(() => user?.language || 'en')
   const [settingsFont, setSettingsFont] = useState(() => user?.fontStyle || 'default')
   const [settingsColor, setSettingsColor] = useState(() => user?.colorTheme || 'purple')
+  const [taskNotificationsEnabled, setTaskNotificationsEnabled] = useState(() => user?.taskNotificationsEnabled ?? true)
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(() => user?.emailNotificationsEnabled ?? true)
 
   const showMessage = useCallback((msg: string, type: 'info' | 'success' | 'error' = 'info') => {
     setMessage(msg); setMessageType(type)
@@ -291,6 +298,13 @@ export default function DashboardApp() {
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to cancel', 'error') }
   }
 
+  const handleResendInvitation = async (id: string) => {
+    try {
+      const d = await request(`/api/invitations/${id}/resend`, { method: 'POST' }) as { message: string }
+      showMessage(d.message || 'Invitation resent', 'success'); await loadWorkspaceInvitations()
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to resend', 'error') }
+  }
+
   const handleUpdateMemberRole = async (memberId: string, role: string) => {
     try {
       await request(`/api/workspaces/${selectedWorkspaceId}/members/${memberId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ role }) })
@@ -314,6 +328,7 @@ export default function DashboardApp() {
         body: JSON.stringify({
           firstname: settingsName, lastName: settingsLast, avatarUrl: settingsAvatar || null,
           bio: settingsBio || null, language: settingsLang, fontStyle: settingsFont, colorTheme: settingsColor,
+          taskNotificationsEnabled, emailNotificationsEnabled,
         }),
       }) as { user: typeof user }
       if (d.user) setUser(d.user)
@@ -366,50 +381,52 @@ export default function DashboardApp() {
 
   const logout = async () => { await authLogout(); navigate('/login') }
 
-  const tasksByDate = useMemo(() => {
-    const map: Record<string, Task[]> = {}
-    tasks.filter(tk => tk.dueDate).forEach(tk => {
-      const key = new Date(tk.dueDate!).toDateString()
-      if (!map[key]) map[key] = []
-      map[key].push(tk)
+  const trendData: TrendPoint[] = useMemo(() => {
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date()
+      d.setDate(d.getDate() - (6 - i))
+      return d
     })
-    return map
+    return days.map(d => ({
+      label: d.toLocaleDateString(undefined, { weekday: 'short' }),
+      completed: tasks.filter(tk => tk.status === 'COMPLETED' && tk.dueDate && new Date(tk.dueDate).toDateString() === d.toDateString()).length,
+    }))
   }, [tasks])
 
   if (!user) return null
 
   const selectedWs = workspaces.find(w => w.id === selectedWorkspaceId)
   const myTasks = tasks.filter(tk => tk.assignedToId === user.id)
-  const overdueTasks = tasks.filter(tk => tk.dueDate && new Date(tk.dueDate) < new Date())
+  const overdueTasks = tasks.filter(tk => tk.dueDate && new Date(tk.dueDate) < new Date() && tk.status !== 'COMPLETED')
   const upcomingDeadlines = tasks.filter(tk => tk.dueDate).sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()).slice(0, 5)
   const myMembership = members.find(m => m.userId === user.id)
   const canManageMembers = myMembership && (myMembership.role === 'OWNER' || myMembership.role === 'ADMIN')
-
-  const firstDay = new Date(calYear, calMonth, 1).getDay()
-  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
-  const calDays = Array.from({ length: daysInMonth }, (_, i) => i + 1)
 
   const totalTasks = tasks.length
   const completedTasks = tasks.filter(tk => tk.status === 'COMPLETED').length
   const inProgressTasks = tasks.filter(tk => tk.status === 'IN_PROGRESS').length
   const todoTasks = tasks.filter(tk => tk.status === 'TODO').length
   const reviewTasks = tasks.filter(tk => tk.status === 'REVIEW').length
-  const completionPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0
+  const statusCounts: StatusCounts = { total: totalTasks, completed: completedTasks, inProgress: inProgressTasks, todo: todoTasks, overdue: overdueTasks.length, review: reviewTasks }
+  const reportStatusCounts: StatusCounts = reportsSummary
+    ? { total: reportsSummary.total, completed: reportsSummary.completed, inProgress: reportsSummary.inProgress, todo: Math.max(reportsSummary.total - reportsSummary.completed - reportsSummary.inProgress, 0), overdue: reportsSummary.overdue }
+    : statusCounts
 
   const themeClass = `theme-${settingsColor || 'purple'} font-${settingsFont || 'default'}`
 
   return (
     <main className={`dashboard-shell ${themeClass}`}>
-      <aside className="sidebar">
+      {mobileNavOpen && <div className="mobile-nav-backdrop" onClick={() => setMobileNavOpen(false)} />}
+      <aside className={`sidebar ${mobileNavOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <p className="eyebrow">Taskly</p>
           <h2>{user.firstname} {user.lastName}</h2>
           <p>{selectedWs?.name || t('overview', settingsLang)}</p>
         </div>
         <nav className="sidebar-nav">
-          {navItems.map(({ page, icon }) => (
-            <button key={page} className={`nav-item ${navPage === page ? 'active' : ''}`} onClick={() => setNavPage(page)}>
-              <span className="nav-icon">{icon}</span>
+          {navItems.map(({ page, icon: Icon }) => (
+            <button key={page} className={`nav-item ${navPage === page ? 'active' : ''}`} onClick={() => { setNavPage(page); setMobileNavOpen(false) }}>
+              <span className="nav-icon"><Icon size={17} strokeWidth={1.8} /></span>
               <span>{t(page === 'tasks' ? 'myTasks' : page, settingsLang)}</span>
             </button>
           ))}
@@ -426,15 +443,20 @@ export default function DashboardApp() {
               <div className="sidebar-user-email">{user.email}</div>
             </div>
           </div>
-          <button className="logout-btn" onClick={logout} title="Sign out">{'➡'}</button>
+          <button className="logout-btn" onClick={logout} title="Sign out"><LogOut size={16} /></button>
         </div>
       </aside>
 
       <div className="main-area">
         <div className="main-topbar">
-          <div>
-            <h1>{greeting(settingsLang)}, {user.firstname}</h1>
-            <p>{selectedWs?.name || ''}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button type="button" className="mobile-menu-btn" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
+              <Menu size={20} />
+            </button>
+            <div>
+              <h1>{greeting(settingsLang)}, {user.firstname}</h1>
+              <p>{selectedWs?.name || ''}</p>
+            </div>
           </div>
           <div className="main-topbar-actions">
             <div className="workspace-selector">
@@ -447,7 +469,7 @@ export default function DashboardApp() {
               ))}
             </div>
             <div className="notif-bell" onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) loadNotifList() }}>
-              {'🔔'}
+              <Bell size={18} strokeWidth={1.8} />
               {notifCount > 0 && <span className="notif-badge">{notifCount}</span>}
               {showNotifs && (
                 <div className="notif-dropdown">
@@ -495,45 +517,22 @@ export default function DashboardApp() {
               <div className="dashboard-grid">
                 <div className="panel full-width">
                   <h2>{t('overview', settingsLang)}</h2>
-                  <div className="task-summary-grid">
-                    <div className="summary-card"><strong>{totalTasks}</strong>{t('total', settingsLang)}</div>
-                    <div className="summary-card"><strong>{completedTasks}</strong>{t('completed', settingsLang)}</div>
-                    <div className="summary-card"><strong>{inProgressTasks}</strong>{t('inProgress', settingsLang)}</div>
-                    <div className="summary-card"><strong>{overdueTasks.length}</strong>{t('overdue', settingsLang)}</div>
-                    <div className="summary-card"><strong>{myTasks.length}</strong>{t('myTasks', settingsLang)}</div>
-                    <div className="summary-card"><strong>{members.length}</strong>{t('teamMembers', settingsLang)}</div>
-                  </div>
+                  <StatSummaryCards counts={statusCounts} myTasks={myTasks.length} teamMembers={members.length} />
                 </div>
               </div>
 
               <div className="dashboard-grid">
                 <div className="panel">
                   <h2>{t('progress', settingsLang)}</h2>
-                  {totalTasks > 0 ? (
-                    <div className="donut-chart">
-                      <svg viewBox="0 0 36 36" className="donut-svg">
-                        <path className="donut-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        <path className="donut-fill" strokeDasharray={`${completionPct}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                        <text x="18" y="20.5" className="donut-text">{completionPct}%</text>
-                      </svg>
-                    </div>
-                  ) : <p className="empty-column">{t('noTasks', settingsLang)}</p>}
-                  <div className="bar-chart" style={{ marginTop: 10 }}>
-                    {[
-                      { label: 'TODO', value: todoTasks, pct: totalTasks > 0 ? (todoTasks / totalTasks) * 100 : 0, color: '#64748b' },
-                      { label: 'IN PROGRESS', value: inProgressTasks, pct: totalTasks > 0 ? (inProgressTasks / totalTasks) * 100 : 0, color: '#38bdf8' },
-                      { label: 'COMPLETED', value: completedTasks, pct: totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0, color: '#34d399' },
-                      { label: 'OVERDUE', value: overdueTasks.length, pct: totalTasks > 0 ? (overdueTasks.length / totalTasks) * 100 : 0, color: '#f87171' },
-                    ].map(bar => (
-                      <div key={bar.label} className="bar-row" style={{ marginBottom: 4 }}>
-                        <span className="bar-label" style={{ width: 80 }}>{bar.label}</span>
-                        <div className="bar-track"><div className="bar-fill" style={{ width: `${bar.pct}%`, background: bar.color }} /></div>
-                        <span className="bar-value">{bar.value}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <StatusDoughnutChart counts={statusCounts} />
                 </div>
+                <div className="panel">
+                  <h2>Completed this week</h2>
+                  <CompletionTrendChart data={trendData} />
+                </div>
+              </div>
 
+              <div className="dashboard-grid">
                 <div className="panel">
                   <h2>{t('recentTasks', settingsLang)}</h2>
                   {tasks.slice(0, 5).map(tk => (
@@ -545,10 +544,8 @@ export default function DashboardApp() {
                   ))}
                   {tasks.length === 0 && <p className="empty-column">{t('noTasks', settingsLang)}</p>}
                 </div>
-              </div>
 
-              <div className="dashboard-grid">
-                <div className="panel full-width">
+                <div className="panel">
                   <h2>{t('deadlines', settingsLang)}</h2>
                   {upcomingDeadlines.map(tk => (
                     <div key={tk.id} className="recent-task-item">
@@ -557,6 +554,29 @@ export default function DashboardApp() {
                     </div>
                   ))}
                   {upcomingDeadlines.length === 0 && <p className="empty-column">{t('noTasks', settingsLang)}</p>}
+                </div>
+              </div>
+
+              <div className="dashboard-grid">
+                <div className="panel">
+                  <h2>Team activity</h2>
+                  {activityLog.slice(0, 5).map(entry => (
+                    <div key={entry.id} className="recent-task-item">
+                      <strong>{entry.action}</strong>
+                      <span>{entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}</span>
+                    </div>
+                  ))}
+                  {activityLog.length === 0 && <p className="empty-column">No activity yet</p>}
+                </div>
+                <div className="panel">
+                  <h2>Recent projects</h2>
+                  {workspaces.slice(0, 5).map(ws => (
+                    <div key={ws.id} className="recent-task-item">
+                      <strong>{ws.name}</strong>
+                      <span>{ws.description || ''}</span>
+                    </div>
+                  ))}
+                  {workspaces.length === 0 && <p className="empty-column">No workspaces yet</p>}
                 </div>
               </div>
             </>
@@ -597,7 +617,7 @@ export default function DashboardApp() {
                       <select value={tk.status} onChange={e => handleMoveTask(tk.id, e.target.value)}>
                         {statusColumns.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                       </select>
-                      <button className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}>{'✖'}</button>
+                      <button className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}><X size={13} /></button>
                     </div>
                   </div>
                 ))}
@@ -636,7 +656,7 @@ export default function DashboardApp() {
                               <button key={ns} type="button" className="mini-btn" style={{ background: '#1c1f30', color: '#94a3b8' }}
                                 onClick={() => handleMoveTask(tk.id, ns)}>{ns.replace('_', ' ')}</button>
                             ))}
-                            <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}>{'✖'}</button>
+                            <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}><X size={13} /></button>
                           </div>
                         </div>
                       ))}
@@ -649,40 +669,7 @@ export default function DashboardApp() {
           {navPage === 'calendar' && (
             <div className="panel full-width">
               <h2>Calendar</h2>
-              <div className="cal-nav">
-                <button className="mini-btn" onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(calYear - 1) } else setCalMonth(calMonth - 1) }}>{'◀'}</button>
-                <strong>{MONTHS[calMonth]} {calYear}</strong>
-                <button className="mini-btn" onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(calYear + 1) } else setCalMonth(calMonth + 1) }}>{'▶'}</button>
-              </div>
-              <div className="cal-grid">
-                {DAYS.map(d => <div key={d} className="cal-header">{d}</div>)}
-                {Array.from({ length: firstDay }, (_, i) => <div key={`empty-${i}`} className="cal-day empty" />)}
-                {calDays.map(d => {
-                  const date = new Date(calYear, calMonth, d)
-                  const key = date.toDateString()
-                  const dayTasks = tasksByDate[key] || []
-                  const isToday = date.toDateString() === new Date().toDateString()
-                  return (
-                    <div key={d} className={`cal-day ${isToday ? 'today' : ''} ${dayTasks.length > 0 ? 'has-tasks' : ''}`}
-                      onClick={() => setCalDayTasks(calDayTasks && calDayTasks[0]?.dueDate && new Date(calDayTasks[0].dueDate!).toDateString() === key ? null : dayTasks)}>
-                      <span>{d}</span>
-                      {dayTasks.length > 0 && <span className="cal-dot">{dayTasks.length}</span>}
-                    </div>
-                  )
-                })}
-              </div>
-              {calDayTasks && calDayTasks.length > 0 && (
-                <div style={{ marginTop: 12 }}>
-                  <h3>Tasks for {calDayTasks[0].dueDate ? new Date(calDayTasks[0].dueDate!).toLocaleDateString() : ''}</h3>
-                  {calDayTasks.map(tk => (
-                    <div key={tk.id} className="recent-task-item">
-                      <strong>{tk.title}</strong>
-                      <span className={`priority-badge ${tk.priority.toLowerCase()}`}>{tk.priority}</span>
-                      <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <TaskCalendar tasks={tasks} onTaskClick={id => setSelectedTask(tasks.find(tk => tk.id === id) || null)} />
             </div>
           )}
 
@@ -712,7 +699,7 @@ export default function DashboardApp() {
                           <select value={m.role} onChange={e => handleUpdateMemberRole(m.id, e.target.value)} style={{ fontSize: '0.75rem' }}>
                             {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
-                          <button type="button" className="mini-btn danger-btn" onClick={() => handleRemoveMember(m.id)}>{'✖'}</button>
+                          <button type="button" className="mini-btn danger-btn" onClick={() => handleRemoveMember(m.id)}><X size={13} /></button>
                         </div>
                       ) : (
                         <span className={`role-badge ${m.role.toLowerCase()}`}>{m.role}</span>
@@ -723,7 +710,7 @@ export default function DashboardApp() {
               </div>
 
               <div className="panel">
-                <h2>{t('invite', settingsLang)}</h2>
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><UserPlus size={16} strokeWidth={1.8} />{t('invite', settingsLang)}</h2>
                 <form className="stack-form" onSubmit={handleInviteMember}>
                   <input type="email" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} placeholder="colleague@company.com" required />
                   <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}>
@@ -741,7 +728,10 @@ export default function DashboardApp() {
                       {workspaceInvitations.filter(i => i.status === 'PENDING').map(inv => (
                         <div key={inv.id} className="invite-item">
                           <span>{inv.email} <span className="role-badge member">{inv.role || 'MEMBER'}</span></span>
-                          <button type="button" className="mini-btn danger-btn" onClick={() => handleCancelInvitation(inv.id)}>Cancel</button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button type="button" className="mini-btn" onClick={() => handleResendInvitation(inv.id)}>Resend</button>
+                            <button type="button" className="mini-btn danger-btn" onClick={() => handleCancelInvitation(inv.id)}>Cancel</button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -755,47 +745,22 @@ export default function DashboardApp() {
             <div className="dashboard-grid">
               <div className="panel full-width">
                 <h2>Progress overview {reportsSummary && <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 400 }}>(all workspaces)</span>}</h2>
-                <div className="task-summary-grid">
-                  <div className="summary-card"><strong>{reportsSummary?.total ?? totalTasks}</strong>Total tasks</div>
-                  <div className="summary-card"><strong>{reportsSummary?.completed ?? completedTasks}</strong>Completed</div>
-                  <div className="summary-card"><strong>{reportsSummary?.inProgress ?? inProgressTasks}</strong>In progress</div>
-                  <div className="summary-card"><strong>{reviewTasks}</strong>In review</div>
-                  <div className="summary-card"><strong>{todoTasks}</strong>To do</div>
-                  <div className="summary-card"><strong>{reportsSummary?.overdue ?? overdueTasks.length}</strong>Overdue</div>
-                </div>
+                <StatSummaryCards counts={reportStatusCounts} />
               </div>
 
               <div className="panel">
                 <h2>Completion rate</h2>
-                {totalTasks > 0 ? (
-                  <div className="donut-chart">
-                    <svg viewBox="0 0 36 36" className="donut-svg">
-                      <path className="donut-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                      <path className="donut-fill" strokeDasharray={`${completionPct}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                      <text x="18" y="20.5" className="donut-text">{completionPct}%</text>
-                    </svg>
-                  </div>
-                ) : <p className="empty-column">No data</p>}
+                <StatusDoughnutChart counts={reportStatusCounts} />
               </div>
 
               <div className="panel">
                 <h2>Tasks by status</h2>
-                {totalTasks > 0 ? (
-                  <div className="bar-chart">
-                    {[
-                      { label: 'TODO', value: todoTasks, pct: totalTasks > 0 ? (todoTasks / totalTasks) * 100 : 0, color: '#64748b' },
-                      { label: 'IN PROGRESS', value: inProgressTasks, pct: totalTasks > 0 ? (inProgressTasks / totalTasks) * 100 : 0, color: '#38bdf8' },
-                      { label: 'REVIEW', value: reviewTasks, pct: totalTasks > 0 ? (reviewTasks / totalTasks) * 100 : 0, color: '#fbbf24' },
-                      { label: 'COMPLETED', value: completedTasks, pct: totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0, color: '#34d399' },
-                    ].map(bar => (
-                      <div key={bar.label} className="bar-row">
-                        <span className="bar-label">{bar.label}</span>
-                        <div className="bar-track"><div className="bar-fill" style={{ width: `${bar.pct}%`, background: bar.color }} /></div>
-                        <span className="bar-value">{bar.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : <p className="empty-column">No data</p>}
+                <StatusBarChart counts={{ ...reportStatusCounts, review: reviewTasks }} />
+              </div>
+
+              <div className="panel full-width">
+                <h2>Completed this week</h2>
+                <CompletionTrendChart data={trendData} />
               </div>
             </div>
           )}
@@ -892,6 +857,21 @@ export default function DashboardApp() {
               </div>
 
               <div className="panel">
+                <h2>Notification preferences</h2>
+                <form className="stack-form" onSubmit={handleSaveSettings}>
+                  <label className="remember-row">
+                    <input type="checkbox" checked={taskNotificationsEnabled} onChange={e => setTaskNotificationsEnabled(e.target.checked)} />
+                    <span>Notify me about task assignments and updates</span>
+                  </label>
+                  <label className="remember-row">
+                    <input type="checkbox" checked={emailNotificationsEnabled} onChange={e => setEmailNotificationsEnabled(e.target.checked)} />
+                    <span>Send me workspace invitation emails</span>
+                  </label>
+                  <button type="submit">Save notification settings</button>
+                </form>
+              </div>
+
+              <div className="panel">
                 <h2>Change password</h2>
                 <form className="stack-form" onSubmit={handleChangePassword}>
                   <input type="password" required placeholder="Current password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
@@ -922,6 +902,23 @@ export default function DashboardApp() {
           )}
         </div>
       </div>
+
+      {selectedTask && (
+        <Modal title={selectedTask.title} onClose={() => setSelectedTask(null)}>
+          {selectedTask.description && <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: 0 }}>{selectedTask.description}</p>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <span className={`priority-badge ${selectedTask.priority.toLowerCase()}`}>{selectedTask.priority}</span>
+            <span className={`status-badge ${selectedTask.status.toLowerCase()}`}>{selectedTask.status.replace('_', ' ')}</span>
+          </div>
+          {selectedTask.dueDate && <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Due {new Date(selectedTask.dueDate).toLocaleString()}</p>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+            <select value={selectedTask.status} onChange={e => { handleMoveTask(selectedTask.id, e.target.value); setSelectedTask({ ...selectedTask, status: e.target.value }) }}>
+              {statusColumns.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+            <button type="button" className="mini-btn danger-btn" onClick={() => { handleDeleteTask(selectedTask.id); setSelectedTask(null) }}>Delete task</button>
+          </div>
+        </Modal>
+      )}
     </main>
   )
 }

@@ -19,6 +19,12 @@ model User {
   language      String   @default("en")
   fontStyle     String   @default("default")
   colorTheme    String   @default("purple")
+  taskNotificationsEnabled Boolean @default(true)
+  emailNotificationsEnabled Boolean @default(true)
+  emailVerified              Boolean   @default(false)
+  emailVerifiedAt            DateTime?
+  verificationToken          String?   @unique
+  verificationTokenExpiresAt DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

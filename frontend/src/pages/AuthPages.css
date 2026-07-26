@@ -61,6 +61,17 @@
   margin-bottom: 20px;
 }
 
+.verify-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(192, 132, 252, 0.15));
+  color: var(--tm-accent);
+}
+
 .glass-card h1 {
   text-align: center;
   font-size: 1.5rem;
@@ -155,6 +166,24 @@
 }
 
 .password-toggle:hover { color: var(--tm-text); }
+.password-toggle { display: flex; align-items: center; }
+
+.remember-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--tm-text-muted);
+  margin: 2px 0 18px;
+  cursor: pointer;
+}
+
+.remember-row input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--tm-accent);
+  cursor: pointer;
+}
 
 .strength-meter {
   display: flex;

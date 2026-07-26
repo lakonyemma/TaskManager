@@ -25,7 +25,7 @@ The authenticated dashboard additionally supports 9 user-selectable accent theme
 
 **There is exactly one backend entrypoint and one route structure** — `src/server.ts` mounts feature-scoped routers from `src/features/*/`:
 
-- `features/auth` → `/api/auth` (register, login, refresh, logout, logout-all, sessions, me)
+- `features/auth` → `/api/auth` (register, login, refresh, logout, logout-all, sessions, me, email verification)
 - `features/workspaces` → `/api/workspaces` (CRUD, members, member role update/remove)
 - `features/tasks` → `/api/tasks`
 - `features/notifications` → `/api/notifications`
@@ -39,7 +39,14 @@ No legacy `app.ts` / `controllers/` / `routes/` directory exists — if you see 
 **Frontend routing**: `<BrowserRouter>` in `main.tsx`, routes defined in `App.tsx`:
 - `/` → `pages/LandingPage.tsx` (marketing page, public)
 - `/login`, `/register` → `pages/LoginPage.tsx` / `RegisterPage.tsx` (public; redirect to `/app` if already authenticated)
-- `/app/*` → `pages/DashboardApp.tsx`, wrapped in `components/ProtectedRoute.tsx` (redirects to `/login` if unauthenticated)
+- `/verify-email` → `pages/VerifyEmailPage.tsx` (public; reads `?token=`)
+- `/app/*` → `pages/DashboardApp.tsx` (lazy-loaded to keep Recharts/FullCalendar out of the public bundle), wrapped in `components/ProtectedRoute.tsx` (redirects to `/login` if unauthenticated)
+
+**Email verification**: registration no longer issues a session — `POST /api/auth/register` creates the user with `emailVerified: false`, emails a verification link, and returns just a confirmation message. `POST /api/auth/login` 403s with `{ emailNotVerified: true }` until `GET /api/auth/verify-email/:token` is hit. `POST /api/auth/resend-verification` reissues the token (generic response either way, so it can't be used to enumerate accounts). The `verifyEmail` handler is deliberately idempotent — it does NOT null the token after use — because a single "consume-once" GET breaks under React StrictMode's double-effect-invocation in dev and under corporate email scanners that prefetch links; repeat hits just no-op into "already verified". Pre-existing users (from before this feature) were backfilled as verified via the migration, not locked out.
+
+A workspace invite accepted during registration can't be redeemed until the account is verified and logs in (no session exists yet at registration time) — the invite token is stashed via `setPendingInvite()`/`getPendingInvite()` in `lib/api.ts` and redeemed inside `AuthContext.login()` after a successful sign-in.
+
+**Mobile navigation**: below 900px the sidebar becomes a fixed-position slide-in drawer (`.sidebar.open`, driven by `mobileNavOpen` state in `DashboardApp.tsx`), toggled by a hamburger button (`.mobile-menu-btn`) in the topbar, with a `.mobile-nav-backdrop` that closes it on tap. It mirrors the desktop sidebar exactly (same nav items/order) — no separate bottom-nav pattern.
 
 Auth state lives in `context/AuthContext.tsx` (`AuthProvider` + the `AuthContext` object in `context/auth-context.ts`, consumed via `hooks/useAuth.ts` — split into separate files so `react-refresh/only-export-components` stays happy). `lib/api.ts` holds the token storage helpers and `authFetch`, which auto-refreshes the access token once on a 401 and throws `SessionExpiredError` if the refresh token itself is invalid/revoked.
 

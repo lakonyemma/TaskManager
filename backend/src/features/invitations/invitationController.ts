@@ -102,8 +102,11 @@ export const inviteByEmail = async (req: Request, res: Response) => {
             workspaceId,
         });
 
-        // Log the invitation email (console-only until email provider is configured)
-        await sendInvitationEmail(email, workspace.name, token);
+        // Skip sending if the recipient already has an account and has opted out
+        // of email notifications; they still get the in-app notification above.
+        if (!invitedUser || invitedUser.emailNotificationsEnabled) {
+            await sendInvitationEmail(email, workspace.name, token);
+        }
 
         return res.status(201).json({
             message: `Invitation sent to ${email}`,
@@ -256,6 +259,67 @@ export const cancelInvitation = async (req: Request, res: Response) => {
         });
 
         return res.status(200).json({ message: "Invitation cancelled" });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+export const resendInvitation = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const idParam = req.params.id;
+        const id = Array.isArray(idParam) ? idParam[0] : idParam;
+        if (!id) {
+            return res.status(400).json({ message: "Invitation id is required" });
+        }
+
+        const invitation = await prisma.workspaceInvitation.findUnique({
+            where: { id },
+            include: { workspace: { select: { name: true } } },
+        });
+        if (!invitation) {
+            return res.status(404).json({ message: "Invitation not found" });
+        }
+
+        // Verify the caller is an OWNER/ADMIN of the workspace
+        const membership = await prisma.workspaceMember.findUnique({
+            where: { userId_workspaceId: { userId: authUser.id, workspaceId: invitation.workspaceId } },
+        });
+        if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) {
+            return res.status(403).json({ message: "Only workspace owners and admins can resend invitations" });
+        }
+
+        if (invitation.status !== "PENDING" && invitation.status !== "EXPIRED") {
+            return res.status(400).json({ message: `Invitation is already ${invitation.status.toLowerCase()}` });
+        }
+
+        // Issue a fresh single-use token and expiry — the old link stops working.
+        const token = crypto.randomUUID();
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7);
+
+        await prisma.workspaceInvitation.update({
+            where: { id },
+            data: { token, expiresAt, status: "PENDING" },
+        });
+
+        await createActivityLog({
+            userId: authUser.id,
+            action: `Resent invitation to ${invitation.email}`,
+            workspaceId: invitation.workspaceId,
+        });
+
+        const recipient = await prisma.user.findUnique({ where: { email: invitation.email } });
+        if (!recipient || recipient.emailNotificationsEnabled) {
+            await sendInvitationEmail(invitation.email, invitation.workspace.name, token);
+        }
+
+        return res.status(200).json({ message: `Invitation resent to ${invitation.email}` });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });

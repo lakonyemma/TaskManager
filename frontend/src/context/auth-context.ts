@@ -10,6 +10,8 @@ export type UserSession = {
   language?: string
   fontStyle?: string
   colorTheme?: string
+  taskNotificationsEnabled?: boolean
+  emailNotificationsEnabled?: boolean
 }
 
 export type AuthContextValue = {
@@ -18,8 +20,8 @@ export type AuthContextValue = {
   sessionNotice: string
   setSessionNotice: (msg: string) => void
   setUser: (user: UserSession) => void
-  login: (email: string, password: string) => Promise<UserSession>
-  register: (data: { firstname: string; lastName: string; email: string; password: string }) => Promise<UserSession>
+  login: (email: string, password: string, remember?: boolean) => Promise<UserSession>
+  register: (data: { firstname: string; lastName: string; email: string; password: string }) => Promise<{ message: string; email: string }>
   logout: () => Promise<void>
 }
 

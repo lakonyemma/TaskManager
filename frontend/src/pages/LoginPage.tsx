@@ -1,6 +1,8 @@
 import { type FormEvent, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { EmailNotVerifiedError, jsonHeaders } from '../lib/api'
 import './AuthPages.css'
 
 export default function LoginPage() {
@@ -10,8 +12,11 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [remember, setRemember] = useState(true)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [needsVerification, setNeedsVerification] = useState(false)
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle')
 
   if (user) {
     const redirectTo = (location.state as { from?: string } | null)?.from || '/app'
@@ -20,14 +25,28 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    setError(''); setLoading(true)
+    setError(''); setNeedsVerification(false); setLoading(true)
     try {
-      await login(email, password)
+      await login(email, password, remember)
       navigate('/app')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to sign in')
+      if (err instanceof EmailNotVerifiedError) {
+        setError(err.message)
+        setNeedsVerification(true)
+      } else {
+        setError(err instanceof Error ? err.message : 'Unable to sign in')
+      }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setResendState('sending')
+    try {
+      await fetch('/api/auth/resend-verification', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ email }) })
+    } finally {
+      setResendState('sent')
     }
   }
 
@@ -50,11 +69,15 @@ export default function LoginPage() {
             <div className="password-field-wrap">
               <input id="login-password" type={showPassword ? 'text' : 'password'} required autoComplete="current-password"
                 value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
-              <button type="button" className="password-toggle" onClick={() => setShowPassword(v => !v)}>
-                {showPassword ? 'Hide' : 'Show'}
+              <button type="button" className="password-toggle" onClick={() => setShowPassword(v => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
           </div>
+          <label className="remember-row">
+            <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
+            <span>Remember me on this device</span>
+          </label>
           <button type="submit" className="submit-btn" disabled={loading}>
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
@@ -62,6 +85,13 @@ export default function LoginPage() {
 
         {sessionNotice && <p className="auth-notice">{sessionNotice}</p>}
         {error && <p className="auth-error">{error}</p>}
+        {needsVerification && (
+          <button type="button" className="submit-btn" style={{ marginTop: 10 }} disabled={resendState !== 'idle'} onClick={handleResend}>
+            {resendState === 'idle' && 'Resend verification email'}
+            {resendState === 'sending' && 'Sending…'}
+            {resendState === 'sent' && 'Email sent — check your inbox'}
+          </button>
+        )}
 
         <p className="auth-switch">
           Don't have an account?

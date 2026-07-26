@@ -1,7 +1,8 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { Eye, EyeOff, MailCheck } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { authFetch } from '../lib/api'
+import { jsonHeaders, setPendingInvite } from '../lib/api'
 import './AuthPages.css'
 
 const STRENGTH_LABELS = ['Weak', 'Weak', 'Fair', 'Good', 'Strong']
@@ -19,7 +20,6 @@ function passwordStrength(password: string): number {
 
 export default function RegisterPage() {
   const { user, register } = useAuth()
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const inviteToken = searchParams.get('invite')
 
@@ -32,6 +32,8 @@ export default function RegisterPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [inviteInfo, setInviteInfo] = useState<{ workspaceName: string } | null>(null)
+  const [registeredEmail, setRegisteredEmail] = useState('')
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle')
 
   useEffect(() => {
     if (!inviteToken) return
@@ -61,16 +63,51 @@ export default function RegisterPage() {
     }
     setLoading(true)
     try {
-      await register({ firstname, lastName, email, password })
-      if (inviteToken) {
-        try { await authFetch(`/api/invitations/${inviteToken}/accept`, { method: 'POST' }) } catch { /* invite may have expired between preview and accept */ }
-      }
-      navigate('/app')
+      const result = await register({ firstname, lastName, email, password })
+      // The invite can't be redeemed until this account is verified and
+      // signed in — stash it so login() can finish the job afterwards.
+      if (inviteToken) setPendingInvite(inviteToken)
+      setRegisteredEmail(result.email)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to create account')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleResend = async () => {
+    setResendState('sending')
+    try {
+      await fetch('/api/auth/resend-verification', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ email: registeredEmail }) })
+    } finally {
+      setResendState('sent')
+    }
+  }
+
+  if (registeredEmail) {
+    return (
+      <div className="auth-bg">
+        <Link to="/" className="back-to-landing">&larr; Back to Taskly</Link>
+        <div className="glass-card">
+          <p className="glass-logo">Taskly</p>
+          <div className="verify-icon"><MailCheck size={28} /></div>
+          <h1>Check your email</h1>
+          <p className="glass-subtitle">
+            We've sent a verification link to <strong>{registeredEmail}</strong>. Click it to activate your
+            account, then come back and sign in.
+          </p>
+          <button type="button" className="submit-btn" disabled={resendState !== 'idle'} onClick={handleResend}>
+            {resendState === 'idle' && 'Resend verification email'}
+            {resendState === 'sending' && 'Sending…'}
+            {resendState === 'sent' && 'Email sent — check your inbox'}
+          </button>
+          <p className="auth-switch">
+            Already verified?
+            <Link to="/login">Sign in</Link>
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -110,8 +147,8 @@ export default function RegisterPage() {
             <div className="password-field-wrap">
               <input id="reg-password" type={showPassword ? 'text' : 'password'} required autoComplete="new-password"
                 value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" />
-              <button type="button" className="password-toggle" onClick={() => setShowPassword(v => !v)}>
-                {showPassword ? 'Hide' : 'Show'}
+              <button type="button" className="password-toggle" onClick={() => setShowPassword(v => !v)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
             {password.length > 0 && (

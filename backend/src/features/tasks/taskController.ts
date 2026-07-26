@@ -2,6 +2,12 @@ import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
 
+const notifyAssignee = async (data: { userId: string; workspaceId: string; taskId?: string; type: "TASK_ASSIGNED" | "TASK_UPDATED" | "TASK_DELETED"; message: string }) => {
+    const assignee = await prisma.user.findUnique({ where: { id: data.userId }, select: { taskNotificationsEnabled: true } });
+    if (!assignee?.taskNotificationsEnabled) return;
+    await prisma.notification.create({ data });
+};
+
 export const listTasks = async (req: Request, res: Response) => {
     try {
         const authUser = (req as Request & { user?: { id: string; email: string } }).user;
@@ -68,14 +74,12 @@ export const createTask = async (req: Request, res: Response) => {
         await createActivityLog({ userId: authUser.id, action: `Created task ${task.title}`, workspaceId, taskId: task.id });
 
         if (task.assignedToId && task.assignedToId !== authUser.id) {
-            await prisma.notification.create({
-                data: {
-                    userId: task.assignedToId,
-                    workspaceId,
-                    taskId: task.id,
-                    type: "TASK_ASSIGNED",
-                    message: `You were assigned to the task "${task.title}"`,
-                },
+            await notifyAssignee({
+                userId: task.assignedToId,
+                workspaceId,
+                taskId: task.id,
+                type: "TASK_ASSIGNED",
+                message: `You were assigned to the task "${task.title}"`,
             });
         }
 
@@ -123,16 +127,14 @@ export const updateTask = async (req: Request, res: Response) => {
         const newAssigneeId = task.assignedToId;
         if (newAssigneeId && newAssigneeId !== authUser.id) {
             const reassigned = newAssigneeId !== existingTask.assignedToId;
-            await prisma.notification.create({
-                data: {
-                    userId: newAssigneeId,
-                    workspaceId: task.workspaceId,
-                    taskId: task.id,
-                    type: reassigned ? "TASK_ASSIGNED" : "TASK_UPDATED",
-                    message: reassigned
-                        ? `You were assigned to the task "${task.title}"`
-                        : `The task "${task.title}" was updated`,
-                },
+            await notifyAssignee({
+                userId: newAssigneeId,
+                workspaceId: task.workspaceId,
+                taskId: task.id,
+                type: reassigned ? "TASK_ASSIGNED" : "TASK_UPDATED",
+                message: reassigned
+                    ? `You were assigned to the task "${task.title}"`
+                    : `The task "${task.title}" was updated`,
             });
         }
 
@@ -161,13 +163,11 @@ export const deleteTask = async (req: Request, res: Response) => {
         await createActivityLog({ userId: authUser.id, action: `Deleted task ${task.title}`, workspaceId: task.workspaceId });
 
         if (task.assignedToId && task.assignedToId !== authUser.id) {
-            await prisma.notification.create({
-                data: {
-                    userId: task.assignedToId,
-                    workspaceId: task.workspaceId,
-                    type: "TASK_DELETED",
-                    message: `The task "${task.title}" was deleted`,
-                },
+            await notifyAssignee({
+                userId: task.assignedToId,
+                workspaceId: task.workspaceId,
+                type: "TASK_DELETED",
+                message: `The task "${task.title}" was deleted`,
             });
         }
 
