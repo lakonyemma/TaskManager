@@ -17,8 +17,8 @@ export const inviteByEmail = async (req: Request, res: Response) => {
         }
 
         const inviteRole = role || "MEMBER";
-        if (!["MEMBER", "ADMIN"].includes(inviteRole)) {
-            return res.status(400).json({ message: "Role must be MEMBER or ADMIN" });
+        if (!["MEMBER", "MANAGER", "ADMIN"].includes(inviteRole)) {
+            return res.status(400).json({ message: "Role must be MEMBER, MANAGER, or ADMIN" });
         }
 
         // Check the inviter is an OWNER or ADMIN of the workspace
@@ -68,7 +68,7 @@ export const inviteByEmail = async (req: Request, res: Response) => {
                     expiresAt,
                     status: "PENDING",
                     invitedById: authUser.id,
-                    role: inviteRole as "MEMBER" | "ADMIN",
+                    role: inviteRole as "MEMBER" | "MANAGER" | "ADMIN",
                 },
             });
         } else {
@@ -79,7 +79,7 @@ export const inviteByEmail = async (req: Request, res: Response) => {
                     invitedById: authUser.id,
                     token,
                     expiresAt,
-                    role: inviteRole as "MEMBER" | "ADMIN",
+                    role: inviteRole as "MEMBER" | "MANAGER" | "ADMIN",
                 },
             });
         }
@@ -289,6 +289,36 @@ export const listWorkspaceInvitations = async (req: Request, res: Response) => {
         });
 
         return res.status(200).json({ invitations });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+// Public (no auth) preview so the registration page can prefill the invited
+// email and show which workspace the invite is for, without leaking any
+// other invitation data.
+export const previewInvitation = async (req: Request, res: Response) => {
+    try {
+        const tokenParam = req.params.token;
+        const token = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam;
+        if (!token) {
+            return res.status(400).json({ message: "Invitation token is required" });
+        }
+
+        const invitation = await prisma.workspaceInvitation.findUnique({
+            where: { token },
+            include: { workspace: { select: { name: true } } },
+        });
+        if (!invitation || invitation.status !== "PENDING" || invitation.expiresAt < new Date()) {
+            return res.status(404).json({ message: "Invitation not found or no longer valid" });
+        }
+
+        return res.status(200).json({
+            email: invitation.email,
+            workspaceName: invitation.workspace.name,
+            role: invitation.role,
+        });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });

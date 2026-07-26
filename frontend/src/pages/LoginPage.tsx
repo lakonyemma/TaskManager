@@ -1,0 +1,73 @@
+import { type FormEvent, useState } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
+import './AuthPages.css'
+
+export default function LoginPage() {
+  const { user, login, sessionNotice } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  if (user) {
+    const redirectTo = (location.state as { from?: string } | null)?.from || '/app'
+    return <Navigate to={redirectTo} replace />
+  }
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError(''); setLoading(true)
+    try {
+      await login(email, password)
+      navigate('/app')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to sign in')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="auth-bg">
+      <Link to="/" className="back-to-landing">&larr; Back to Taskly</Link>
+      <div className="glass-card">
+        <p className="glass-logo">Taskly</p>
+        <h1>Welcome back</h1>
+        <p className="glass-subtitle">Sign in to continue organizing your team's work.</p>
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-field">
+            <label htmlFor="login-email">Email</label>
+            <input id="login-email" type="email" required autoComplete="email"
+              value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" />
+          </div>
+          <div className="form-field">
+            <label htmlFor="login-password">Password</label>
+            <div className="password-field-wrap">
+              <input id="login-password" type={showPassword ? 'text' : 'password'} required autoComplete="current-password"
+                value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
+              <button type="button" className="password-toggle" onClick={() => setShowPassword(v => !v)}>
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </div>
+          <button type="submit" className="submit-btn" disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign In'}
+          </button>
+        </form>
+
+        {sessionNotice && <p className="auth-notice">{sessionNotice}</p>}
+        {error && <p className="auth-error">{error}</p>}
+
+        <p className="auth-switch">
+          Don't have an account?
+          <Link to="/register">Create one</Link>
+        </p>
+      </div>
+    </div>
+  )
+}

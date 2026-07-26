@@ -4,94 +4,74 @@ This file provides guidance to Bwat when working with code in this repository.
 
 ## Tech Stack
 
-- **Backend**: Express.js + TypeScript (NodeNext modules), Prisma ORM + PostgreSQL, JWT auth (bcryptjs + jsonwebtoken)
-- **Frontend**: React 19 + TypeScript, Vite 8, React Router v7, Redux Toolkit
-- **Validation**: Zod (backend)
-- **No Tailwind CSS** — frontend uses plain CSS (no design system framework installed)
+- **Backend**: Express.js + TypeScript (NodeNext modules), Prisma ORM + PostgreSQL, JWT auth (bcrypt), Resend for email
+- **Frontend**: React 19 + TypeScript, Vite 8, React Router v7 (actually wired up via `<BrowserRouter>`)
+- **No Tailwind CSS, no Redux** — frontend uses plain CSS and local component state / React Context only
+- **No Zod** — controllers do manual field validation
 
 ## Brand Identity
 
-**Colors** (taken from frontend/src/index.css CSS custom properties):
-- Primary / accent: `#aa3bff` (light mode), `#c084fc` (dark mode)
-- Text: `#6b6375` light / `#9ca3af` dark
-- Text (headings): `#08060d` light / `#f3f4f6` dark
-- Background: `#fff` light / `#16171d` dark
-- Border: `#e5e4e7` light / `#2e303a` dark
-- Code bg: `#f4f3ec` light / `#1f2028` dark
-- Shadow: `rgba(0,0,0,0.1) 0 10px 15px -3px, rgba(0,0,0,0.05) 0 4px 6px -2px` light / `rgba(0,0,0,0.4)` dark
+Single design-token source: `frontend/src/styles/brand.css`.
 
-**Secondary slate palette** (from App.css):
-- Button/accent: `#38bdf8` (sky blue)
-- Card/panel bg: `rgba(15, 23, 42, 0.92)` / `#1e293b` / `#020617` (dark slate tones)
-- Dashboard bg gradient: `linear-gradient(135deg, #020617, #111827)`
-- Auth bg gradient: `linear-gradient(135deg, #0f172a, #1e293b)`
+- `--tm-bg: #060B23` (page background)
+- `--tm-bg-soft: #0c1130` (panels/sidebar)
+- `--tm-primary: #8B5CF6`, `--tm-secondary: #A855F7`, `--tm-accent: #C084FC`
+- `--tm-card: rgba(255,255,255,0.05)`, `--tm-card-border: rgba(255,255,255,0.1)`
+- Typography: `system-ui, 'Segoe UI', Roboto, sans-serif`
 
-**Typography**:
-- Body/UI: `system-ui, 'Segoe UI', Roboto, sans-serif` (`--sans`)
-- Headings: same as body (`--heading`)
-- Monospace: `ui-monospace, Consolas, monospace` (`--mono`)
-- Base font: 18px/145% (16px on screens <1024px)
-- Heading font-weight: 500
+The authenticated dashboard additionally supports 9 user-selectable accent themes and 9 fonts (`[data-theme]` / `[data-font]` attributes on `<html>`, persisted per-user as `User.colorTheme` / `User.fontStyle`) — this is a personalization layer on top of the base brand palette, not a replacement for it.
 
-**Geometry**:
-- Border radius (cards): 20px (auth-card, panel, kanban-column)
-- Border radius (inputs/buttons): 10px
-- Border radius (task cards): 12px
-- Border radius (code): 4px
-- Spacing scale: default CSS spacing (no custom scale)
-- Box shadow: `0 20px 45px rgba(2, 6, 23, 0.35)` on cards
+## Architecture
 
-**Visual language**: Dark-themed, high-contrast UI with subtle gradients, generous border radius, purple accent, and transparent/semi-transparent surface overlays. Auth and dashboard use distinct gradient backgrounds. Border treatment uses thin semi-transparent borders on dark surfaces.
+**There is exactly one backend entrypoint and one route structure** — `src/server.ts` mounts feature-scoped routers from `src/features/*/`:
 
-## Architecture Notes
+- `features/auth` → `/api/auth` (register, login, refresh, logout, logout-all, sessions, me)
+- `features/workspaces` → `/api/workspaces` (CRUD, members, member role update/remove)
+- `features/tasks` → `/api/tasks`
+- `features/notifications` → `/api/notifications`
+- `features/reports` → `/api/reports`
+- `features/invitations` → `/api/invitations` (includes a public `/preview/:token` for prefilling the register page)
+- `features/settings` → `/api/settings` (profile, password change)
+- `features/activity` → `/api/activity` (read-only activity feed)
 
-**Backend has TWO parallel server entrypoints and TWO parallel route structures** — this is the most important architectural fact to understand before editing:
+No legacy `app.ts` / `controllers/` / `routes/` directory exists — if you see references to those elsewhere (old docs, stale comments), they're wrong; ignore them.
 
-1. **Active/feature-based** (`src/server.ts` and `src/features/*/`): The running server. Uses Express 5 with feature-scoped route files (`features/tasks/taskRoutes.ts`, `features/auth/authRoutes.ts`, etc.) and matching feature-scoped controllers. All routes are behind `authenticate` middleware. The `src/utils/auth.ts` utility is used for JWT operations.
+**Frontend routing**: `<BrowserRouter>` in `main.tsx`, routes defined in `App.tsx`:
+- `/` → `pages/LandingPage.tsx` (marketing page, public)
+- `/login`, `/register` → `pages/LoginPage.tsx` / `RegisterPage.tsx` (public; redirect to `/app` if already authenticated)
+- `/app/*` → `pages/DashboardApp.tsx`, wrapped in `components/ProtectedRoute.tsx` (redirects to `/login` if unauthenticated)
 
-2. **Legacy/app-based** (`src/app.ts` and `src/controllers/`, `src/routes/`): An older Express app setup (`app.ts`) with `helmet`, `morgan`, and separate route/controller files under `controllers/` and `routes/`. The `src/config/prisma.ts` config and `routes/health.routes.ts` serve the legacy setup. This file (`app.ts`) is NOT imported by `server.ts`.
+Auth state lives in `context/AuthContext.tsx` (`AuthProvider` + the `AuthContext` object in `context/auth-context.ts`, consumed via `hooks/useAuth.ts` — split into separate files so `react-refresh/only-export-components` stays happy). `lib/api.ts` holds the token storage helpers and `authFetch`, which auto-refreshes the access token once on a 401 and throws `SessionExpiredError` if the refresh token itself is invalid/revoked.
 
-When making backend changes, modify the `src/features/*/` files unless you explicitly know the legacy path is what's in use. The `server.ts` imports:
-- `features/auth/authRoutes` → `/api/auth`
-- `features/workspaces/workspaceRoutes` → `/api/workspaces`
-- `features/tasks/taskRoutes` → `/api/tasks`
-- `features/comments/commentRoutes` → `/api/comments`
-- `features/notifications/notificationRoutes` → `/api/notifications`
-- `features/reports/reportRoutes` → `/api/reports`
-- `routes/activityRoutes` (legacy) → `/api/activity` (note: this is the only legacy route the active server still uses)
+**Sessions**: Refresh tokens are tracked server-side in the `Session` model (hashed token, user agent, IP, `revokedAt`). `/api/auth/refresh` checks the session hasn't been revoked, not just that the JWT verifies. This backs the Settings → "Active sessions" list, per-session revoke, and "log out of all devices".
 
-**Prisma**: Client is generated to `generated/prisma/` (custom output path), not the default `node_modules/.prisma/client`. Import from `../../generated/prisma/client.js`. The Prisma adapter `@prisma/adapter-pg` wraps the connection. Schema uses PostgreSQL.
+**Prisma**: Client generated to `generated/prisma/` (custom output path, configured in `prisma.config.ts`). Uses `@prisma/adapter-pg`. Shadow-database creation is blocked for the local `taskmanager` Postgres role (no CREATEDB), so schema changes are applied with `prisma db push --accept-data-loss` in this environment rather than `prisma migrate dev`.
 
-**JWT Auth**: `src/utils/auth.ts` — access tokens expire in 15min, refresh tokens in 7d. Tokens use a shared `JWT_SECRET` env var (falls back to `"development-secret"`). The `authenticate` middleware in `src/middleware/authMiddleware.ts` expects `Bearer <token>` in the `Authorization` header and attaches `req.user` with `{ id, email }`.
+**Email**: `src/utils/email.ts` uses Resend if `RESEND_API_KEY` is set, otherwise logs the invitation link to the console (dev fallback). Never hardcode the key — it's read from `.env` (`.env.example` documents all vars).
 
-**Activity logging**: Most mutating endpoints call `createActivityLog()` from `src/utils/activity.ts`, which inserts into the `ActivityLog` table. Always call this when adding new mutation endpoints.
-
-**Frontend router**: React Router v7 with `<BrowserRouter>`. `AppLayout` wraps authenticated routes (`/dashboard`, `/kanban`, `/reports`) with a nav bar. The root `/` route renders the monolithic `App.tsx` (which has its own auth, task management, kanban UI as a SPA-in-page — this is the primary UI). The separate feature pages under `features/` are stub pages for the layout-based routes.
-
-**Frontend Vite proxy**: `vite.config.ts` proxies `/api` requests to `http://localhost:5000` (the backend).
+**Activity logging**: Mutating endpoints call `createActivityLog()` from `src/utils/activity.ts`. `GET /api/activity` reads it back (workspace-scoped or all-of-current-user's-workspaces).
 
 ## Coding Conventions
 
-- **Backend TS import extensions**: All relative imports in backend `.ts` files use `.js` extension (e.g. `import prisma from "../../lib/prisma.js"`). This is required by NodeNext module resolution with `"type": "module"` in package.json. Do NOT use `.ts` extensions in imports.
-- **Auth pattern**: Controllers cast `req` as `Request & { user?: { id: string; email: string } }` to access the authenticated user. Always check `authUser` exists and return 401 if missing.
-- **Error handling**: Controllers use try/catch with `console.error(error)` and return `{ message: "Server error" }` with status 500. The `errorHandler` middleware in `shared/errorHandler.ts` is a catch-all fallback.
-- **Response shape**: Always return JSON objects (`{ message, ... }`) — never plain strings or arrays at the top level.
-- **Frontend**: Prefer plain CSS (no Tailwind or CSS-in-JS). Uses `App.css` for component styles and `index.css` for global/reset styles.
-- **Frontend TypeScript**: `verbatimModuleSyntax` is enabled — use `import type { ... }` for type-only imports. `noUnusedLocals` and `noUnusedParameters` are strict.
-- **Frontend state**: Redux Toolkit is installed but the main `App.tsx` uses local `useState` — decide per-feature whether to use Redux or local state.
+- **Backend TS import extensions**: relative imports use `.js` (NodeNext + `"type": "module"`). Do not use `.ts`.
+- **Auth pattern**: controllers cast `req` as `Request & { user?: { id: string; email: string } }`; always check it exists and 401 otherwise.
+- **Error handling**: try/catch, `console.error(error)`, `{ message: "Server error" }` + 500. `shared/errorHandler.ts` is the catch-all fallback.
+- **Response shape**: always a JSON object with a `message` and/or resource key — never a bare array/string.
+- **Frontend**: plain CSS only. `App.css` for the dashboard shell, `styles/brand.css` for shared tokens, per-page CSS files (`LandingPage.css`, `AuthPages.css`) colocated with their component.
+- **Frontend TypeScript**: `verbatimModuleSyntax` is on — use `import type { ... }` for type-only imports.
 
 ## Commands
 
 ```bash
 # Backend (cd backend)
-npm run dev          # tsx watch src/server.ts
-npm run build        # tsc
-npm run start        # node dist/server.js
+npm run dev              # tsx watch src/server.ts
+npm run build             # tsc
+npm run start              # node dist/server.js
 npm run prisma:generate    # prisma generate
-npm run prisma:migrate     # prisma migrate dev
+npm run prisma:migrate     # prisma migrate dev (requires CREATEDB on the db role for the shadow db)
 
 # Frontend (cd frontend)
-npm run dev          # vite dev server (port 5173)
+npm run dev          # vite dev server (port 5173, proxies /api to :5000)
 npm run build        # tsc -b && vite build
 npm run lint         # eslint
 npm run preview      # vite preview
@@ -99,12 +79,7 @@ npm run preview      # vite preview
 
 ## Gotchas
 
-- **Two server files exist side-by-side**: `src/server.ts` (active, feature-based) and `src/app.ts` (legacy, unused by the running server). Do not edit `app.ts` unless specifically asked — it is not wired into the running application.
-- **Two route structures**: `src/features/*/` (active) and `src/controllers/` + `src/routes/` (legacy). The active server imports `routes/activityRoutes.ts` from the legacy set for the `/api/activity` endpoint — this is the only crossover.
-- **Prisma output path is non-standard**: `generated/prisma/` instead of the default. Import from `../../generated/prisma/client.js`. The `prisma.config.ts` at the backend root defines the custom path.
-- **Prisma adapter**: Uses `@prisma/adapter-pg` with `PrismaPg` to wrap the connection string. The `PrismaClient` is initialized with `{ adapter }` in `src/lib/prisma.ts`.
-- **`install.cmd`** at the project root is an unrelated "Antigravity CLI" (agy) installer — it is NOT part of the TaskManager project and should not be modified or recommended unless the user explicitly asks about it.
-- **`test.js`** at the project root is an empty stub (`function fibonacci(n) {}`) — no tests are currently written.
-- **Frontend routes**: The monolithic `App.tsx` handles ALL task management UI at `/` with inline auth forms, workspace CRUD, kanban board, comments, and activity feed. The separate `features/` pages (DashboardPage, KanbanPage, ReportsPage) are stub screens rendered by the layout router — they are NOT the primary UI and have minimal content.
-- **Token refresh**: The `App.tsx` frontend has a `fetchJson` wrapper that attempts automatic token refresh on 401 responses using a refresh token. The backend does NOT have a `/api/auth/refresh` endpoint yet — refresh logic in the frontend calls it but it will 404.
-- **Backend `package.json`` uses Express 5** (`express: ^5.2.1`) — be aware of Express 5 API differences (e.g., async error handling, `req.params` may be an array).
+- **`install.cmd`** at the project root is an unrelated "Antigravity CLI" (agy) installer — not part of TaskManager, don't touch it.
+- **`test.js`** at the project root is an empty stub — no test suite exists yet.
+- **JWT_SECRET**: falls back to an insecure dev default with a console warning if unset. Must be set in any non-local environment.
+- **Avatar uploads**: the frontend Settings page can store a raw base64 data URL directly in `User.avatarUrl` (no file storage backend) — `express.json({ limit: '5mb' })` in `server.ts` accounts for this; don't shrink that limit without also fixing avatar upload to use real file storage.

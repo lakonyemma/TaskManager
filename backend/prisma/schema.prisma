@@ -27,6 +27,21 @@ model User {
   activityLogs     ActivityLog[]
   notifications    Notification[]
   workspaceInvitations WorkspaceInvitation[] @relation("InvitedBy")
+  sessions         Session[]
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  tokenHash    String   @unique
+  userAgent    String?
+  ipAddress    String?
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
+  expiresAt    DateTime
+  revokedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Workspace {
@@ -72,6 +87,7 @@ model Task {
   workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedTo  User?         @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
   activityLogs ActivityLog[]
+  notifications Notification[]
 }
 
 model ActivityLog {
@@ -101,6 +117,7 @@ model Notification {
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      Task?      @relation(fields: [taskId], references: [id], onDelete: SetNull)
 }
 
 model WorkspaceInvitation {
@@ -131,6 +148,7 @@ enum InvitationStatus {
 enum WorkspaceRole {
   OWNER
   ADMIN
+  MANAGER
   MEMBER
 }
 

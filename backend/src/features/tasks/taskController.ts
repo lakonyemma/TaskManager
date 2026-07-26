@@ -67,6 +67,18 @@ export const createTask = async (req: Request, res: Response) => {
 
         await createActivityLog({ userId: authUser.id, action: `Created task ${task.title}`, workspaceId, taskId: task.id });
 
+        if (task.assignedToId && task.assignedToId !== authUser.id) {
+            await prisma.notification.create({
+                data: {
+                    userId: task.assignedToId,
+                    workspaceId,
+                    taskId: task.id,
+                    type: "TASK_ASSIGNED",
+                    message: `You were assigned to the task "${task.title}"`,
+                },
+            });
+        }
+
         return res.status(201).json({ task });
     } catch (error) {
         console.error(error);
@@ -89,6 +101,11 @@ export const updateTask = async (req: Request, res: Response) => {
 
         const { title, description, priority, status, assignedToId, dueDate } = req.body;
 
+        const existingTask = await prisma.task.findUnique({ where: { id } });
+        if (!existingTask) {
+            return res.status(404).json({ message: "Task not found" });
+        }
+
         const task = await prisma.task.update({
             where: { id },
             data: {
@@ -102,6 +119,22 @@ export const updateTask = async (req: Request, res: Response) => {
         });
 
         await createActivityLog({ userId: authUser.id, action: `Updated task ${task.title}`, workspaceId: task.workspaceId, taskId: task.id });
+
+        const newAssigneeId = task.assignedToId;
+        if (newAssigneeId && newAssigneeId !== authUser.id) {
+            const reassigned = newAssigneeId !== existingTask.assignedToId;
+            await prisma.notification.create({
+                data: {
+                    userId: newAssigneeId,
+                    workspaceId: task.workspaceId,
+                    taskId: task.id,
+                    type: reassigned ? "TASK_ASSIGNED" : "TASK_UPDATED",
+                    message: reassigned
+                        ? `You were assigned to the task "${task.title}"`
+                        : `The task "${task.title}" was updated`,
+                },
+            });
+        }
 
         return res.status(200).json({ task });
     } catch (error) {
@@ -125,7 +158,18 @@ export const deleteTask = async (req: Request, res: Response) => {
 
         const task = await prisma.task.delete({ where: { id } });
 
-        await createActivityLog({ userId: authUser.id, action: `Deleted task ${task.title}`, workspaceId: task.workspaceId, taskId: task.id });
+        await createActivityLog({ userId: authUser.id, action: `Deleted task ${task.title}`, workspaceId: task.workspaceId });
+
+        if (task.assignedToId && task.assignedToId !== authUser.id) {
+            await prisma.notification.create({
+                data: {
+                    userId: task.assignedToId,
+                    workspaceId: task.workspaceId,
+                    type: "TASK_DELETED",
+                    message: `The task "${task.title}" was deleted`,
+                },
+            });
+        }
 
         return res.status(200).json({ message: "Task deleted" });
     } catch (error) {
