@@ -901,7 +901,7 @@ export default function DashboardApp() {
               <Menu size={20} />
             </button>
             <div>
-              <h1>{greeting(settingsLang)}, {user.firstname} 🫠</h1>
+              {navPage !== 'dashboard' && <h1>{greeting(settingsLang)}, {user.firstname} 🫠</h1>}
               <p>{selectedWs?.name || ''}</p>
             </div>
           </div>
