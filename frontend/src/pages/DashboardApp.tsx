@@ -1,5 +1,6 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { List } from 'react-window'
 import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
@@ -13,10 +14,16 @@ import { REMINDER_OFFSETS } from '../lib/reminders'
 import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
 import { cacheTasks, getCachedTasks, getOutboxCount, isOnline, queueMutation, syncOutbox, upsertCachedTask } from '../lib/offline'
 import { StatSummaryCards, StatusDoughnutChart, StatusBarChart, CompletionTrendChart, type StatusCounts, type TrendPoint } from '../components/TaskCharts'
-import TaskCalendar from '../components/TaskCalendar'
 import Modal from '../components/Modal'
 import TaskDetailPanel from '../components/TaskDetailPanel'
-import BillingPanel from '../components/BillingPanel'
+import { SkeletonChart } from '../components/Skeleton'
+
+// FullCalendar (TaskCalendar) and the billing/checkout UI are each sizeable
+// and only needed on their own tab — code-split out of the main
+// DashboardApp chunk (itself already lazy-loaded from App.tsx) so visiting
+// Tasks/Boards/Dashboard doesn't pay for either.
+const TaskCalendar = lazy(() => import('../components/TaskCalendar'))
+const BillingPanel = lazy(() => import('../components/BillingPanel'))
 import RecurrencePicker from '../components/RecurrencePicker'
 import QuickCapture from '../components/QuickCapture'
 import FocusMode, { type FocusTask } from '../components/FocusMode'
@@ -25,6 +32,7 @@ import WorkloadCharts from '../components/WorkloadCharts'
 import InsightsPanel from '../components/InsightsPanel'
 import AchievementsPanel from '../components/AchievementsPanel'
 import InstallPrompt from '../components/InstallPrompt'
+import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
 import { SkeletonList, SkeletonStatCards } from '../components/Skeleton'
 import '../App.css'
 
@@ -40,7 +48,7 @@ const DEFAULT_PLAN: WorkspacePlan = { canUseKanban: false, canUseCalendar: false
 
 type Workspace = { id: string; name: string; description?: string | null }
 type DepRef = { id: string; title: string; status: string }
-type Task = {
+export type Task = {
   id: string; title: string; description?: string | null; status: string; priority: string; workspaceId: string
   dueDate?: string | null; assignedToId?: string | null; completedAt?: string | null; updatedAt?: string
   dependsOn?: DepRef[]; blocks?: DepRef[]; subtasks?: DepRef[]; estimatedMinutes?: number | null
@@ -64,6 +72,9 @@ const taskToRecurrence = (tk?: Task | null): RecurrenceConfig => tk ? {
 } : DEFAULT_RECURRENCE
 
 const statusColumns = ['TODO', 'IN_PROGRESS', 'REVIEW', 'COMPLETED']
+// Below this count, mapping the list directly is simpler and just as fast;
+// past it, rendering every row's DOM at once becomes the bottleneck.
+const VIRTUALIZE_THRESHOLD = 40
 const navItems: { page: NavPage; label: string; icon: LucideIcon }[] = [
   { page: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { page: 'tasks', label: 'My Tasks', icon: ClipboardCheck },
@@ -757,15 +768,18 @@ export default function DashboardApp() {
   return (
     <main className={`dashboard-shell ${themeClass}`}>
       {toasts.length > 0 && (
-        <div className="toast-stack">
+        <div className="toast-stack" role="region" aria-label="Notifications" aria-live="polite">
           {toasts.map(toast => (
-            <div key={toast.id} className="toast-card" onClick={() => { if (toast.taskId) setNavPage('tasks'); setToasts(prev => prev.filter(t => t.id !== toast.id)) }}>
+            <div key={toast.id} className="toast-card" role="button" tabIndex={0}
+              onClick={() => { if (toast.taskId) setNavPage('tasks'); setToasts(prev => prev.filter(t => t.id !== toast.id)) }}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (toast.taskId) setNavPage('tasks'); setToasts(prev => prev.filter(t => t.id !== toast.id)) } }}
+            >
               <BellRing size={16} strokeWidth={1.8} />
               <div className="toast-card-body">
                 <strong>{toast.title}</strong>
                 <span>{toast.body}</span>
               </div>
-              <button type="button" className="toast-close" onClick={e => { e.stopPropagation(); setToasts(prev => prev.filter(t => t.id !== toast.id)) }}><X size={12} /></button>
+              <button type="button" className="toast-close" onClick={e => { e.stopPropagation(); setToasts(prev => prev.filter(t => t.id !== toast.id)) }} aria-label="Dismiss notification"><X size={12} /></button>
             </div>
           ))}
         </div>
@@ -838,9 +852,16 @@ export default function DashboardApp() {
                 </button>
               ))}
             </div>
-            <div className="notif-bell" onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) loadNotifList() }}>
-              <Bell size={18} strokeWidth={1.8} />
-              {notifCount > 0 && <span className="notif-badge">{notifCount}</span>}
+            <div className="notif-bell">
+              <button
+                type="button" className="notif-bell-btn"
+                onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) loadNotifList() }}
+                aria-haspopup="true" aria-expanded={showNotifs}
+                aria-label={notifCount > 0 ? `Notifications, ${notifCount} unread` : 'Notifications'}
+              >
+                <Bell size={18} strokeWidth={1.8} />
+                {notifCount > 0 && <span className="notif-badge">{notifCount}</span>}
+              </button>
               {showNotifs && (
                 <div className="notif-dropdown">
                   <div className="notif-dropdown-header">
@@ -895,7 +916,7 @@ export default function DashboardApp() {
             </div>
           )}
 
-          {message && <div className={`message-bar ${messageType}`}>{message}</div>}
+          {message && <div className={`message-bar ${messageType}`} role="status" aria-live="polite">{message}</div>}
 
           {navPage === 'dashboard' && (
             <>
@@ -1035,33 +1056,22 @@ export default function DashboardApp() {
                   <RecurrencePicker value={taskRecurrence} onChange={setTaskRecurrence} />
                 </div>
               )}
-              <div className="task-list">
-                {tasks.map(tk => {
-                  const blocked = tk.dependsOn?.some(d => d.status !== 'COMPLETED')
-                  return (
-                    <div key={tk.id} className="task-list-item" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
-                      <div className="task-list-info">
-                        <strong>{tk.title}</strong>
-                        {tk.description && <span>{tk.description}</span>}
-                        <div className="task-list-meta">
-                          <span className={`priority-badge ${tk.priority.toLowerCase()}`}>{tk.priority}</span>
-                          <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
-                          {blocked && <span className="status-badge blocked">Blocked</span>}
-                          {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
-                          {tk.dueDate && <span>Due: {new Date(tk.dueDate).toLocaleDateString()}</span>}
-                        </div>
-                      </div>
-                      <div className="task-list-actions" onClick={e => e.stopPropagation()}>
-                        <button className="mini-btn" title="Focus on this task" onClick={() => openFocusMode(tk)}><Maximize2 size={13} /></button>
-                        <select value={tk.status} onChange={e => handleMoveTask(tk.id, e.target.value)}>
-                          {statusColumns.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-                        </select>
-                        <button className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}><X size={13} /></button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+              {tasks.length > VIRTUALIZE_THRESHOLD ? (
+                <List
+                  className="task-list"
+                  rowComponent={TaskListRow}
+                  rowCount={tasks.length}
+                  rowHeight={92}
+                  rowProps={{ tasksList: tasks, statusColumns, onSelect: setSelectedTask, onMove: handleMoveTask, onDelete: (t: Task) => handleDeleteTask(t.id), onFocus: openFocusMode }}
+                  defaultHeight={640}
+                />
+              ) : (
+                <div className="task-list">
+                  {tasks.map(tk => (
+                    <TaskListRowStatic key={tk.id} tk={tk} statusColumns={statusColumns} onSelect={setSelectedTask} onMove={handleMoveTask} onDelete={t => handleDeleteTask(t.id)} onFocus={openFocusMode} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1106,7 +1116,7 @@ export default function DashboardApp() {
                                   disabled={ns === 'COMPLETED' && blocked}
                                   onClick={() => handleMoveTask(tk.id, ns)}>{ns.replace('_', ' ')}</button>
                               ))}
-                              <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}><X size={13} /></button>
+                              <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)} aria-label={`Delete task ${tk.title}`}><X size={13} /></button>
                             </div>
                           </div>
                         )
@@ -1120,7 +1130,9 @@ export default function DashboardApp() {
           {navPage === 'calendar' && (
             <div className="panel full-width">
               <h2>Calendar</h2>
-              <TaskCalendar tasks={tasks} onTaskClick={id => setSelectedTask(tasks.find(tk => tk.id === id) || null)} />
+              <Suspense fallback={<SkeletonChart height={480} />}>
+                <TaskCalendar tasks={tasks} onTaskClick={id => setSelectedTask(tasks.find(tk => tk.id === id) || null)} />
+              </Suspense>
             </div>
           )}
 
@@ -1161,7 +1173,7 @@ export default function DashboardApp() {
                           <select value={m.role} onChange={e => handleUpdateMemberRole(m.id, e.target.value)} style={{ fontSize: '0.75rem' }}>
                             {ASSIGNABLE_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
-                          <button type="button" className="mini-btn danger-btn" onClick={() => handleRemoveMember(m.id)}><X size={13} /></button>
+                          <button type="button" className="mini-btn danger-btn" onClick={() => handleRemoveMember(m.id)} aria-label={`Remove ${m.user.firstname} ${m.user.lastName}`}><X size={13} /></button>
                         </div>
                       ) : (
                         <span className={`role-badge ${m.role.toLowerCase()}`}>{m.role}</span>
@@ -1312,7 +1324,9 @@ export default function DashboardApp() {
           )}
 
           {navPage === 'billing' && (
-            <BillingPanel workspaceId={selectedWorkspaceId} isOwner={myMembership?.role === 'OWNER'} onMessage={showMessage} />
+            <Suspense fallback={<SkeletonChart height={320} />}>
+              <BillingPanel workspaceId={selectedWorkspaceId} isOwner={myMembership?.role === 'OWNER'} onMessage={showMessage} />
+            </Suspense>
           )}
 
           {navPage === 'settings' && (

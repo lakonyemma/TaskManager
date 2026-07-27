@@ -1031,16 +1031,23 @@ textarea {
 textarea:focus { border-color: #a78bfa; }
 
 /* ─── Notification bell ─── */
-.notif-bell {
+.notif-bell { position: relative; }
+
+.notif-bell-btn {
   position: relative;
   cursor: pointer;
   font-size: 1.2rem;
   padding: 4px;
   border-radius: 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  display: flex;
   transition: background 0.15s;
 }
 
-.notif-bell:hover { background: #1c1f30; }
+.notif-bell-btn:hover { background: #1c1f30; }
+.notif-bell-btn:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
 
 .notif-badge {
   position: absolute;
@@ -1322,16 +1329,6 @@ textarea:focus { border-color: #a78bfa; }
   position: relative;
   transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), padding 0.25s ease;
 }
-.sidebar.collapsed { width: 76px; padding-left: 10px; padding-right: 10px; }
-.sidebar.collapsed .sidebar-header .eyebrow,
-.sidebar.collapsed .sidebar-header h2,
-.sidebar.collapsed .sidebar-header p,
-.sidebar.collapsed .nav-label,
-.sidebar.collapsed .sidebar-user-info {
-  display: none;
-}
-.sidebar.collapsed .nav-item { justify-content: center; }
-.sidebar.collapsed .sidebar-user { justify-content: center; }
 .sidebar-collapse-btn {
   position: absolute;
   top: 20px;
@@ -1349,7 +1346,24 @@ textarea:focus { border-color: #a78bfa; }
   transition: background 0.15s, color 0.15s;
 }
 .sidebar-collapse-btn:hover { background: #24273a; color: #e2e8f0; }
-@media (min-width: 961px) { .sidebar-collapse-btn { display: flex; } }
+
+/* Collapse is a desktop-only affordance — below 961px the sidebar is
+   already the mobile slide-in drawer (see the 900px breakpoint above),
+   which owns its own width/position; letting `.collapsed` apply there too
+   would shrink that drawer to icon-only underneath it. */
+@media (min-width: 961px) {
+  .sidebar-collapse-btn { display: flex; }
+  .sidebar.collapsed { width: 76px; padding-left: 10px; padding-right: 10px; }
+  .sidebar.collapsed .sidebar-header .eyebrow,
+  .sidebar.collapsed .sidebar-header h2,
+  .sidebar.collapsed .sidebar-header p,
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .sidebar-user-info {
+    display: none;
+  }
+  .sidebar.collapsed .nav-item { justify-content: center; }
+  .sidebar.collapsed .sidebar-user { justify-content: center; }
+}
 
 /* ─── Notification bell pulse ─── */
 @keyframes badgePulse {
@@ -1691,3 +1705,24 @@ textarea:focus { border-color: #a78bfa; }
 .offline-banner.syncing { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
 .offline-banner.syncing svg { animation: spin 1s linear infinite; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* ─── Accessibility: visible keyboard focus everywhere ─── */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.modal-card:focus-visible { outline: none; }
+
+/* ─── Mobile polish for new panels ─── */
+@media (max-width: 600px) {
+  .focus-mode-timer-display { font-size: 2.4rem; }
+  .focus-mode-content h1 { font-size: 1.5rem; }
+  .focus-mode-overlay { padding: 20px 16px; }
+  .quick-capture-fab { bottom: 20px; right: 20px; width: 50px; height: 50px; }
+  .workload-controls { flex-direction: column; align-items: flex-start; }
+  .achievements-grid { grid-template-columns: 1fr; }
+  .smart-header h1 { font-size: 1.25rem; }
+  .dependency-suggestions { max-height: 140px; }
+}
