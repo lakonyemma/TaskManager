@@ -34,13 +34,27 @@ Built with a modern full-stack architecture, Taskly provides secure authenticati
 * Task Prioritization
 * Task Status Tracking
 * Due Dates
+* Task Dependencies (blocking/blocked-by, cycle detection)
+* Enterprise-grade Recurring Tasks (custom intervals, weekdays, business days, end date/count)
+* Natural Language Task Creation ("Call Sarah every Monday at 9 AM")
+* Universal Quick Capture (⌘K / "C" shortcut, floating action button)
+* Focus Mode (full-screen, Pomodoro timer, subtasks)
+* Offline-first — view/create/update/complete tasks with no network, synced automatically on reconnect
+* Installable Progressive Web App
 
 #### 📊 Productivity & Reporting
 
+* Smart, Personalized Dashboard
 * Productivity Dashboard
 * Team Performance Reports
 * Task Completion Analytics
-* Activity Tracking
+* Workload Visualization (daily/weekly/monthly, individual/team)
+* Smart Insights (productive hours/days, trends, recommendations)
+* Achievements (streaks, milestones)
+* Advanced Reporting Export (PDF, Excel, CSV, date ranges)
+* Activity Tracking / Searchable Audit Trail
+
+See [docs/PREMIUM_PLATFORM.md](docs/PREMIUM_PLATFORM.md) for the full design of everything above.
 
 #### 🔔 Notifications
 
