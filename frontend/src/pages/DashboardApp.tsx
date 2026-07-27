@@ -1056,8 +1056,8 @@ export default function DashboardApp() {
                   <option value="LOW">Low</option><option value="MEDIUM">Medium</option>
                   <option value="HIGH">High</option><option value="CRITICAL">Critical</option>
                 </select>
-                <input type="date" value={taskDueDate} onChange={e => setTaskDueDate(e.target.value)} />
-                <input type="time" value={taskTime} onChange={e => setTaskTime(e.target.value)} />
+                <label className="field-label-inline"><span>Due date</span><input type="date" value={taskDueDate} onChange={e => setTaskDueDate(e.target.value)} /></label>
+                <label className="field-label-inline"><span>Due time</span><input type="time" value={taskTime} onChange={e => setTaskTime(e.target.value)} /></label>
                 <select value={taskAssignedTo} onChange={e => setTaskAssignedTo(e.target.value)}>
                   <option value="">{t('assignTo', settingsLang)}</option>
                   {members.filter(m => m.userId !== user.id).map(m => (
@@ -1116,8 +1116,8 @@ export default function DashboardApp() {
                     <option value="LOW">Low</option><option value="MEDIUM">Medium</option>
                     <option value="HIGH">High</option><option value="CRITICAL">Critical</option>
                   </select>
-                  <input type="date" value={taskDueDate} onChange={e => setTaskDueDate(e.target.value)} />
-                  <input type="time" value={taskTime} onChange={e => setTaskTime(e.target.value)} />
+                  <label className="field-label-inline"><span>Due date</span><input type="date" value={taskDueDate} onChange={e => setTaskDueDate(e.target.value)} /></label>
+                  <label className="field-label-inline"><span>Due time</span><input type="time" value={taskTime} onChange={e => setTaskTime(e.target.value)} /></label>
                   <button onClick={() => handleCreateTask({ preventDefault: () => {} } as FormEvent<HTMLFormElement>)}>Add task</button>
                 </div>
               </div>

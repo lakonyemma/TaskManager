@@ -879,6 +879,22 @@
   .name-row {
     grid-template-columns: 1fr;
   }
+
+  /* The notification dropdown is a fixed 300px box absolutely positioned
+     off the bell icon, which sits near the topbar's right edge — on a
+     narrow phone that leaves it flush against (or past) the screen edge
+     with no margin. Detach it from the bell and float it as its own
+     fixed panel below the topbar instead, so its width is always relative
+     to the viewport rather than to where the bell happens to sit. */
+  .notif-dropdown {
+    position: fixed;
+    top: 64px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: calc(100vh - 84px);
+    overflow-y: auto;
+  }
 }
 
 /* ─── Team / Members ─── */
@@ -1801,3 +1817,17 @@ textarea:focus-visible, [tabindex]:focus-visible {
   font-size: 1.3rem;
   margin: 4px 0 8px;
 }
+
+/* ─── Inline field labels (date/time inputs need a visible caption — a
+   bare <input type="date"> with no label gives no indication of what it's
+   for, especially once row-style forms stack to one-field-per-line on
+   mobile) ─── */
+.field-label-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 0.7rem;
+  color: #64748b;
+  cursor: pointer;
+}
+.field-label-inline input { cursor: pointer; }
