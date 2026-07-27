@@ -119,9 +119,15 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
         // Idempotent create: an offline-queued mutation may be retried after a
         // dropped response — if a task with this clientId already exists,
         // return it instead of erroring on the unique-constraint violation.
+        // Only trusted as a dedup hit when it's the same workspace the
+        // caller is asking to create in (and thus already a verified member
+        // of) — otherwise a clientId collision/reuse could leak another
+        // workspace's task details to someone with no access to it.
         if (clientId) {
             const existing = await prisma.task.findUnique({ where: { clientId }, include: TASK_INCLUDE });
-            if (existing) return res.status(200).json({ task: existing, deduped: true });
+            if (existing && existing.workspaceId === workspaceId) {
+                return res.status(200).json({ task: existing, deduped: true });
+            }
         }
 
         // Members can only assign tasks to themselves — assigning to someone
@@ -203,6 +209,15 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
 
         return res.status(201).json({ task });
     } catch (error) {
+        // Only reachable if a clientId collides with another workspace's
+        // task (the same-workspace case is already handled as a dedup hit
+        // above) — a genuine UUID collision, or a clientId deliberately
+        // replayed across workspaces, which the dedup check above already
+        // refuses to treat as a match. Either way this is a clean conflict,
+        // not a server fault.
+        if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+            return res.status(409).json({ message: "This task was already created" });
+        }
         console.error(error);
         return res.status(500).json({ message: "Server error" });
     }

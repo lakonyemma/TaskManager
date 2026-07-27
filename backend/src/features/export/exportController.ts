@@ -11,7 +11,14 @@ const toCsv = (rows: Record<string, unknown>[]): string => {
     if (rows.length === 0) return "";
     const headers = Object.keys(rows[0]);
     const escape = (value: unknown) => {
-        const str = value === null || value === undefined ? "" : String(value);
+        let str = value === null || value === undefined ? "" : String(value);
+        // Excel/Sheets treat a leading =, +, -, @ (or tab/CR) as the start of
+        // a formula when a CSV is opened — task titles, labels, and names
+        // here are attacker-controllable (any workspace member), so a
+        // literal-looking prefix must be forced before quoting. This isn't
+        // needed for the xlsx export: exceljs writes these as explicit
+        // String-typed cells, which Excel never evaluates as a formula.
+        if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
         return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
     };
     const lines = [headers.join(",")];
