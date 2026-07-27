@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
 import { sendInvitationEmail } from "../../utils/email.js";
+import { assertWithinMemberLimit } from "../../utils/plan.js";
 
 export const inviteByEmail = async (req: Request, res: Response) => {
     try {
@@ -17,8 +18,8 @@ export const inviteByEmail = async (req: Request, res: Response) => {
         }
 
         const inviteRole = role || "MEMBER";
-        if (!["MEMBER", "MANAGER", "ADMIN"].includes(inviteRole)) {
-            return res.status(400).json({ message: "Role must be MEMBER, MANAGER, or ADMIN" });
+        if (!["MEMBER", "MANAGER", "ADMIN", "GUEST"].includes(inviteRole)) {
+            return res.status(400).json({ message: "Role must be MEMBER, MANAGER, ADMIN, or GUEST" });
         }
 
         // Check the inviter is an OWNER or ADMIN of the workspace
@@ -28,6 +29,9 @@ export const inviteByEmail = async (req: Request, res: Response) => {
         if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) {
             return res.status(403).json({ message: "Only workspace owners and admins can send invitations" });
         }
+
+        const limitError = await assertWithinMemberLimit(workspaceId);
+        if (limitError) return res.status(403).json(limitError);
 
         // Check the workspace exists
         const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });

@@ -1,18 +1,26 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
-  Activity as ActivityIcon, Settings as SettingsIcon, Bell, LogOut, X, UserPlus, Menu,
+  Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
+  CreditCard, Download, Volume2, Vibrate, CheckCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { authFetch, jsonHeaders, SessionExpiredError } from '../lib/api'
+import { authFetch, getStoredToken, jsonHeaders, SessionExpiredError } from '../lib/api'
+import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sendTestPush, subscribeToPush, unsubscribeFromPush, type ServiceWorkerMessage } from '../lib/push'
+import { REMINDER_OFFSETS } from '../lib/reminders'
 import { StatSummaryCards, StatusDoughnutChart, StatusBarChart, CompletionTrendChart, type StatusCounts, type TrendPoint } from '../components/TaskCharts'
 import TaskCalendar from '../components/TaskCalendar'
 import Modal from '../components/Modal'
+import TaskDetailPanel from '../components/TaskDetailPanel'
+import BillingPanel from '../components/BillingPanel'
 import '../App.css'
 
-type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'settings'
+type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'billing'
+
+type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vibrationEnabled: boolean; defaultReminderMinutes: number[] }
+type Toast = { id: string; title: string; body: string; taskId?: string | null }
 
 type Workspace = { id: string; name: string; description?: string | null }
 type Task = { id: string; title: string; description?: string | null; status: string; priority: string; workspaceId: string; dueDate?: string | null; assignedToId?: string | null }
@@ -30,6 +38,8 @@ const navItems: { page: NavPage; label: string; icon: LucideIcon }[] = [
   { page: 'team', label: 'Team', icon: Users },
   { page: 'reports', label: 'Reports', icon: ChartColumn },
   { page: 'activity', label: 'Activity', icon: ActivityIcon },
+  { page: 'notifications', label: 'Notifications', icon: BellRing },
+  { page: 'billing', label: 'Billing', icon: CreditCard },
   { page: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
@@ -81,6 +91,8 @@ const translations: TranslationMap = {
   markAllRead: { en: 'Mark all read', sw: 'Soma zote', fr: 'Tout marquer lu', ko: '모두 읽음', es: 'Marcar todo leído', zh: '全部标记已读', lg: 'Soma zonna' },
   noNotifs: { en: 'No notifications', sw: 'Hakuna arifa', fr: 'Aucune notification', ko: '알림 없음', es: 'Sin notificaciones', zh: '没有通知', lg: 'Tewali kutegeesa' },
   welcome: { en: 'Welcome back', sw: 'Karibu tena', fr: 'Bon retour', ko: '다시 오신 것을 환영합니다', es: 'Bienvenido de nuevo', zh: '欢迎回来', lg: 'Tunakwaniriza' },
+  billing: { en: 'Billing', sw: 'Malipo', fr: 'Facturation', ko: '결제', es: 'Facturación', zh: '账单', lg: 'Sasulo' },
+  notifications: { en: 'Notifications', sw: 'Arifa', fr: 'Notifications', ko: '알림', es: 'Notificaciones', zh: '通知', lg: 'Okutegeeza' },
 }
 
 function t(key: string, lang: string): string {
@@ -98,6 +110,7 @@ const ASSIGNABLE_ROLES = ['ADMIN', 'MANAGER', 'MEMBER']
 export default function DashboardApp() {
   const { user, setUser, logout: authLogout } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
@@ -117,8 +130,13 @@ export default function DashboardApp() {
   const [members, setMembers] = useState<Member[]>([])
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
   const [notifCount, setNotifCount] = useState(0)
-  const [notifList, setNotifList] = useState<{ id: string; message: string; isRead: boolean; createdAt: string }[]>([])
+  const [notifList, setNotifList] = useState<{ id: string; message: string; isRead: boolean; createdAt: string; taskId?: string | null; task?: { id: string; title: string; status: string } | null }[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
+  const [toasts, setToasts] = useState<Toast[]>([])
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({ pushEnabled: true, soundEnabled: true, vibrationEnabled: true, defaultReminderMinutes: [15] })
+  const [pushPermission, setPushPermission] = useState(getNotificationPermission())
+  const [taskReminderOffsets, setTaskReminderOffsets] = useState<number[]>([15])
+  const [taskCustomReminderAt, setTaskCustomReminderAt] = useState('')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [message, setMessage] = useState('')
@@ -193,6 +211,10 @@ export default function DashboardApp() {
     try { const d = await request('/api/notifications') as { notifications: typeof notifList }; setNotifList(d.notifications || []) } catch { /* ignore */ }
   }, [request])
 
+  const loadNotifPrefs = useCallback(async () => {
+    try { const d = await request('/api/settings/notification-preferences') as { preferences: NotificationPreferences }; if (d.preferences) setNotifPrefs(d.preferences) } catch { /* ignore */ }
+  }, [request])
+
   const loadReports = useCallback(async () => {
     try { const d = await request('/api/reports') as { summary: typeof reportsSummary }; setReportsSummary(d.summary) } catch { setReportsSummary(null) }
   }, [request])
@@ -213,7 +235,7 @@ export default function DashboardApp() {
   // setState calls happen after an await, not synchronously during the effect —
   // safe, but the lint rule can't distinguish that from a genuine sync setState.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadWorkspaces(); loadMyInvitations(); loadNotifs() }, [loadWorkspaces, loadMyInvitations, loadNotifs])
+  useEffect(() => { loadWorkspaces(); loadMyInvitations(); loadNotifs(); loadNotifPrefs() }, [loadWorkspaces, loadMyInvitations, loadNotifs, loadNotifPrefs])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations() }, [loadTasks, loadMembers, loadWorkspaceInvitations])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -221,12 +243,53 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'activity') loadActivity() }, [navPage, loadActivity])
   // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (navPage === 'notifications') loadNotifList() }, [navPage, loadNotifList])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'settings') loadSessions() }, [navPage, loadSessions])
 
   useEffect(() => {
     const interval = setInterval(loadNotifs, 30000)
     return () => clearInterval(interval)
   }, [loadNotifs])
+
+  // Requirement: "Request notification permission from users after login."
+  // DashboardApp only mounts once ProtectedRoute confirms an authenticated
+  // user, so a one-time permission prompt here satisfies that without
+  // re-asking every time the tab reloads (`Notification.permission` stops
+  // being 'default' once the user has answered, granted or denied).
+  useEffect(() => {
+    if (getNotificationPermission() !== 'default') return
+    subscribeToPush().then(ok => { if (ok) { setPushPermission(getNotificationPermission()); loadNotifPrefs() } })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Bridges service-worker push events (and notification-action results)
+  // back into the page: an in-app toast while Taskly is open, plus
+  // refreshing whatever list the action affected.
+  useEffect(() => {
+    const off = onServiceWorkerMessage((msg: ServiceWorkerMessage) => {
+      if (msg.type === 'PUSH_RECEIVED') {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+        setToasts(prev => [...prev, { id, title: msg.title, body: msg.body, taskId: msg.data?.taskId }])
+        setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 8000)
+        loadNotifs(); if (navPage === 'notifications') loadNotifList()
+      } else if (msg.type === 'TASK_COMPLETED') {
+        loadTasks(); loadNotifs()
+      } else if (msg.type === 'REMINDER_SNOOZED') {
+        showMessage('Reminder snoozed for 10 minutes', 'info')
+      } else if (msg.type === 'NAVIGATE') {
+        setNavPage('tasks')
+      }
+    })
+    return off
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navPage])
+
+  // Stripe/PayPal/Flutterwave checkout redirects land on /app/billing (the
+  // static success/cancel URL configured server-side) — open the Billing
+  // tab automatically so the returning user sees the result there.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (location.pathname.startsWith('/app/billing')) setNavPage('billing') }, [location.pathname])
 
 
   const handleCreateWorkspace = async (e: FormEvent<HTMLFormElement>) => {
@@ -251,8 +314,13 @@ export default function DashboardApp() {
         dueDate: dueDateTime, workspaceId: selectedWorkspaceId,
       }
       if (taskAssignedTo) body.assignedToId = taskAssignedTo
+      if (dueDateTime) {
+        body.reminderOffsets = taskReminderOffsets
+        if (taskCustomReminderAt) body.customReminderTimes = [new Date(taskCustomReminderAt).toISOString()]
+      }
       await request('/api/tasks', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) })
       setTaskTitle(''); setTaskDescription(''); setTaskPriority('MEDIUM'); setTaskDueDate(''); setTaskTime(''); setTaskAssignedTo('')
+      setTaskReminderOffsets(notifPrefs.defaultReminderMinutes.length ? notifPrefs.defaultReminderMinutes : [15]); setTaskCustomReminderAt('')
       await loadTasks(); showMessage('Task added', 'success')
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create task', 'error') }
   }
@@ -364,6 +432,58 @@ export default function DashboardApp() {
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to log out everywhere', 'error') }
   }
 
+  const handleTogglePush = async (enabled: boolean) => {
+    if (enabled) {
+      const ok = await subscribeToPush()
+      setPushPermission(getNotificationPermission())
+      if (!ok) {
+        showMessage(getNotificationPermission() === 'denied' ? 'Notifications are blocked in your browser settings' : 'Unable to enable push notifications', 'error')
+        return
+      }
+    } else {
+      await unsubscribeFromPush()
+    }
+    try {
+      const d = await request('/api/settings/notification-preferences', {
+        method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ pushEnabled: enabled }),
+      }) as { preferences: NotificationPreferences }
+      if (d.preferences) setNotifPrefs(d.preferences)
+      showMessage(enabled ? 'Push notifications enabled' : 'Push notifications disabled', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save preference', 'error') }
+  }
+
+  const handleSaveNotifPrefs = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    try {
+      const d = await request('/api/settings/notification-preferences', {
+        method: 'PATCH', headers: jsonHeaders,
+        body: JSON.stringify({ soundEnabled: notifPrefs.soundEnabled, vibrationEnabled: notifPrefs.vibrationEnabled, defaultReminderMinutes: notifPrefs.defaultReminderMinutes }),
+      }) as { preferences: NotificationPreferences }
+      if (d.preferences) setNotifPrefs(d.preferences)
+      showMessage('Notification preferences saved', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save preferences', 'error') }
+  }
+
+  const toggleDefaultReminderMinute = (minutes: number) => {
+    setNotifPrefs(prev => ({
+      ...prev,
+      defaultReminderMinutes: prev.defaultReminderMinutes.includes(minutes)
+        ? prev.defaultReminderMinutes.filter(m => m !== minutes)
+        : [...prev.defaultReminderMinutes, minutes].sort((a, b) => a - b),
+    }))
+  }
+
+  const toggleTaskReminderOffset = (minutes: number) => {
+    setTaskReminderOffsets(prev => prev.includes(minutes) ? prev.filter(m => m !== minutes) : [...prev, minutes].sort((a, b) => a - b))
+  }
+
+  const handleSendTestPush = async () => {
+    try {
+      await sendTestPush()
+      showMessage('Test notification sent — check your device', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to send test notification', 'error') }
+  }
+
   const handleMarkNotifRead = async (id: string) => {
     try {
       await request(`/api/notifications/${id}/read`, { method: 'PATCH' })
@@ -380,6 +500,25 @@ export default function DashboardApp() {
   }
 
   const logout = async () => { await authLogout(); navigate('/login') }
+
+  const handleExport = async (type: 'tasks' | 'workspaces', format: 'csv' | 'json') => {
+    try {
+      const token = getStoredToken()
+      const query = type === 'tasks' ? `type=tasks&format=${format}&workspaceId=${selectedWorkspaceId}` : `type=workspaces&format=${format}`
+      const response = await fetch(`/api/export?${query}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.message || 'Export failed')
+      }
+      const blob = format === 'json' ? new Blob([JSON.stringify(await response.json(), null, 2)], { type: 'application/json' }) : await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `${type}-export.${format}`
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+      showMessage('Export downloaded', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to export', 'error') }
+  }
 
   const trendData: TrendPoint[] = useMemo(() => {
     const days = Array.from({ length: 7 }, (_, i) => {
@@ -416,6 +555,20 @@ export default function DashboardApp() {
 
   return (
     <main className={`dashboard-shell ${themeClass}`}>
+      {toasts.length > 0 && (
+        <div className="toast-stack">
+          {toasts.map(toast => (
+            <div key={toast.id} className="toast-card" onClick={() => { if (toast.taskId) setNavPage('tasks'); setToasts(prev => prev.filter(t => t.id !== toast.id)) }}>
+              <BellRing size={16} strokeWidth={1.8} />
+              <div className="toast-card-body">
+                <strong>{toast.title}</strong>
+                <span>{toast.body}</span>
+              </div>
+              <button type="button" className="toast-close" onClick={e => { e.stopPropagation(); setToasts(prev => prev.filter(t => t.id !== toast.id)) }}><X size={12} /></button>
+            </div>
+          ))}
+        </div>
+      )}
       {mobileNavOpen && <div className="mobile-nav-backdrop" onClick={() => setMobileNavOpen(false)} />}
       <aside className={`sidebar ${mobileNavOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
@@ -480,10 +633,12 @@ export default function DashboardApp() {
                   {notifList.length === 0 ? <p className="empty-column">No notifications</p> : (
                     notifList.slice(0, 10).map(n => (
                       <div key={n.id} className={`notif-item ${n.isRead ? '' : 'unread'}`} onClick={() => !n.isRead && handleMarkNotifRead(n.id)} style={{ cursor: n.isRead ? 'default' : 'pointer' }}>
+                        {n.task?.title && <strong style={{ display: 'block', fontSize: '0.75rem', color: '#c084fc' }}>{n.task.title}</strong>}
                         {n.message}
                       </div>
                     ))
                   )}
+                  <button type="button" className="mini-btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setShowNotifs(false); setNavPage('notifications') }}>View all notifications</button>
                 </div>
               )}
             </div>
@@ -601,9 +756,26 @@ export default function DashboardApp() {
                 </select>
                 <button className="primary-btn" onClick={() => handleCreateTask({ preventDefault: () => {} } as FormEvent<HTMLFormElement>)}>Add</button>
               </div>
+              {taskDueDate && (
+                <div className="reminder-picker" style={{ marginBottom: 16 }}>
+                  <span className="reminder-picker-label">Remind me</span>
+                  <div className="reminder-chip-row">
+                    {REMINDER_OFFSETS.map(o => (
+                      <label key={o.minutes} className={`reminder-chip ${taskReminderOffsets.includes(o.minutes) ? 'active' : ''}`}>
+                        <input type="checkbox" checked={taskReminderOffsets.includes(o.minutes)} onChange={() => toggleTaskReminderOffset(o.minutes)} />
+                        {o.label}
+                      </label>
+                    ))}
+                  </div>
+                  <label className="reminder-custom-row">
+                    Custom reminder
+                    <input type="datetime-local" value={taskCustomReminderAt} onChange={e => setTaskCustomReminderAt(e.target.value)} />
+                  </label>
+                </div>
+              )}
               <div className="task-list">
                 {tasks.map(tk => (
-                  <div key={tk.id} className="task-list-item">
+                  <div key={tk.id} className="task-list-item" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
                     <div className="task-list-info">
                       <strong>{tk.title}</strong>
                       {tk.description && <span>{tk.description}</span>}
@@ -613,7 +785,7 @@ export default function DashboardApp() {
                         {tk.dueDate && <span>Due: {new Date(tk.dueDate).toLocaleDateString()}</span>}
                       </div>
                     </div>
-                    <div className="task-list-actions">
+                    <div className="task-list-actions" onClick={e => e.stopPropagation()}>
                       <select value={tk.status} onChange={e => handleMoveTask(tk.id, e.target.value)}>
                         {statusColumns.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                       </select>
@@ -646,12 +818,12 @@ export default function DashboardApp() {
                     {tasks.filter(tk => tk.status === status).length === 0
                       ? <p className="empty-column">No tasks</p>
                       : tasks.filter(tk => tk.status === status).map(tk => (
-                        <div key={tk.id} className="task-card">
+                        <div key={tk.id} className="task-card" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
                           <strong>{tk.title}</strong>
                           {tk.description && <p>{tk.description}</p>}
                           <p className="task-meta">Priority: {tk.priority}</p>
                           {tk.dueDate && <p className="task-meta">Due: {new Date(tk.dueDate).toLocaleDateString()}</p>}
-                          <div className="task-actions">
+                          <div className="task-actions" onClick={e => e.stopPropagation()}>
                             {statusColumns.filter(c => c !== status).map(ns => (
                               <button key={ns} type="button" className="mini-btn" style={{ background: '#1c1f30', color: '#94a3b8' }}
                                 onClick={() => handleMoveTask(tk.id, ns)}>{ns.replace('_', ' ')}</button>
@@ -744,7 +916,13 @@ export default function DashboardApp() {
           {navPage === 'reports' && (
             <div className="dashboard-grid">
               <div className="panel full-width">
-                <h2>Progress overview {reportsSummary && <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 400 }}>(all workspaces)</span>}</h2>
+                <h2 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Progress overview {reportsSummary && <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 400 }}>(all workspaces)</span>}</span>
+                  <span style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" className="mini-btn secondary-btn" onClick={() => handleExport('tasks', 'csv')}><Download size={13} /> Export tasks CSV</button>
+                    <button type="button" className="mini-btn secondary-btn" onClick={() => handleExport('workspaces', 'csv')}><Download size={13} /> Export workspaces CSV</button>
+                  </span>
+                </h2>
                 <StatSummaryCards counts={reportStatusCounts} />
               </div>
 
@@ -786,6 +964,36 @@ export default function DashboardApp() {
                 </div>
               )}
             </div>
+          )}
+
+          {navPage === 'notifications' && (
+            <div className="panel full-width">
+              <h2 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>Notification Center</span>
+                {notifCount > 0 && <button type="button" className="mini-btn" onClick={handleMarkAllRead}><CheckCheck size={13} /> Mark all read</button>}
+              </h2>
+              {notifList.length === 0 ? <p className="empty-column">{t('noNotifs', settingsLang)}</p> : (
+                <div className="task-list">
+                  {notifList.map(n => (
+                    <div key={n.id} className={`task-list-item ${n.isRead ? '' : 'unread-row'}`} onClick={() => !n.isRead && handleMarkNotifRead(n.id)} style={{ cursor: n.isRead ? 'default' : 'pointer' }}>
+                      <div className="task-list-info">
+                        <strong>{n.task?.title || 'Taskly'}</strong>
+                        <span>{n.message}</span>
+                        <div className="task-list-meta">
+                          <span className={`status-badge ${n.isRead ? 'completed' : 'todo'}`}>{n.isRead ? 'Read' : 'Unread'}</span>
+                          <span>{new Date(n.createdAt).toLocaleString()}</span>
+                        </div>
+                      </div>
+                      {!n.isRead && <button type="button" className="mini-btn" onClick={e => { e.stopPropagation(); handleMarkNotifRead(n.id) }}>Mark read</button>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {navPage === 'billing' && (
+            <BillingPanel workspaceId={selectedWorkspaceId} isOwner={myMembership?.role === 'OWNER'} onMessage={showMessage} />
           )}
 
           {navPage === 'settings' && (
@@ -872,6 +1080,46 @@ export default function DashboardApp() {
               </div>
 
               <div className="panel">
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><BellRing size={16} strokeWidth={1.8} /> Push notifications</h2>
+                {!isPushSupported() ? (
+                  <p className="empty-column">Push notifications aren't supported in this browser.</p>
+                ) : (
+                  <form className="stack-form" onSubmit={handleSaveNotifPrefs}>
+                    <label className="remember-row">
+                      <input type="checkbox" checked={notifPrefs.pushEnabled} onChange={e => handleTogglePush(e.target.checked)} />
+                      <span>Enable push notifications (works even when Taskly is closed)</span>
+                    </label>
+                    {pushPermission === 'denied' && (
+                      <p style={{ color: '#f87171', fontSize: '0.78rem', margin: 0 }}>Notifications are blocked for this site in your browser settings — enable them there first.</p>
+                    )}
+                    <label className="remember-row">
+                      <input type="checkbox" checked={notifPrefs.soundEnabled} onChange={e => setNotifPrefs(p => ({ ...p, soundEnabled: e.target.checked }))} />
+                      <span><Volume2 size={13} style={{ verticalAlign: -2 }} /> Play a sound</span>
+                    </label>
+                    <label className="remember-row">
+                      <input type="checkbox" checked={notifPrefs.vibrationEnabled} onChange={e => setNotifPrefs(p => ({ ...p, vibrationEnabled: e.target.checked }))} />
+                      <span><Vibrate size={13} style={{ verticalAlign: -2 }} /> Vibrate (supported devices)</span>
+                    </label>
+                    <div>
+                      <span style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: 6 }}>Default reminder times for new tasks</span>
+                      <div className="reminder-chip-row">
+                        {REMINDER_OFFSETS.map(o => (
+                          <label key={o.minutes} className={`reminder-chip ${notifPrefs.defaultReminderMinutes.includes(o.minutes) ? 'active' : ''}`}>
+                            <input type="checkbox" checked={notifPrefs.defaultReminderMinutes.includes(o.minutes)} onChange={() => toggleDefaultReminderMinute(o.minutes)} />
+                            {o.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="submit">Save notification settings</button>
+                      <button type="button" className="mini-btn secondary-btn" onClick={handleSendTestPush} disabled={!notifPrefs.pushEnabled}>Send test notification</button>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+              <div className="panel">
                 <h2>Change password</h2>
                 <form className="stack-form" onSubmit={handleChangePassword}>
                   <input type="password" required placeholder="Current password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
@@ -917,6 +1165,15 @@ export default function DashboardApp() {
             </select>
             <button type="button" className="mini-btn danger-btn" onClick={() => { handleDeleteTask(selectedTask.id); setSelectedTask(null) }}>Delete task</button>
           </div>
+          <TaskDetailPanel
+            taskId={selectedTask.id}
+            workspaceId={selectedTask.workspaceId}
+            currentUserId={user.id}
+            canModerate={!!canManageMembers || myMembership?.role === 'MANAGER'}
+            onMessage={showMessage}
+            dueDate={selectedTask.dueDate}
+            assignedToId={selectedTask.assignedToId}
+          />
         </Modal>
       )}
     </main>

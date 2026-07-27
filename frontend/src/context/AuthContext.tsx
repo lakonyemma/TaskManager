@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  authFetch, clearPendingInvite, clearTokens, EmailNotVerifiedError, getPendingInvite, getStoredRefreshToken,
+  authFetch, clearPendingInvite, clearTokens, getPendingInvite, getStoredRefreshToken,
   getStoredToken, jsonHeaders, persistTokens, SessionExpiredError,
 } from '../lib/api'
 import { AuthContext, type UserSession } from './auth-context'
+
+// A workspace invite accepted during registration is stashed in localStorage
+// (see RegisterPage) and redeemed here — shared by both login and register
+// since either can be the first authenticated moment for a new account.
+const redeemPendingInvite = async () => {
+  const pendingInvite = getPendingInvite()
+  if (!pendingInvite) return
+  try { await authFetch(`/api/invitations/${pendingInvite}/accept`, { method: 'POST' }) } catch { /* invite may have expired; not fatal */ }
+  clearPendingInvite()
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserSession | null>(null)
@@ -36,22 +46,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string, remember = true) => {
     const res = await fetch('/api/auth/login', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ email, password }) })
     const data = await res.json()
-    if (!res.ok) {
-      if (res.status === 403 && data.emailNotVerified) throw new EmailNotVerifiedError(data.message, data.email || email)
-      throw new Error(data.message || 'Unable to sign in')
-    }
+    if (!res.ok) throw new Error(data.message || 'Unable to sign in')
     persistTokens(data.accessToken, data.refreshToken, remember)
     setUser(data.user)
     setSessionNotice('')
-
-    // Redeem a workspace invite that was accepted during registration, back
-    // when there was no session yet to redeem it with.
-    const pendingInvite = getPendingInvite()
-    if (pendingInvite) {
-      try { await authFetch(`/api/invitations/${pendingInvite}/accept`, { method: 'POST' }) } catch { /* invite may have expired; not fatal to login */ }
-      clearPendingInvite()
-    }
-
+    await redeemPendingInvite()
     return data.user as UserSession
   }, [])
 
@@ -59,9 +58,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await fetch('/api/auth/register', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(payload) })
     const data = await res.json()
     if (!res.ok) throw new Error(data.message || 'Unable to create account')
-    // No tokens are issued at this point — the account needs email
-    // verification before it can be signed into.
-    return data as { message: string; email: string }
+    persistTokens(data.accessToken, data.refreshToken, true)
+    setUser(data.user)
+    setSessionNotice('')
+    await redeemPendingInvite()
+    return data.user as UserSession
   }, [])
 
   const logout = useCallback(async () => {

@@ -1,8 +1,8 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
-import { Eye, EyeOff, MailCheck } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { jsonHeaders, setPendingInvite } from '../lib/api'
+import { clearPendingInvite, setPendingInvite } from '../lib/api'
 import './AuthPages.css'
 
 const STRENGTH_LABELS = ['Weak', 'Weak', 'Fair', 'Good', 'Strong']
@@ -32,8 +32,6 @@ export default function RegisterPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [inviteInfo, setInviteInfo] = useState<{ workspaceName: string } | null>(null)
-  const [registeredEmail, setRegisteredEmail] = useState('')
-  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent'>('idle')
 
   useEffect(() => {
     if (!inviteToken) return
@@ -63,51 +61,18 @@ export default function RegisterPage() {
     }
     setLoading(true)
     try {
-      const result = await register({ firstname, lastName, email, password })
-      // The invite can't be redeemed until this account is verified and
-      // signed in — stash it so login() can finish the job afterwards.
+      // Stash the invite before the account is created so it can be
+      // redeemed immediately once register() establishes a session.
       if (inviteToken) setPendingInvite(inviteToken)
-      setRegisteredEmail(result.email)
+      await register({ firstname, lastName, email, password })
+      // AuthContext.setUser now holds the new session — the `if (user)`
+      // guard above redirects to /app on the next render.
     } catch (err) {
+      if (inviteToken) clearPendingInvite()
       setError(err instanceof Error ? err.message : 'Unable to create account')
     } finally {
       setLoading(false)
     }
-  }
-
-  const handleResend = async () => {
-    setResendState('sending')
-    try {
-      await fetch('/api/auth/resend-verification', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ email: registeredEmail }) })
-    } finally {
-      setResendState('sent')
-    }
-  }
-
-  if (registeredEmail) {
-    return (
-      <div className="auth-bg">
-        <Link to="/" className="back-to-landing">&larr; Back to Taskly</Link>
-        <div className="glass-card">
-          <p className="glass-logo">Taskly</p>
-          <div className="verify-icon"><MailCheck size={28} /></div>
-          <h1>Check your email</h1>
-          <p className="glass-subtitle">
-            We've sent a verification link to <strong>{registeredEmail}</strong>. Click it to activate your
-            account, then come back and sign in.
-          </p>
-          <button type="button" className="submit-btn" disabled={resendState !== 'idle'} onClick={handleResend}>
-            {resendState === 'idle' && 'Resend verification email'}
-            {resendState === 'sending' && 'Sending…'}
-            {resendState === 'sent' && 'Email sent — check your inbox'}
-          </button>
-          <p className="auth-switch">
-            Already verified?
-            <Link to="/login">Sign in</Link>
-          </p>
-        </div>
-      </div>
-    )
   }
 
   return (

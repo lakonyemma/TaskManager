@@ -111,3 +111,56 @@ export const changePassword = async (req: Request, res: Response) => {
         return res.status(500).json({ message: "Server error" });
     }
 };
+
+export const getNotificationPreferences = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const preferences = await prisma.notificationPreference.upsert({
+            where: { userId: authUser.id },
+            update: {},
+            create: { userId: authUser.id },
+        });
+
+        return res.status(200).json({ preferences });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+export const updateNotificationPreferences = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const { pushEnabled, soundEnabled, vibrationEnabled, defaultReminderMinutes } = req.body;
+
+        const data: Record<string, unknown> = {};
+        if (pushEnabled !== undefined) data.pushEnabled = !!pushEnabled;
+        if (soundEnabled !== undefined) data.soundEnabled = !!soundEnabled;
+        if (vibrationEnabled !== undefined) data.vibrationEnabled = !!vibrationEnabled;
+        if (Array.isArray(defaultReminderMinutes)) {
+            const minutes = defaultReminderMinutes
+                .map((m: unknown) => Number(m))
+                .filter((m: number) => Number.isFinite(m) && m > 0 && m <= 44640);
+            data.defaultReminderMinutes = minutes;
+        }
+
+        const preferences = await prisma.notificationPreference.upsert({
+            where: { userId: authUser.id },
+            update: data,
+            create: { userId: authUser.id, ...data },
+        });
+
+        return res.status(200).json({ message: "Notification preferences saved", preferences });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};

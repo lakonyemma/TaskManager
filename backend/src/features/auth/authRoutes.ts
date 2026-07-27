@@ -1,7 +1,7 @@
 import express from "express";
 import {
-    login, logout, logoutAll, listSessions, me, refresh, register, resendVerification,
-    revokeSession, verifyEmail,
+    login, logout, logoutAll, listSessions, me, refresh, register,
+    revokeSession,
 } from "./authController.js";
 import { authenticate } from "../../middleware/authMiddleware.js";
 import { authRateLimiter } from "../../middleware/rateLimit.js";
@@ -16,7 +16,5 @@ router.post("/logout-all", authenticate, logoutAll);
 router.get("/sessions", authenticate, listSessions);
 router.delete("/sessions/:id", authenticate, revokeSession);
 router.get("/me", authenticate, me);
-router.get("/verify-email/:token", verifyEmail);
-router.post("/resend-verification", authRateLimiter, resendVerification);
 
 export default router;

@@ -45,8 +45,14 @@ Built with a modern full-stack architecture, Taskly provides secure authenticati
 #### 🔔 Notifications
 
 * In-App Notifications
-* Notification Preferences
-* Read/Unread Status
+* Web Push Notifications (delivered even when Taskly is closed)
+* Task Reminder Scheduling (5m / 10m / 15m / 30m / 1h / 1d / custom before due)
+* Notification Actions — View Task, Mark Complete, Snooze
+* Sound & Vibration Preferences
+* Notification Center with Read/Unread Status
+* Notification Preferences (push, sound, vibration, default reminder times)
+
+See [docs/PUSH_NOTIFICATIONS.md](docs/PUSH_NOTIFICATIONS.md) for the full design.
 
 #### 🏢 Workspace Management
 
@@ -162,6 +168,14 @@ JWT_SECRET=
 JWT_REFRESH_SECRET=
 RESEND_API_KEY=
 APP_URL=
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=
+REMINDER_POLL_INTERVAL_MS=
+
+Frontend
+
+VITE_VAPID_PUBLIC_KEY=  (optional fallback — normally fetched from the API at runtime)
 
 ## 👤 User Roles
 

@@ -1,3 +1,5 @@
+import { syncTokenToServiceWorker } from './swAuthSync'
+
 export const TOKEN_KEY = 'taskmanager_token'
 export const REFRESH_KEY = 'taskmanager_refresh_token'
 
@@ -16,6 +18,7 @@ export const persistTokens = (accessToken: string, refreshToken?: string | null,
   target.setItem(TOKEN_KEY, accessToken)
   if (refreshToken) target.setItem(REFRESH_KEY, refreshToken)
   if (refreshToken) { other.removeItem(TOKEN_KEY); other.removeItem(REFRESH_KEY) }
+  void syncTokenToServiceWorker(accessToken)
 }
 
 export const clearTokens = () => {
@@ -23,19 +26,11 @@ export const clearTokens = () => {
   localStorage.removeItem(REFRESH_KEY)
   sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.removeItem(REFRESH_KEY)
+  void syncTokenToServiceWorker(null)
 }
 
 export class SessionExpiredError extends Error {
   constructor() { super('Session expired'); this.name = 'SessionExpiredError' }
-}
-
-export class EmailNotVerifiedError extends Error {
-  email: string
-  constructor(message: string, email: string) {
-    super(message)
-    this.name = 'EmailNotVerifiedError'
-    this.email = email
-  }
 }
 
 // Performs an authenticated JSON fetch. Transparently retries once with a

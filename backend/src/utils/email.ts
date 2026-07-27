@@ -9,9 +9,9 @@ if (!resend) {
     console.warn("[email] RESEND_API_KEY is not set — emails will be logged to the console instead of sent.");
 }
 
-// Shared branded shell so every transactional email (invitations, email
-// verification, future notifications) looks consistent without duplicating
-// the outer markup in each template.
+// Shared branded shell so every transactional email (invitations, future
+// notifications) looks consistent without duplicating the outer markup in
+// each template.
 const emailShell = (eyebrow: string, heading: string, bodyHtml: string, ctaLabel: string, ctaUrl: string, footnote: string) => `
   <div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#060B23;padding:32px;color:#f8fafc">
     <div style="max-width:480px;margin:0 auto;background:rgba(255,255,255,0.05);border:1px solid rgba(139,92,246,0.3);border-radius:16px;padding:32px">
@@ -38,7 +38,11 @@ const sendOrLog = async (to: string, subject: string, html: string, logLabel: st
     }
 
     try {
-        await resend.emails.send({ from: EMAIL_FROM, to, subject, html });
+        const { error } = await resend.emails.send({ from: EMAIL_FROM, to, subject, html });
+        // The SDK resolves with `{ error }` for API-level failures (bad
+        // recipient, unverified domain, rate limit, etc.) rather than
+        // throwing — checking `.error` is required or these fail silently.
+        if (error) console.error(`[email] Resend rejected the ${logLabel.toLowerCase()} email to ${to}:`, error);
     } catch (error) {
         console.error(`[email] Failed to send ${logLabel.toLowerCase()} email:`, error);
     }
@@ -59,21 +63,4 @@ export const sendInvitationEmail = async (
         `If the button doesn't work, copy this link: ${acceptUrl}`,
     );
     await sendOrLog(to, `You're invited to join ${workspaceName} on Taskly`, html, "Accept link", acceptUrl);
-};
-
-export const sendVerificationEmail = async (
-    to: string,
-    firstname: string,
-    token: string,
-): Promise<void> => {
-    const verifyUrl = `${APP_URL}/verify-email?token=${token}`;
-    const html = emailShell(
-        "Taskly",
-        "Verify your email",
-        `Hi ${firstname}, thanks for signing up for Taskly. Confirm this is your email address to activate your account. This link expires in 24 hours.`,
-        "Verify email",
-        verifyUrl,
-        `If the button doesn't work, copy this link: ${verifyUrl}`,
-    );
-    await sendOrLog(to, "Verify your email for Taskly", html, "Verify link", verifyUrl);
 };
