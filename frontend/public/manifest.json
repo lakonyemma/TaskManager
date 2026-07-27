@@ -2,7 +2,7 @@
   "name": "Taskly — Task & Team Management",
   "short_name": "Taskly",
   "description": "A premium task and team management platform.",
-  "start_url": "/app",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
