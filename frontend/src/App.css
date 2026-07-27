@@ -1791,3 +1791,13 @@ textarea:focus-visible, [tabindex]:focus-visible {
     right: calc(20px + env(safe-area-inset-right, 0));
   }
 }
+
+/* ─── First-run onboarding (zero workspaces) ─── */
+.onboarding-panel {
+  text-align: left;
+  padding: 32px 28px;
+}
+.onboarding-panel h2 {
+  font-size: 1.3rem;
+  margin: 4px 0 8px;
+}

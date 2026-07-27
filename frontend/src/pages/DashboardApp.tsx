@@ -215,6 +215,7 @@ export default function DashboardApp() {
   const [activityFrom, setActivityFrom] = useState('')
   const [activityTo, setActivityTo] = useState('')
   const [loadingDashboard, setLoadingDashboard] = useState(true)
+  const [workspacesLoaded, setWorkspacesLoaded] = useState(false)
   const [isOffline, setIsOffline] = useState(!isOnline())
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
 
@@ -253,6 +254,7 @@ export default function DashboardApp() {
       setWorkspaces(d.workspaces || [])
       setSelectedWorkspaceId(prev => prev || d.workspaces?.[0]?.id || '')
     } catch { setWorkspaces([]) }
+    finally { setWorkspacesLoaded(true) }
   }, [request])
 
   const loadTasks = useCallback(async () => {
@@ -941,6 +943,22 @@ export default function DashboardApp() {
                 translations={{ morning: t('morning', settingsLang), afternoon: t('afternoon', settingsLang), evening: t('evening', settingsLang) }}
               />
 
+              {workspacesLoaded && workspaces.length === 0 ? (
+                <div className="panel full-width onboarding-panel">
+                  <p className="eyebrow">Welcome to Taskly</p>
+                  <h2>Create your first workspace to get started</h2>
+                  <p style={{ color: '#94a3b8', fontSize: '0.85rem', maxWidth: 480 }}>
+                    A workspace is where your tasks, boards, and team live — personal or shared with others.
+                    You can always create more later.
+                  </p>
+                  <form className="stack-form" style={{ maxWidth: 360, marginTop: 16 }} onSubmit={handleCreateWorkspace}>
+                    <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder={t('workspaceName', settingsLang)} required autoFocus />
+                    <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder={`${t('taskDescription', settingsLang)} (optional)`} />
+                    <button type="submit" className="primary-btn">{t('addWorkspace', settingsLang)}</button>
+                  </form>
+                </div>
+              ) : (
+                <>
               <div className="dashboard-grid">
                 <div className="panel full-width">
                   <h2>{t('overview', settingsLang)}</h2>
@@ -1024,6 +1042,8 @@ export default function DashboardApp() {
                 <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Trophy size={16} strokeWidth={1.8} /> Achievements</h2>
                 <AchievementsPanel />
               </div>
+                </>
+              )}
             </>
           )}
 
