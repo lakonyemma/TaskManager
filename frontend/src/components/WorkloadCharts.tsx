@@ -62,7 +62,13 @@ export default function WorkloadCharts({ workspaceId, canSeeTeam, currentUserId 
         )}
       </div>
 
-      {loading ? <SkeletonChart /> : (
+      {loading ? <SkeletonChart /> : chartData.every((b) => b.taskCount === 0) ? (
+        <p className="empty-column">
+          {scope === 'individual'
+            ? "No tasks with a due date are assigned to you in this range. Assign a due-dated task to yourself, or switch to \"Team\" above to see the whole workspace's workload."
+            : "No tasks with a due date fall in this range yet."}
+        </p>
+      ) : (
         <>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
