@@ -1011,6 +1011,12 @@
 .priority-badge.high { background: rgba(251, 191, 36, 0.12); color: #fbbf24; }
 .priority-badge.critical { background: rgba(248, 113, 113, 0.12); color: #f87171; }
 
+.priority-select { border-radius: 6px; padding: 6px 8px; background: #060B23; border: 1px solid #2a2d3e; font-weight: 600; cursor: pointer; }
+.priority-select.low { color: #34d399; border-color: rgba(52, 211, 153, 0.4); }
+.priority-select.medium { color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); }
+.priority-select.high { color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); }
+.priority-select.critical { color: #f87171; border-color: rgba(248, 113, 113, 0.4); }
+
 .status-badge {
   padding: 2px 8px;
   border-radius: 4px;

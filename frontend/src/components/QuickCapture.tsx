@@ -16,6 +16,7 @@ type ParsedTask = {
 }
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const PRIORITIES: ParsedTask['priority'][] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 
 // Universal quick capture: a floating action button plus a global "c" / ⌘K
 // shortcut open a single-field modal anywhere in the app. Typing free text
@@ -30,6 +31,7 @@ export default function QuickCapture({ workspaces, selectedWorkspaceId, onCreate
   const [open, setOpen] = useState(false)
   const [text, setText] = useState('')
   const [parsed, setParsed] = useState<ParsedTask | null>(null)
+  const [priority, setPriority] = useState<ParsedTask['priority']>('MEDIUM')
   const [parsing, setParsing] = useState(false)
   const [workspaceId, setWorkspaceId] = useState(selectedWorkspaceId)
   const [saving, setSaving] = useState(false)
@@ -70,6 +72,7 @@ export default function QuickCapture({ workspaces, selectedWorkspaceId, onCreate
       try {
         const d = await authFetch('/api/capture/parse', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ text }) }) as { parsed: ParsedTask }
         setParsed(d.parsed)
+        setPriority(d.parsed.priority)
       } catch {
         setParsed(null)
       } finally {
@@ -88,7 +91,7 @@ export default function QuickCapture({ workspaces, selectedWorkspaceId, onCreate
       await authFetch('/api/tasks', {
         method: 'POST', headers: jsonHeaders,
         body: JSON.stringify({
-          title: parsed.title, workspaceId, dueDate: parsed.dueDate, priority: parsed.priority,
+          title: parsed.title, workspaceId, dueDate: parsed.dueDate, priority,
           isRecurring: parsed.isRecurring, recurrenceRule: parsed.recurrenceRule,
           recurrenceInterval: parsed.recurrenceInterval, recurrenceDaysOfWeek: parsed.recurrenceDaysOfWeek,
           recurrenceBusinessDaysOnly: parsed.recurrenceBusinessDaysOnly,
@@ -135,7 +138,12 @@ export default function QuickCapture({ workspaces, selectedWorkspaceId, onCreate
                   <strong>{parsed.hasExplicitTime ? new Date(parsed.dueDate).toLocaleString() : new Date(parsed.dueDate).toLocaleDateString()}</strong>
                 </div>
               )}
-              <div className="quick-capture-field"><span>Priority</span><strong className={`priority-badge ${parsed.priority.toLowerCase()}`}>{parsed.priority}</strong></div>
+              <label className="quick-capture-field">
+                <span>Priority</span>
+                <select className={`priority-select ${priority.toLowerCase()}`} value={priority} onChange={e => setPriority(e.target.value as ParsedTask['priority'])}>
+                  {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </label>
               {parsed.isRecurring && (
                 <div className="quick-capture-field">
                   <span>Repeats</span>

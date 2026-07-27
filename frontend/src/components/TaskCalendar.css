@@ -72,3 +72,60 @@
   border-radius: 10px;
   overflow: hidden;
 }
+
+/* ─── List/agenda view — the mobile default, since a 7-column month grid
+   can't fit a readable task title in a ~45px cell ─── */
+.task-calendar-wrap .fc-list {
+  border-radius: 10px;
+  overflow: hidden;
+}
+.task-calendar-wrap .fc-list-day-cushion {
+  background: rgba(255, 255, 255, 0.03);
+  color: #cbd5e1;
+  font-weight: 600;
+}
+.task-calendar-wrap .fc-list-event {
+  cursor: pointer;
+  background: transparent;
+}
+.task-calendar-wrap .fc-list-event:hover td {
+  background: rgba(255, 255, 255, 0.05);
+}
+.task-calendar-wrap .fc-list-event-time {
+  color: #94a3b8;
+}
+.task-calendar-wrap .fc-list-event-title {
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+.task-calendar-wrap .fc-list-event.fc-event-done .fc-list-event-title {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.task-calendar-wrap .fc-list-empty {
+  background: transparent;
+  color: #64748b;
+}
+
+/* ─── Mobile toolbar: prev/next/today + title + view-switcher is a lot of
+   controls for a narrow screen — stack the three toolbar sections instead
+   of forcing them into one row that would otherwise overflow. ─── */
+@media (max-width: 600px) {
+  .task-calendar-wrap .fc-toolbar {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .task-calendar-wrap .fc-toolbar-chunk {
+    display: flex;
+    justify-content: center;
+  }
+  .task-calendar-wrap .fc-toolbar-title {
+    font-size: 0.9rem;
+    text-align: center;
+  }
+  .task-calendar-wrap .fc-button {
+    font-size: 0.7rem;
+    padding: 5px 8px;
+  }
+}
