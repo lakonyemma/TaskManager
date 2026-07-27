@@ -3,31 +3,63 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
-  CreditCard, Download, Volume2, Vibrate, CheckCheck,
+  CreditCard, Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { authFetch, getStoredToken, jsonHeaders, SessionExpiredError } from '../lib/api'
 import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sendTestPush, subscribeToPush, unsubscribeFromPush, type ServiceWorkerMessage } from '../lib/push'
 import { REMINDER_OFFSETS } from '../lib/reminders'
+import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
 import { StatSummaryCards, StatusDoughnutChart, StatusBarChart, CompletionTrendChart, type StatusCounts, type TrendPoint } from '../components/TaskCharts'
 import TaskCalendar from '../components/TaskCalendar'
 import Modal from '../components/Modal'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 import BillingPanel from '../components/BillingPanel'
+import RecurrencePicker from '../components/RecurrencePicker'
+import QuickCapture from '../components/QuickCapture'
+import FocusMode, { type FocusTask } from '../components/FocusMode'
+import SmartDashboardHeader from '../components/SmartDashboardHeader'
+import WorkloadCharts from '../components/WorkloadCharts'
+import InsightsPanel from '../components/InsightsPanel'
+import AchievementsPanel from '../components/AchievementsPanel'
+import { SkeletonList, SkeletonStatCards } from '../components/Skeleton'
 import '../App.css'
 
-type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'billing'
+type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'billing' | 'workload'
 
 type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vibrationEnabled: boolean; defaultReminderMinutes: number[] }
 type Toast = { id: string; title: string; body: string; taskId?: string | null }
+type WorkspacePlan = {
+  canUseKanban: boolean; canUseCalendar: boolean; canUseSubtasks: boolean; canUseRecurringTasks: boolean
+  canUseDependencies: boolean; canUseLabels: boolean; canUseAnalytics: boolean; canUseFileAttachments: boolean; canUseExport: boolean
+}
+const DEFAULT_PLAN: WorkspacePlan = { canUseKanban: false, canUseCalendar: false, canUseSubtasks: false, canUseRecurringTasks: false, canUseDependencies: false, canUseLabels: false, canUseAnalytics: false, canUseFileAttachments: false, canUseExport: false }
 
 type Workspace = { id: string; name: string; description?: string | null }
-type Task = { id: string; title: string; description?: string | null; status: string; priority: string; workspaceId: string; dueDate?: string | null; assignedToId?: string | null }
+type DepRef = { id: string; title: string; status: string }
+type Task = {
+  id: string; title: string; description?: string | null; status: string; priority: string; workspaceId: string
+  dueDate?: string | null; assignedToId?: string | null; completedAt?: string | null; updatedAt?: string
+  dependsOn?: DepRef[]; blocks?: DepRef[]; subtasks?: DepRef[]; estimatedMinutes?: number | null
+  isRecurring?: boolean; recurrenceRule?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | null
+  recurrenceInterval?: number | null; recurrenceDaysOfWeek?: number[]; recurrenceBusinessDaysOnly?: boolean
+  recurrenceEndDate?: string | null; recurrenceCount?: number | null
+}
 type Invitation = { id: string; email: string; workspaceId: string; token: string; status: string; expiresAt: string; role?: string; workspace?: { id: string; name: string } }
 type Member = { id: string; userId: string; role: string; user: { id: string; firstname: string; lastName: string; email: string; avatarUrl?: string | null } }
 type Session = { id: string; userAgent?: string | null; ipAddress?: string | null; createdAt: string; lastUsedAt: string; expiresAt: string; isCurrent: boolean }
 type ActivityEntry = { id: string; action: string; createdAt: string; user?: { firstname: string; lastName: string } | null; workspace?: { name: string } | null; task?: { title: string } | null }
+
+const taskToRecurrence = (tk?: Task | null): RecurrenceConfig => tk ? {
+  isRecurring: !!tk.isRecurring,
+  recurrenceRule: tk.recurrenceRule || 'WEEKLY',
+  recurrenceInterval: tk.recurrenceInterval || 1,
+  recurrenceDaysOfWeek: tk.recurrenceDaysOfWeek || [],
+  recurrenceBusinessDaysOnly: !!tk.recurrenceBusinessDaysOnly,
+  recurrenceEndDate: tk.recurrenceEndDate ? tk.recurrenceEndDate.slice(0, 10) : '',
+  recurrenceCount: tk.recurrenceCount || '',
+} : DEFAULT_RECURRENCE
 
 const statusColumns = ['TODO', 'IN_PROGRESS', 'REVIEW', 'COMPLETED']
 const navItems: { page: NavPage; label: string; icon: LucideIcon }[] = [
@@ -35,6 +67,7 @@ const navItems: { page: NavPage; label: string; icon: LucideIcon }[] = [
   { page: 'tasks', label: 'My Tasks', icon: ClipboardCheck },
   { page: 'boards', label: 'Boards', icon: KanbanSquare },
   { page: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { page: 'workload', label: 'Workload', icon: Gauge },
   { page: 'team', label: 'Team', icon: Users },
   { page: 'reports', label: 'Reports', icon: ChartColumn },
   { page: 'activity', label: 'Activity', icon: ActivityIcon },
@@ -93,6 +126,7 @@ const translations: TranslationMap = {
   welcome: { en: 'Welcome back', sw: 'Karibu tena', fr: 'Bon retour', ko: '다시 오신 것을 환영합니다', es: 'Bienvenido de nuevo', zh: '欢迎回来', lg: 'Tunakwaniriza' },
   billing: { en: 'Billing', sw: 'Malipo', fr: 'Facturation', ko: '결제', es: 'Facturación', zh: '账单', lg: 'Sasulo' },
   notifications: { en: 'Notifications', sw: 'Arifa', fr: 'Notifications', ko: '알림', es: 'Notificaciones', zh: '通知', lg: 'Okutegeeza' },
+  workload: { en: 'Workload', sw: 'Mzigo wa kazi', fr: 'Charge de travail', ko: '업무량', es: 'Carga de trabajo', zh: '工作量', lg: 'Omugugu' },
 }
 
 function t(key: string, lang: string): string {
@@ -139,6 +173,7 @@ export default function DashboardApp() {
   const [taskCustomReminderAt, setTaskCustomReminderAt] = useState('')
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'info' | 'success' | 'error'>('info')
   const [reportsSummary, setReportsSummary] = useState<{ total: number; completed: number; inProgress: number; overdue: number } | null>(null)
@@ -146,6 +181,15 @@ export default function DashboardApp() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [workspacePlan, setWorkspacePlan] = useState<WorkspacePlan>(DEFAULT_PLAN)
+  const [taskRecurrence, setTaskRecurrence] = useState<RecurrenceConfig>(DEFAULT_RECURRENCE)
+  const [focusTask, setFocusTask] = useState<FocusTask | null>(null)
+  const [reportFrom, setReportFrom] = useState('')
+  const [reportTo, setReportTo] = useState('')
+  const [activitySearch, setActivitySearch] = useState('')
+  const [activityFrom, setActivityFrom] = useState('')
+  const [activityTo, setActivityTo] = useState('')
+  const [loadingDashboard, setLoadingDashboard] = useState(true)
 
   // Settings state — seeded once from the authenticated user (ProtectedRoute
   // guarantees `user` is already loaded before this component mounts).
@@ -186,8 +230,19 @@ export default function DashboardApp() {
 
   const loadTasks = useCallback(async () => {
     if (!selectedWorkspaceId) return
-    try { const d = await request(`/api/tasks?workspaceId=${selectedWorkspaceId}`) as { tasks: Task[] }; setTasks(d.tasks || []) } catch { setTasks([]) }
+    try { const d = await request(`/api/tasks?workspaceId=${selectedWorkspaceId}`) as { tasks: Task[] }; setTasks(d.tasks || []) }
+    catch { setTasks([]) }
+    finally { setLoadingDashboard(false) }
   }, [request, selectedWorkspaceId])
+
+  const loadPlan = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    try {
+      const d = await request(`/api/billing/workspaces/${selectedWorkspaceId}/subscription`) as { subscription: { plan: WorkspacePlan } | null }
+      setWorkspacePlan(d.subscription?.plan || DEFAULT_PLAN)
+    } catch { setWorkspacePlan(DEFAULT_PLAN) }
+  }, [request, selectedWorkspaceId])
+
 
   const loadMyInvitations = useCallback(async () => {
     try { const d = await request('/api/invitations/mine') as { invitations: Invitation[] }; setMyInvitations(d.invitations || []) } catch { setMyInvitations([]) }
@@ -220,8 +275,15 @@ export default function DashboardApp() {
   }, [request])
 
   const loadActivity = useCallback(async () => {
-    try { const d = await request('/api/activity') as { activity: ActivityEntry[] }; setActivityLog(d.activity || []) } catch { setActivityLog([]) }
-  }, [request])
+    try {
+      const params = new URLSearchParams()
+      if (activitySearch.trim()) params.set('search', activitySearch.trim())
+      if (activityFrom) params.set('from', new Date(activityFrom).toISOString())
+      if (activityTo) params.set('to', new Date(activityTo).toISOString())
+      const d = await request(`/api/activity?${params.toString()}`) as { activity: ActivityEntry[] }
+      setActivityLog(d.activity || [])
+    } catch { setActivityLog([]) }
+  }, [request, activitySearch, activityFrom, activityTo])
 
   const loadSessions = useCallback(async () => {
     try {
@@ -237,7 +299,9 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadWorkspaces(); loadMyInvitations(); loadNotifs(); loadNotifPrefs() }, [loadWorkspaces, loadMyInvitations, loadNotifs, loadNotifPrefs])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations() }, [loadTasks, loadMembers, loadWorkspaceInvitations])
+  useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadPlan() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadPlan])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'reports') loadReports() }, [navPage, loadReports])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -318,18 +382,55 @@ export default function DashboardApp() {
         body.reminderOffsets = taskReminderOffsets
         if (taskCustomReminderAt) body.customReminderTimes = [new Date(taskCustomReminderAt).toISOString()]
       }
+      if (taskRecurrence.isRecurring) {
+        body.isRecurring = true
+        body.recurrenceRule = taskRecurrence.recurrenceRule
+        body.recurrenceInterval = taskRecurrence.recurrenceInterval
+        body.recurrenceDaysOfWeek = taskRecurrence.recurrenceDaysOfWeek
+        body.recurrenceBusinessDaysOnly = taskRecurrence.recurrenceBusinessDaysOnly
+        if (taskRecurrence.recurrenceEndDate) body.recurrenceEndDate = taskRecurrence.recurrenceEndDate
+        if (taskRecurrence.recurrenceCount) body.recurrenceCount = taskRecurrence.recurrenceCount
+      }
       await request('/api/tasks', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) })
       setTaskTitle(''); setTaskDescription(''); setTaskPriority('MEDIUM'); setTaskDueDate(''); setTaskTime(''); setTaskAssignedTo('')
       setTaskReminderOffsets(notifPrefs.defaultReminderMinutes.length ? notifPrefs.defaultReminderMinutes : [15]); setTaskCustomReminderAt('')
+      setTaskRecurrence(DEFAULT_RECURRENCE)
       await loadTasks(); showMessage('Task added', 'success')
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create task', 'error') }
   }
 
   const handleMoveTask = async (taskId: string, nextStatus: string) => {
     try {
-      await request(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ status: nextStatus }) })
+      const d = await request(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ status: nextStatus }) }) as {
+        nextOccurrence?: { dueDate: string } | null
+        newAchievements?: { name: string }[]
+      }
       await loadTasks()
+      if (d.newAchievements && d.newAchievements.length > 0) {
+        showMessage(`Achievement unlocked: ${d.newAchievements.map(a => a.name).join(', ')}`, 'success')
+      } else if (d.nextOccurrence) {
+        showMessage(`Task completed — next occurrence scheduled for ${new Date(d.nextOccurrence.dueDate).toLocaleDateString()}`, 'success')
+      }
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update task', 'error') }
+  }
+
+  const handleSubtaskToggle = async (subtaskId: string, completed: boolean) => {
+    try {
+      await request(`/api/tasks/${subtaskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ status: completed ? 'COMPLETED' : 'TODO' }) })
+      await loadTasks()
+      setFocusTask(prev => prev ? { ...prev, subtasks: prev.subtasks.map(s => s.id === subtaskId ? { ...s, status: completed ? 'COMPLETED' : 'TODO' } : s) } : prev)
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update subtask', 'error') }
+  }
+
+  const handleFocusComplete = async () => {
+    if (!focusTask) return
+    await handleMoveTask(focusTask.id, 'COMPLETED')
+    setFocusTask(prev => prev ? { ...prev, status: 'COMPLETED' } : prev)
+  }
+
+  const openFocusMode = (task: Task) => {
+    setFocusTask({ id: task.id, title: task.title, description: task.description, status: task.status, subtasks: task.subtasks || [] })
+    setSelectedTask(null)
   }
 
   const handleDeleteTask = async (taskId: string) => {
@@ -501,11 +602,14 @@ export default function DashboardApp() {
 
   const logout = async () => { await authLogout(); navigate('/login') }
 
-  const handleExport = async (type: 'tasks' | 'workspaces', format: 'csv' | 'json') => {
+  const handleExport = async (type: 'tasks' | 'workspaces' | 'report', format: 'csv' | 'json' | 'xlsx' | 'pdf', range?: { from?: string; to?: string }) => {
     try {
       const token = getStoredToken()
-      const query = type === 'tasks' ? `type=tasks&format=${format}&workspaceId=${selectedWorkspaceId}` : `type=workspaces&format=${format}`
-      const response = await fetch(`/api/export?${query}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+      const params = new URLSearchParams({ type, format })
+      if (type !== 'workspaces') params.set('workspaceId', selectedWorkspaceId)
+      if (range?.from) params.set('from', new Date(range.from).toISOString())
+      if (range?.to) params.set('to', new Date(range.to).toISOString())
+      const response = await fetch(`/api/export?${params.toString()}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.message || 'Export failed')
@@ -526,9 +630,18 @@ export default function DashboardApp() {
       d.setDate(d.getDate() - (6 - i))
       return d
     })
+    // Bucket by when a task was actually completed (completedAt), not its
+    // due date — a task due Monday but finished Thursday is a Thursday
+    // completion, and a completed task with no due date should still show
+    // up somewhere. completedAt is only missing for tasks completed before
+    // that column existed; updatedAt is the closest fallback signal for those.
     return days.map(d => ({
       label: d.toLocaleDateString(undefined, { weekday: 'short' }),
-      completed: tasks.filter(tk => tk.status === 'COMPLETED' && tk.dueDate && new Date(tk.dueDate).toDateString() === d.toDateString()).length,
+      completed: tasks.filter(tk => {
+        if (tk.status !== 'COMPLETED') return false
+        const completedOn = tk.completedAt || tk.updatedAt
+        return !!completedOn && new Date(completedOn).toDateString() === d.toDateString()
+      }).length,
     }))
   }, [tasks])
 
@@ -538,6 +651,18 @@ export default function DashboardApp() {
   const myTasks = tasks.filter(tk => tk.assignedToId === user.id)
   const overdueTasks = tasks.filter(tk => tk.dueDate && new Date(tk.dueDate) < new Date() && tk.status !== 'COMPLETED')
   const upcomingDeadlines = tasks.filter(tk => tk.dueDate).sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()).slice(0, 5)
+
+  const todayStr = new Date().toDateString()
+  const dueTodayCount = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate).toDateString() === todayStr).length
+  const in7Days = new Date(); in7Days.setDate(in7Days.getDate() + 7)
+  const upcomingWeekCount = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate) > new Date() && new Date(tk.dueDate) <= in7Days).length
+  const productivityDeltaPercent = (() => {
+    const now = new Date().getTime(); const oneWeekMs = 7 * 24 * 60 * 60 * 1000
+    const thisWeek = tasks.filter(tk => tk.completedAt && (now - new Date(tk.completedAt).getTime()) < oneWeekMs).length
+    const lastWeek = tasks.filter(tk => tk.completedAt && (now - new Date(tk.completedAt).getTime()) >= oneWeekMs && (now - new Date(tk.completedAt).getTime()) < 2 * oneWeekMs).length
+    if (lastWeek === 0) return null
+    return Math.round(((thisWeek - lastWeek) / lastWeek) * 100)
+  })()
   const myMembership = members.find(m => m.userId === user.id)
   const canManageMembers = myMembership && (myMembership.role === 'OWNER' || myMembership.role === 'ADMIN')
 
@@ -569,8 +694,20 @@ export default function DashboardApp() {
           ))}
         </div>
       )}
+      {selectedWorkspaceId && (
+        <QuickCapture workspaces={workspaces} selectedWorkspaceId={selectedWorkspaceId} onCreated={loadTasks} onMessage={showMessage} />
+      )}
+      {focusTask && (
+        <FocusMode
+          task={focusTask}
+          onClose={() => setFocusTask(null)}
+          onComplete={handleFocusComplete}
+          onSubtaskToggle={handleSubtaskToggle}
+          onMessage={showMessage}
+        />
+      )}
       {mobileNavOpen && <div className="mobile-nav-backdrop" onClick={() => setMobileNavOpen(false)} />}
-      <aside className={`sidebar ${mobileNavOpen ? 'open' : ''}`}>
+      <aside className={`sidebar ${mobileNavOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
           <p className="eyebrow">Taskly</p>
           <h2>{user.firstname} {user.lastName}</h2>
@@ -578,9 +715,9 @@ export default function DashboardApp() {
         </div>
         <nav className="sidebar-nav">
           {navItems.map(({ page, icon: Icon }) => (
-            <button key={page} className={`nav-item ${navPage === page ? 'active' : ''}`} onClick={() => { setNavPage(page); setMobileNavOpen(false) }}>
+            <button key={page} className={`nav-item ${navPage === page ? 'active' : ''}`} onClick={() => { setNavPage(page); setMobileNavOpen(false) }} title={sidebarCollapsed ? t(page === 'tasks' ? 'myTasks' : page, settingsLang) : undefined}>
               <span className="nav-icon"><Icon size={17} strokeWidth={1.8} /></span>
-              <span>{t(page === 'tasks' ? 'myTasks' : page, settingsLang)}</span>
+              <span className="nav-label">{t(page === 'tasks' ? 'myTasks' : page, settingsLang)}</span>
             </button>
           ))}
         </nav>
@@ -598,6 +735,9 @@ export default function DashboardApp() {
           </div>
           <button className="logout-btn" onClick={logout} title="Sign out"><LogOut size={16} /></button>
         </div>
+        <button type="button" className="sidebar-collapse-btn" onClick={() => setSidebarCollapsed(v => !v)} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+          <ChevronLeft size={14} style={{ transform: sidebarCollapsed ? 'rotate(180deg)' : 'none', transition: 'transform 0.25s ease' }} />
+        </button>
       </aside>
 
       <div className="main-area">
@@ -669,10 +809,19 @@ export default function DashboardApp() {
 
           {navPage === 'dashboard' && (
             <>
+              <SmartDashboardHeader
+                firstname={user.firstname}
+                dueTodayCount={dueTodayCount}
+                overdueCount={overdueTasks.length}
+                upcomingCount={upcomingWeekCount}
+                productivityDeltaPercent={productivityDeltaPercent}
+                translations={{ morning: t('morning', settingsLang), afternoon: t('afternoon', settingsLang), evening: t('evening', settingsLang) }}
+              />
+
               <div className="dashboard-grid">
                 <div className="panel full-width">
                   <h2>{t('overview', settingsLang)}</h2>
-                  <StatSummaryCards counts={statusCounts} myTasks={myTasks.length} teamMembers={members.length} />
+                  {loadingDashboard ? <SkeletonStatCards /> : <StatSummaryCards counts={statusCounts} myTasks={myTasks.length} teamMembers={members.length} />}
                 </div>
               </div>
 
@@ -690,14 +839,18 @@ export default function DashboardApp() {
               <div className="dashboard-grid">
                 <div className="panel">
                   <h2>{t('recentTasks', settingsLang)}</h2>
-                  {tasks.slice(0, 5).map(tk => (
-                    <div key={tk.id} className="recent-task-item">
-                      <strong>{tk.title}</strong>
-                      <span className={`priority-badge ${tk.priority.toLowerCase()}`}>{tk.priority}</span>
-                      <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
-                    </div>
-                  ))}
-                  {tasks.length === 0 && <p className="empty-column">{t('noTasks', settingsLang)}</p>}
+                  {loadingDashboard ? <SkeletonList rows={3} /> : (
+                    <>
+                      {tasks.slice(0, 5).map(tk => (
+                        <div key={tk.id} className="recent-task-item">
+                          <strong>{tk.title}</strong>
+                          <span className={`priority-badge ${tk.priority.toLowerCase()}`}>{tk.priority}</span>
+                          <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
+                        </div>
+                      ))}
+                      {tasks.length === 0 && <p className="empty-column">{t('noTasks', settingsLang)}</p>}
+                    </>
+                  )}
                 </div>
 
                 <div className="panel">
@@ -733,6 +886,20 @@ export default function DashboardApp() {
                   ))}
                   {workspaces.length === 0 && <p className="empty-column">No workspaces yet</p>}
                 </div>
+              </div>
+
+              {workspacePlan.canUseAnalytics ? (
+                <InsightsPanel />
+              ) : (
+                <div className="panel full-width">
+                  <h2>Smart insights</h2>
+                  <p className="empty-column">Unlock productivity insights (productive hours, trends, recommendations) with a Premium or Team plan.</p>
+                </div>
+              )}
+
+              <div className="panel full-width">
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Trophy size={16} strokeWidth={1.8} /> Achievements</h2>
+                <AchievementsPanel />
               </div>
             </>
           )}
@@ -773,26 +940,37 @@ export default function DashboardApp() {
                   </label>
                 </div>
               )}
+              {workspacePlan.canUseRecurringTasks && (
+                <div style={{ marginBottom: 16 }}>
+                  <RecurrencePicker value={taskRecurrence} onChange={setTaskRecurrence} />
+                </div>
+              )}
               <div className="task-list">
-                {tasks.map(tk => (
-                  <div key={tk.id} className="task-list-item" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
-                    <div className="task-list-info">
-                      <strong>{tk.title}</strong>
-                      {tk.description && <span>{tk.description}</span>}
-                      <div className="task-list-meta">
-                        <span className={`priority-badge ${tk.priority.toLowerCase()}`}>{tk.priority}</span>
-                        <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
-                        {tk.dueDate && <span>Due: {new Date(tk.dueDate).toLocaleDateString()}</span>}
+                {tasks.map(tk => {
+                  const blocked = tk.dependsOn?.some(d => d.status !== 'COMPLETED')
+                  return (
+                    <div key={tk.id} className="task-list-item" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
+                      <div className="task-list-info">
+                        <strong>{tk.title}</strong>
+                        {tk.description && <span>{tk.description}</span>}
+                        <div className="task-list-meta">
+                          <span className={`priority-badge ${tk.priority.toLowerCase()}`}>{tk.priority}</span>
+                          <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
+                          {blocked && <span className="status-badge blocked">Blocked</span>}
+                          {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
+                          {tk.dueDate && <span>Due: {new Date(tk.dueDate).toLocaleDateString()}</span>}
+                        </div>
+                      </div>
+                      <div className="task-list-actions" onClick={e => e.stopPropagation()}>
+                        <button className="mini-btn" title="Focus on this task" onClick={() => openFocusMode(tk)}><Maximize2 size={13} /></button>
+                        <select value={tk.status} onChange={e => handleMoveTask(tk.id, e.target.value)}>
+                          {statusColumns.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                        </select>
+                        <button className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}><X size={13} /></button>
                       </div>
                     </div>
-                    <div className="task-list-actions" onClick={e => e.stopPropagation()}>
-                      <select value={tk.status} onChange={e => handleMoveTask(tk.id, e.target.value)}>
-                        {statusColumns.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-                      </select>
-                      <button className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}><X size={13} /></button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -817,21 +995,32 @@ export default function DashboardApp() {
                     <h3>{status.replace('_', ' ')}</h3>
                     {tasks.filter(tk => tk.status === status).length === 0
                       ? <p className="empty-column">No tasks</p>
-                      : tasks.filter(tk => tk.status === status).map(tk => (
-                        <div key={tk.id} className="task-card" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
-                          <strong>{tk.title}</strong>
-                          {tk.description && <p>{tk.description}</p>}
-                          <p className="task-meta">Priority: {tk.priority}</p>
-                          {tk.dueDate && <p className="task-meta">Due: {new Date(tk.dueDate).toLocaleDateString()}</p>}
-                          <div className="task-actions" onClick={e => e.stopPropagation()}>
-                            {statusColumns.filter(c => c !== status).map(ns => (
-                              <button key={ns} type="button" className="mini-btn" style={{ background: '#1c1f30', color: '#94a3b8' }}
-                                onClick={() => handleMoveTask(tk.id, ns)}>{ns.replace('_', ' ')}</button>
-                            ))}
-                            <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}><X size={13} /></button>
+                      : tasks.filter(tk => tk.status === status).map(tk => {
+                        const blocked = tk.dependsOn?.some(d => d.status !== 'COMPLETED')
+                        return (
+                          <div key={tk.id} className="task-card" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
+                            <strong>{tk.title}</strong>
+                            {tk.description && <p>{tk.description}</p>}
+                            <p className="task-meta">Priority: {tk.priority}</p>
+                            {tk.dueDate && <p className="task-meta">Due: {new Date(tk.dueDate).toLocaleDateString()}</p>}
+                            {(blocked || tk.isRecurring) && (
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                                {blocked && <span className="status-badge blocked">Blocked</span>}
+                                {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
+                              </div>
+                            )}
+                            <div className="task-actions" onClick={e => e.stopPropagation()}>
+                              <button type="button" className="mini-btn" title="Focus on this task" onClick={() => openFocusMode(tk)}><Maximize2 size={13} /></button>
+                              {statusColumns.filter(c => c !== status).map(ns => (
+                                <button key={ns} type="button" className="mini-btn" style={{ background: '#1c1f30', color: '#94a3b8' }}
+                                  disabled={ns === 'COMPLETED' && blocked}
+                                  onClick={() => handleMoveTask(tk.id, ns)}>{ns.replace('_', ' ')}</button>
+                              ))}
+                              <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)}><X size={13} /></button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                   </div>
                 ))}
               </div>
@@ -842,6 +1031,17 @@ export default function DashboardApp() {
             <div className="panel full-width">
               <h2>Calendar</h2>
               <TaskCalendar tasks={tasks} onTaskClick={id => setSelectedTask(tasks.find(tk => tk.id === id) || null)} />
+            </div>
+          )}
+
+          {navPage === 'workload' && (
+            <div className="panel full-width">
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Gauge size={16} strokeWidth={1.8} /> {t('workload', settingsLang)}</h2>
+              {workspacePlan.canUseAnalytics ? (
+                <WorkloadCharts workspaceId={selectedWorkspaceId} canSeeTeam={!!canManageMembers || myMembership?.role === 'MANAGER'} currentUserId={user.id} />
+              ) : (
+                <p className="empty-column">Workload visualization requires a Premium or Team plan.</p>
+              )}
             </div>
           )}
 
@@ -940,12 +1140,41 @@ export default function DashboardApp() {
                 <h2>Completed this week</h2>
                 <CompletionTrendChart data={trendData} />
               </div>
+
+              <div className="panel full-width">
+                <h2>Advanced reporting</h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 0 }}>
+                  Generate a productivity report (summary, by team member, by workspace) for this workspace, optionally scoped to a date range.
+                </p>
+                <div className="stack-form" style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.78rem', color: '#94a3b8' }}>From
+                    <input type="date" value={reportFrom} onChange={e => setReportFrom(e.target.value)} style={{ marginLeft: 6 }} />
+                  </label>
+                  <label style={{ fontSize: '0.78rem', color: '#94a3b8' }}>To
+                    <input type="date" value={reportTo} onChange={e => setReportTo(e.target.value)} style={{ marginLeft: 6 }} />
+                  </label>
+                  <button type="button" className="mini-btn secondary-btn" onClick={() => handleExport('report', 'pdf', { from: reportFrom, to: reportTo })}><Download size={13} /> PDF</button>
+                  <button type="button" className="mini-btn secondary-btn" onClick={() => handleExport('report', 'xlsx', { from: reportFrom, to: reportTo })}><Download size={13} /> Excel</button>
+                  <button type="button" className="mini-btn secondary-btn" onClick={() => handleExport('report', 'csv', { from: reportFrom, to: reportTo })}><Download size={13} /> CSV</button>
+                </div>
+              </div>
             </div>
           )}
 
           {navPage === 'activity' && (
             <div className="panel full-width">
               <h2>{t('activity', settingsLang)}</h2>
+              <div className="stack-form" style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                <label className="audit-search-input">
+                  <Search size={14} strokeWidth={1.8} />
+                  <input value={activitySearch} onChange={e => setActivitySearch(e.target.value)} placeholder="Search activity…" aria-label="Search activity log" />
+                </label>
+                <input type="date" value={activityFrom} onChange={e => setActivityFrom(e.target.value)} aria-label="From date" />
+                <input type="date" value={activityTo} onChange={e => setActivityTo(e.target.value)} aria-label="To date" />
+                {(activitySearch || activityFrom || activityTo) && (
+                  <button type="button" className="mini-btn" onClick={() => { setActivitySearch(''); setActivityFrom(''); setActivityTo('') }}>Clear</button>
+                )}
+              </div>
               {activityLog.length === 0 ? <p className="empty-column">No activity yet</p> : (
                 <div className="task-list">
                   {activityLog.map(entry => (
@@ -1159,10 +1388,18 @@ export default function DashboardApp() {
             <span className={`status-badge ${selectedTask.status.toLowerCase()}`}>{selectedTask.status.replace('_', ' ')}</span>
           </div>
           {selectedTask.dueDate && <p style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Due {new Date(selectedTask.dueDate).toLocaleString()}</p>}
-          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            <select value={selectedTask.status} onChange={e => { handleMoveTask(selectedTask.id, e.target.value); setSelectedTask({ ...selectedTask, status: e.target.value }) }}>
+          {selectedTask.dependsOn?.some(d => d.status !== 'COMPLETED') && (
+            <p style={{ fontSize: '0.8rem', color: '#f87171' }}>Blocked by {selectedTask.dependsOn.filter(d => d.status !== 'COMPLETED').map(d => d.title).join(', ')}</p>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+            <select
+              value={selectedTask.status}
+              disabled={selectedTask.dependsOn?.some(d => d.status !== 'COMPLETED')}
+              onChange={e => { handleMoveTask(selectedTask.id, e.target.value); setSelectedTask({ ...selectedTask, status: e.target.value }) }}
+            >
               {statusColumns.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
             </select>
+            <button type="button" className="mini-btn" onClick={() => openFocusMode(selectedTask)}><Maximize2 size={13} /> Focus mode</button>
             <button type="button" className="mini-btn danger-btn" onClick={() => { handleDeleteTask(selectedTask.id); setSelectedTask(null) }}>Delete task</button>
           </div>
           <TaskDetailPanel
@@ -1173,6 +1410,13 @@ export default function DashboardApp() {
             onMessage={showMessage}
             dueDate={selectedTask.dueDate}
             assignedToId={selectedTask.assignedToId}
+            dependsOn={selectedTask.dependsOn || []}
+            blocks={selectedTask.blocks || []}
+            workspaceTasks={tasks.map(tk => ({ id: tk.id, title: tk.title, status: tk.status }))}
+            recurrence={taskToRecurrence(selectedTask)}
+            canUseDependencies={workspacePlan.canUseDependencies}
+            canUseRecurringTasks={workspacePlan.canUseRecurringTasks}
+            onTaskUpdated={() => { loadTasks(); }}
           />
         </Modal>
       )}

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlarmClock, Paperclip, Send, X } from 'lucide-react'
+import { AlarmClock, GitBranch, Paperclip, Repeat, Send, X } from 'lucide-react'
 import { authFetch, getStoredToken, jsonHeaders } from '../lib/api'
 import { REMINDER_OFFSETS, type ReminderSchedule } from '../lib/reminders'
+import type { RecurrenceConfig } from '../lib/recurrence'
+import DependencyPicker from './DependencyPicker'
+import RecurrencePicker from './RecurrencePicker'
+
+type DepTask = { id: string; title: string; status: string }
 
 type Comment = {
   id: string
@@ -23,7 +28,10 @@ const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes
 // (canUseFileAttachments); a 403 with upgradeRequired is surfaced through the
 // shared `onMessage` toast rather than a bespoke paywall UI, consistent with
 // how the rest of the dashboard reports permission errors today.
-export default function TaskDetailPanel({ taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId }: {
+export default function TaskDetailPanel({
+  taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId,
+  dependsOn, blocks, workspaceTasks, recurrence, canUseDependencies, canUseRecurringTasks, onTaskUpdated,
+}: {
   taskId: string
   workspaceId: string
   currentUserId: string
@@ -31,6 +39,13 @@ export default function TaskDetailPanel({ taskId, workspaceId, currentUserId, ca
   onMessage: (msg: string, type?: 'info' | 'success' | 'error') => void
   dueDate?: string | null
   assignedToId?: string | null
+  dependsOn: DepTask[]
+  blocks: DepTask[]
+  workspaceTasks: DepTask[]
+  recurrence: RecurrenceConfig
+  canUseDependencies: boolean
+  canUseRecurringTasks: boolean
+  onTaskUpdated: () => void
 }) {
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
@@ -38,6 +53,11 @@ export default function TaskDetailPanel({ taskId, workspaceId, currentUserId, ca
   const [uploading, setUploading] = useState(false)
   const [reminders, setReminders] = useState<ReminderSchedule[]>([])
   const [customReminderAt, setCustomReminderAt] = useState('')
+  const [recurrenceDraft, setRecurrenceDraft] = useState<RecurrenceConfig>(recurrence)
+  const [savingRecurrence, setSavingRecurrence] = useState(false)
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setRecurrenceDraft(recurrence) }, [recurrence])
 
   const loadComments = useCallback(async () => {
     try {
@@ -101,6 +121,34 @@ export default function TaskDetailPanel({ taskId, workspaceId, currentUserId, ca
       await loadReminders()
       onMessage('Reminder snoozed for 10 minutes', 'success')
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to snooze reminder', 'error') }
+  }
+
+  const updateDependsOn = async (ids: string[]) => {
+    try {
+      await authFetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ dependsOn: ids }) })
+      onTaskUpdated()
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to update dependencies', 'error') }
+  }
+
+  const saveRecurrence = async () => {
+    setSavingRecurrence(true)
+    try {
+      await authFetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH', headers: jsonHeaders,
+        body: JSON.stringify({
+          isRecurring: recurrenceDraft.isRecurring,
+          recurrenceRule: recurrenceDraft.isRecurring ? recurrenceDraft.recurrenceRule : null,
+          recurrenceInterval: recurrenceDraft.isRecurring ? recurrenceDraft.recurrenceInterval : null,
+          recurrenceDaysOfWeek: recurrenceDraft.isRecurring ? recurrenceDraft.recurrenceDaysOfWeek : [],
+          recurrenceBusinessDaysOnly: recurrenceDraft.isRecurring ? recurrenceDraft.recurrenceBusinessDaysOnly : false,
+          recurrenceEndDate: recurrenceDraft.isRecurring && recurrenceDraft.recurrenceEndDate ? recurrenceDraft.recurrenceEndDate : null,
+          recurrenceCount: recurrenceDraft.isRecurring && recurrenceDraft.recurrenceCount ? recurrenceDraft.recurrenceCount : null,
+        }),
+      })
+      onMessage('Recurrence updated', 'success')
+      onTaskUpdated()
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to update recurrence', 'error') }
+    finally { setSavingRecurrence(false) }
   }
 
   const handleAddComment = async (e: FormEvent<HTMLFormElement>) => {
@@ -193,6 +241,23 @@ export default function TaskDetailPanel({ taskId, workspaceId, currentUserId, ca
               ))}
             </div>
           )}
+        </>
+      )}
+
+      {canUseDependencies && (
+        <>
+          <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><GitBranch size={14} strokeWidth={1.8} /> Dependencies</h3>
+          <DependencyPicker taskId={taskId} candidateTasks={workspaceTasks} dependsOn={dependsOn} blocks={blocks} onChange={updateDependsOn} />
+        </>
+      )}
+
+      {canUseRecurringTasks && (
+        <>
+          <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Repeat size={14} strokeWidth={1.8} /> Recurrence</h3>
+          <RecurrencePicker value={recurrenceDraft} onChange={setRecurrenceDraft} />
+          <button type="button" className="mini-btn" style={{ marginTop: 8 }} onClick={saveRecurrence} disabled={savingRecurrence}>
+            {savingRecurrence ? 'Saving…' : 'Save recurrence'}
+          </button>
         </>
       )}
 

@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
+import { getWorkspacePlan } from "../../utils/plan.js";
 
 type AuthedRequest = Request & { user?: { id: string; email: string } };
 
@@ -13,6 +14,10 @@ export const getInsights = async (req: AuthedRequest, res: Response) => {
         }
 
         const memberships = await prisma.workspaceMember.findMany({ where: { userId: authUser.id }, select: { workspaceId: true } });
+        const plans = await Promise.all(memberships.map((m) => getWorkspacePlan(m.workspaceId)));
+        if (!plans.some((p) => p.canUseAnalytics)) {
+            return res.status(403).json({ message: "Smart insights require a plan upgrade.", upgradeRequired: true, feature: "canUseAnalytics" });
+        }
         const workspaceIds = memberships.map((m) => m.workspaceId);
 
         const completed = await prisma.task.findMany({
