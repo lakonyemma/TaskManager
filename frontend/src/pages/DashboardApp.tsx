@@ -13,10 +13,18 @@ import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sen
 import { REMINDER_OFFSETS } from '../lib/reminders'
 import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
 import { cacheTasks, getCachedTasks, getOutboxCount, isOnline, queueMutation, syncOutbox, upsertCachedTask } from '../lib/offline'
-import { StatSummaryCards, StatusDoughnutChart, StatusBarChart, CompletionTrendChart, type StatusCounts, type TrendPoint } from '../components/TaskCharts'
+import { StatSummaryCards } from '../components/StatSummaryCards'
+import type { StatusCounts, TrendPoint } from '../components/TaskCharts'
 import Modal from '../components/Modal'
 import TaskDetailPanel from '../components/TaskDetailPanel'
-import { SkeletonChart } from '../components/Skeleton'
+import RecurrencePicker from '../components/RecurrencePicker'
+import QuickCapture from '../components/QuickCapture'
+import FocusMode, { type FocusTask } from '../components/FocusMode'
+import SmartDashboardHeader from '../components/SmartDashboardHeader'
+import AchievementsPanel from '../components/AchievementsPanel'
+import InstallPrompt from '../components/InstallPrompt'
+import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
+import { SkeletonChart, SkeletonList, SkeletonStatCards } from '../components/Skeleton'
 
 // FullCalendar (TaskCalendar) and the billing/checkout UI are each sizeable
 // and only needed on their own tab — code-split out of the main
@@ -24,16 +32,20 @@ import { SkeletonChart } from '../components/Skeleton'
 // Tasks/Boards/Dashboard doesn't pay for either.
 const TaskCalendar = lazy(() => import('../components/TaskCalendar'))
 const BillingPanel = lazy(() => import('../components/BillingPanel'))
-import RecurrencePicker from '../components/RecurrencePicker'
-import QuickCapture from '../components/QuickCapture'
-import FocusMode, { type FocusTask } from '../components/FocusMode'
-import SmartDashboardHeader from '../components/SmartDashboardHeader'
-import WorkloadCharts from '../components/WorkloadCharts'
-import InsightsPanel from '../components/InsightsPanel'
-import AchievementsPanel from '../components/AchievementsPanel'
-import InstallPrompt from '../components/InstallPrompt'
-import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
-import { SkeletonList, SkeletonStatCards } from '../components/Skeleton'
+
+// recharts alone is ~356KB — the single largest dependency in the app — and
+// was previously loaded eagerly just by DashboardApp importing TaskCharts
+// and InsightsPanel/WorkloadCharts, meaning it blocked the very first
+// screen after login (the Dashboard tab renders two of these charts
+// immediately). Splitting each chart out as its own lazy() still resolves
+// to one shared TaskCharts chunk (Vite dedupes repeated dynamic imports of
+// the same module), loaded once, only when a page that actually renders a
+// chart is visited.
+const StatusDoughnutChart = lazy(() => import('../components/TaskCharts').then(m => ({ default: m.StatusDoughnutChart })))
+const StatusBarChart = lazy(() => import('../components/TaskCharts').then(m => ({ default: m.StatusBarChart })))
+const CompletionTrendChart = lazy(() => import('../components/TaskCharts').then(m => ({ default: m.CompletionTrendChart })))
+const WorkloadCharts = lazy(() => import('../components/WorkloadCharts'))
+const InsightsPanel = lazy(() => import('../components/InsightsPanel'))
 import '../App.css'
 
 type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'billing' | 'workload'
@@ -939,11 +951,11 @@ export default function DashboardApp() {
               <div className="dashboard-grid">
                 <div className="panel">
                   <h2>{t('progress', settingsLang)}</h2>
-                  <StatusDoughnutChart counts={statusCounts} />
+                  <Suspense fallback={<SkeletonChart />}><StatusDoughnutChart counts={statusCounts} /></Suspense>
                 </div>
                 <div className="panel">
                   <h2>Completed this week</h2>
-                  <CompletionTrendChart data={trendData} />
+                  <Suspense fallback={<SkeletonChart />}><CompletionTrendChart data={trendData} /></Suspense>
                 </div>
               </div>
 
@@ -1000,7 +1012,7 @@ export default function DashboardApp() {
               </div>
 
               {workspacePlan.canUseAnalytics ? (
-                <InsightsPanel />
+                <Suspense fallback={<SkeletonChart />}><InsightsPanel /></Suspense>
               ) : (
                 <div className="panel full-width">
                   <h2>Smart insights</h2>
@@ -1140,7 +1152,9 @@ export default function DashboardApp() {
             <div className="panel full-width">
               <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Gauge size={16} strokeWidth={1.8} /> {t('workload', settingsLang)}</h2>
               {workspacePlan.canUseAnalytics ? (
-                <WorkloadCharts workspaceId={selectedWorkspaceId} canSeeTeam={!!canManageMembers || myMembership?.role === 'MANAGER'} currentUserId={user.id} />
+                <Suspense fallback={<SkeletonChart />}>
+                  <WorkloadCharts workspaceId={selectedWorkspaceId} canSeeTeam={!!canManageMembers || myMembership?.role === 'MANAGER'} currentUserId={user.id} />
+                </Suspense>
               ) : (
                 <p className="empty-column">Workload visualization requires a Premium or Team plan.</p>
               )}
@@ -1230,17 +1244,17 @@ export default function DashboardApp() {
 
               <div className="panel">
                 <h2>Completion rate</h2>
-                <StatusDoughnutChart counts={reportStatusCounts} />
+                <Suspense fallback={<SkeletonChart />}><StatusDoughnutChart counts={reportStatusCounts} /></Suspense>
               </div>
 
               <div className="panel">
                 <h2>Tasks by status</h2>
-                <StatusBarChart counts={{ ...reportStatusCounts, review: reviewTasks }} />
+                <Suspense fallback={<SkeletonChart />}><StatusBarChart counts={{ ...reportStatusCounts, review: reviewTasks }} /></Suspense>
               </div>
 
               <div className="panel full-width">
                 <h2>Completed this week</h2>
-                <CompletionTrendChart data={trendData} />
+                <Suspense fallback={<SkeletonChart />}><CompletionTrendChart data={trendData} /></Suspense>
               </div>
 
               <div className="panel full-width">

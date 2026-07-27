@@ -1358,10 +1358,6 @@ textarea:focus { border-color: #a78bfa; }
 }
 
 /* ─── Sidebar collapse ─── */
-.sidebar {
-  position: relative;
-  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), padding 0.25s ease;
-}
 .sidebar-collapse-btn {
   position: absolute;
   top: 20px;
@@ -1385,6 +1381,17 @@ textarea:focus { border-color: #a78bfa; }
    which owns its own width/position; letting `.collapsed` apply there too
    would shrink that drawer to icon-only underneath it. */
 @media (min-width: 961px) {
+  /* position:relative (for the collapse button's absolute positioning) must
+     stay scoped to desktop too — an earlier, unconditional version of this
+     rule sat later in the cascade than the 900px mobile-drawer media query
+     below and won the tie on equal specificity regardless of viewport,
+     silently flipping the drawer from position:fixed back to relative on
+     phones. It stayed translated off-screen (the transform still applied)
+     but never left normal document flow, so its ~260px width kept reserving
+     real layout space and shoved every other page element to the right —
+     exactly the "everything is pushed to the right" bug reported on a real
+     phone. */
+  .sidebar { position: relative; transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), padding 0.25s ease; }
   .sidebar-collapse-btn { display: flex; }
   .sidebar.collapsed { width: 76px; padding-left: 10px; padding-right: 10px; }
   .sidebar.collapsed .sidebar-header .eyebrow,
