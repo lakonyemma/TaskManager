@@ -20,6 +20,11 @@ import { stripeWebhook } from "./features/billing/paymentsController.js";
 import pushRoutes from "./features/push/pushRoutes.js";
 import reminderRoutes from "./features/reminders/reminderRoutes.js";
 import { startReminderWorker } from "./features/reminders/reminderWorker.js";
+import achievementRoutes from "./features/achievements/achievementRoutes.js";
+import insightsRoutes from "./features/insights/insightsRoutes.js";
+import workloadRoutes from "./features/workload/workloadRoutes.js";
+import captureRoutes from "./features/capture/captureRoutes.js";
+import { ensureAchievementsSeeded } from "./features/achievements/achievementService.js";
 import { errorHandler } from "./shared/errorHandler.js";
 
 dotenv.config();
@@ -73,6 +78,10 @@ app.use("/api/billing", billingRoutes);
 app.use("/api/payments", paymentsRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/reminders", reminderRoutes);
+app.use("/api/achievements", achievementRoutes);
+app.use("/api/insights", insightsRoutes);
+app.use("/api/workload", workloadRoutes);
+app.use("/api/capture", captureRoutes);
 
 app.use((_req, res) => {
     res.status(404).json({ message: "Route not found" });
@@ -84,4 +93,5 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startReminderWorker();
+    ensureAchievementsSeeded().catch((error) => console.error("[achievements] Failed to seed catalog:", error));
 });

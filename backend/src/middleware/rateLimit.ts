@@ -21,3 +21,15 @@ export const invitationRateLimiter = rateLimit({
     keyGenerator: (req: Request) => (req as Request & { user?: { id: string } }).user?.id || ipKeyGenerator(req.ip || "unknown"),
     message: { message: "Too many invitations sent. Please try again later." },
 });
+
+// Generous but present — Quick Capture calls this while the user types, so
+// it needs headroom for legitimate interactive use while still bounding
+// abuse of a CPU-bound parsing endpoint.
+export const captureRateLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => (req as Request & { user?: { id: string } }).user?.id || ipKeyGenerator(req.ip || "unknown"),
+    message: { message: "Too many requests. Please slow down." },
+});

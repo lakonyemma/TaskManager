@@ -56,9 +56,11 @@ export const getReports = async (req: AuthedRequest, res: Response) => {
             day.setDate(day.getDate() - i);
             const nextDay = new Date(day);
             nextDay.setDate(day.getDate() + 1);
-            const completedThatDay = tasks.filter(
-                (task) => task.status === "COMPLETED" && task.updatedAt >= day && task.updatedAt < nextDay,
-            ).length;
+            const completedThatDay = tasks.filter((task) => {
+                if (task.status !== "COMPLETED") return false;
+                const completedOn = task.completedAt ?? task.updatedAt;
+                return completedOn >= day && completedOn < nextDay;
+            }).length;
             trend.push({ date: day.toISOString().slice(0, 10), completed: completedThatDay });
         }
 

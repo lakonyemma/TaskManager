@@ -36,6 +36,7 @@ model User {
   pushSubscriptions      PushSubscription[]
   notificationPreference NotificationPreference?
   reminderSchedules      ReminderSchedule[]
+  userAchievements       UserAchievement[]
 }
 
 model Session {
@@ -84,20 +85,37 @@ model WorkspaceMember {
 }
 
 model Task {
-  id             String          @id @default(uuid())
-  title          String
-  description    String?
-  priority       TaskPriority    @default(MEDIUM)
-  status         TaskStatus      @default(TODO)
-  dueDate        DateTime?
-  workspaceId    String
-  assignedToId   String?
-  labels         String[]        @default([])
-  parentTaskId   String?
-  isRecurring    Boolean         @default(false)
-  recurrenceRule RecurrenceRule?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id                         String          @id @default(uuid())
+  title                      String
+  description                String?
+  priority                   TaskPriority    @default(MEDIUM)
+  status                     TaskStatus      @default(TODO)
+  dueDate                    DateTime?
+  completedAt                DateTime?
+  estimatedMinutes           Int?
+  // Client-generated idempotency key for offline-created tasks — lets the
+  // sync layer safely retry a "create" mutation (e.g. after a dropped
+  // response) without producing a duplicate task.
+  clientId                   String?         @unique
+  workspaceId                String
+  assignedToId               String?
+  labels                     String[]        @default([])
+  parentTaskId               String?
+  isRecurring                Boolean         @default(false)
+  recurrenceRule             RecurrenceRule?
+  // Recurrence engine config (only meaningful when isRecurring is true).
+  // interval multiplies the base unit ("every N days/weeks/months/years");
+  // daysOfWeek (0=Sun..6=Sat) restricts a WEEKLY rule to specific weekdays;
+  // businessDaysOnly skips generated occurrences that land on a weekend.
+  recurrenceInterval         Int?
+  recurrenceDaysOfWeek       Int[]           @default([])
+  recurrenceBusinessDaysOnly Boolean         @default(false)
+  recurrenceEndDate          DateTime?
+  recurrenceCount            Int?
+  recurrenceOccurrenceNumber Int             @default(1)
+  recurrenceParentId         String?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
 
   workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedTo        User?              @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
@@ -110,8 +128,15 @@ model Task {
   parentTask Task?  @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
   subtasks   Task[] @relation("Subtasks")
 
+  recurrenceParent   Task?  @relation("RecurrenceChain", fields: [recurrenceParentId], references: [id], onDelete: SetNull)
+  recurrenceChildren Task[] @relation("RecurrenceChain")
+
   dependsOn Task[] @relation("TaskDependencies")
   blocks    Task[] @relation("TaskDependencies")
+
+  @@index([workspaceId, status])
+  @@index([assignedToId, status])
+  @@index([workspaceId, dueDate])
 }
 
 model Comment {
@@ -156,6 +181,9 @@ model ActivityLog {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   task      Task?      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model Notification {
@@ -204,6 +232,34 @@ model NotificationPreference {
   updatedAt              DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Static catalog of achievements (streaks, milestones). Seeded idempotently
+// at server boot (see achievementService.ensureAchievementsSeeded) rather
+// than requiring a manual seed run, so the catalog is always present.
+model Achievement {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String
+  icon        String
+  createdAt   DateTime @default(now())
+
+  userAchievements UserAchievement[]
+}
+
+// One row per (user, achievement) the user has actually earned — earning is
+// permanent once granted, so this doubles as the "earned at" audit record.
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String
+  achievementId String
+  earnedAt      DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
 }
 
 // A single scheduled reminder for one user on one task. Offset-based
