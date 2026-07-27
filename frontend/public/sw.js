@@ -1,11 +1,19 @@
 // Taskly service worker — handles Web Push delivery while the app is
-// closed/backgrounded, plus the action buttons on a delivered notification.
-// Plain classic-script JS (not an ES module) so it needs no build step and
-// works from a static /sw.js registration.
+// closed/backgrounded, the action buttons on a delivered notification, and
+// (below) PWA asset/API caching for offline use. Plain classic-script JS
+// (not an ES module) so it needs no build step and works from a static
+// /sw.js registration — there's no Workbox/vite-plugin-pwa here by design,
+// since this file already owns push delivery and a generated SW would
+// either conflict with it or need `injectManifest` wired around it.
 
 const DB_NAME = 'taskly-sw';
 const STORE_NAME = 'kv';
 const TOKEN_KEY = 'accessToken';
+
+// Bump these to invalidate old caches on the next deploy.
+const STATIC_CACHE = 'taskly-static-v1';
+const API_CACHE = 'taskly-api-v1';
+const CACHE_ALLOWLIST = [STATIC_CACHE, API_CACHE];
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -67,12 +75,73 @@ function arrayBufferToBase64Url(buffer) {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
   self.skipWaiting();
+  // Precache the app shell so a cold offline load still renders something
+  // instead of the browser's own offline error page.
+  event.waitUntil(
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(['/', '/manifest.json', '/favicon.svg'])).catch(() => {}),
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    Promise.all([
+      self.clients.claim(),
+      caches.keys().then((names) => Promise.all(names.filter((n) => !CACHE_ALLOWLIST.includes(n)).map((n) => caches.delete(n)))),
+    ]),
+  );
+});
+
+const isNavigationRequest = (request) => request.mode === 'navigate';
+const isStaticAsset = (url) => url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/') || url.pathname === '/manifest.json' || url.pathname === '/favicon.svg';
+const isApiGet = (request, url) => request.method === 'GET' && url.pathname.startsWith('/api/');
+
+// Network-first: try the network, cache a copy of anything that succeeds,
+// fall back to the cache when offline. Used for the app shell (HTML) and
+// API GETs so both "reload while offline" and "view previously-loaded
+// tasks/notifications while offline" work.
+async function networkFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) cache.put(request, response.clone());
+    return response;
+  } catch (err) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
+// Cache-first: Vite's hashed asset filenames are immutable once built, so
+// there's no reason to hit the network again once we have one cached copy.
+async function cacheFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response && response.ok) cache.put(request, response.clone());
+  return response;
+}
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return; // never intercept mutations
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return; // same-origin only
+
+  if (isNavigationRequest(request)) {
+    event.respondWith(networkFirst(request, STATIC_CACHE).catch(() => caches.match('/')));
+    return;
+  }
+  if (isStaticAsset(url)) {
+    event.respondWith(cacheFirst(request, STATIC_CACHE));
+    return;
+  }
+  if (isApiGet(request, url)) {
+    event.respondWith(networkFirst(request, API_CACHE));
+  }
 });
 
 // Fired whenever the push service delivers a message — this is what makes

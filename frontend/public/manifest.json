@@ -1,0 +1,16 @@
+{
+  "name": "Taskly — Task & Team Management",
+  "short_name": "Taskly",
+  "description": "A premium task and team management platform.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0e27",
+  "theme_color": "#0a0e27",
+  "icons": [
+    { "src": "/icons/notification-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/notification-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "categories": ["productivity", "business"]
+}

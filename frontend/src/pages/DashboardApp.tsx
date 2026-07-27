@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
-  CreditCard, Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft,
+  CreditCard, Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -11,6 +11,7 @@ import { authFetch, getStoredToken, jsonHeaders, SessionExpiredError } from '../
 import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sendTestPush, subscribeToPush, unsubscribeFromPush, type ServiceWorkerMessage } from '../lib/push'
 import { REMINDER_OFFSETS } from '../lib/reminders'
 import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
+import { cacheTasks, getCachedTasks, getOutboxCount, isOnline, queueMutation, syncOutbox, upsertCachedTask } from '../lib/offline'
 import { StatSummaryCards, StatusDoughnutChart, StatusBarChart, CompletionTrendChart, type StatusCounts, type TrendPoint } from '../components/TaskCharts'
 import TaskCalendar from '../components/TaskCalendar'
 import Modal from '../components/Modal'
@@ -23,6 +24,7 @@ import SmartDashboardHeader from '../components/SmartDashboardHeader'
 import WorkloadCharts from '../components/WorkloadCharts'
 import InsightsPanel from '../components/InsightsPanel'
 import AchievementsPanel from '../components/AchievementsPanel'
+import InstallPrompt from '../components/InstallPrompt'
 import { SkeletonList, SkeletonStatCards } from '../components/Skeleton'
 import '../App.css'
 
@@ -190,6 +192,8 @@ export default function DashboardApp() {
   const [activityFrom, setActivityFrom] = useState('')
   const [activityTo, setActivityTo] = useState('')
   const [loadingDashboard, setLoadingDashboard] = useState(true)
+  const [isOffline, setIsOffline] = useState(!isOnline())
+  const [pendingSyncCount, setPendingSyncCount] = useState(0)
 
   // Settings state — seeded once from the authenticated user (ProtectedRoute
   // guarantees `user` is already loaded before this component mounts).
@@ -230,9 +234,25 @@ export default function DashboardApp() {
 
   const loadTasks = useCallback(async () => {
     if (!selectedWorkspaceId) return
-    try { const d = await request(`/api/tasks?workspaceId=${selectedWorkspaceId}`) as { tasks: Task[] }; setTasks(d.tasks || []) }
-    catch { setTasks([]) }
-    finally { setLoadingDashboard(false) }
+    try {
+      const d = await request(`/api/tasks?workspaceId=${selectedWorkspaceId}`) as { tasks: Task[] }
+      setTasks(d.tasks || [])
+      setIsOffline(false)
+      void cacheTasks(selectedWorkspaceId, d.tasks || [])
+    } catch (err) {
+      // A TypeError from `fetch` itself (not an HTTP error response) means
+      // the network is unreachable — fall back to whatever we last cached
+      // for this workspace instead of clearing the list to empty.
+      if (err instanceof TypeError) {
+        setIsOffline(true)
+        const cached = await getCachedTasks(selectedWorkspaceId)
+        setTasks(cached as unknown as Task[])
+      } else {
+        setTasks([])
+      }
+    } finally {
+      setLoadingDashboard(false)
+    }
   }, [request, selectedWorkspaceId])
 
   const loadPlan = useCallback(async () => {
@@ -316,6 +336,28 @@ export default function DashboardApp() {
     return () => clearInterval(interval)
   }, [loadNotifs])
 
+  // Offline sync: replay whatever's queued the moment the browser reports
+  // connectivity again, then refresh from the server and let the user know
+  // it actually happened (requirement: "notify users of successful sync").
+  useEffect(() => {
+    const handleOnline = async () => {
+      setIsOffline(false)
+      const { synced, failed } = await syncOutbox(request)
+      if (synced > 0) {
+        showMessage(`Synced ${synced} offline change${synced === 1 ? '' : 's'}`, 'success')
+        await loadTasks()
+      }
+      if (failed > 0) showMessage('Some offline changes could not be synced yet', 'error')
+      setPendingSyncCount(await getOutboxCount())
+    }
+    const handleOffline = () => setIsOffline(true)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    getOutboxCount().then(setPendingSyncCount)
+    return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request])
+
   // Requirement: "Request notification permission from users after login."
   // DashboardApp only mounts once ProtectedRoute confirms an authenticated
   // user, so a one-time permission prompt here satisfies that without
@@ -391,11 +433,32 @@ export default function DashboardApp() {
         if (taskRecurrence.recurrenceEndDate) body.recurrenceEndDate = taskRecurrence.recurrenceEndDate
         if (taskRecurrence.recurrenceCount) body.recurrenceCount = taskRecurrence.recurrenceCount
       }
-      await request('/api/tasks', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) })
-      setTaskTitle(''); setTaskDescription(''); setTaskPriority('MEDIUM'); setTaskDueDate(''); setTaskTime(''); setTaskAssignedTo('')
-      setTaskReminderOffsets(notifPrefs.defaultReminderMinutes.length ? notifPrefs.defaultReminderMinutes : [15]); setTaskCustomReminderAt('')
-      setTaskRecurrence(DEFAULT_RECURRENCE)
-      await loadTasks(); showMessage('Task added', 'success')
+      const resetForm = () => {
+        setTaskTitle(''); setTaskDescription(''); setTaskPriority('MEDIUM'); setTaskDueDate(''); setTaskTime(''); setTaskAssignedTo('')
+        setTaskReminderOffsets(notifPrefs.defaultReminderMinutes.length ? notifPrefs.defaultReminderMinutes : [15]); setTaskCustomReminderAt('')
+        setTaskRecurrence(DEFAULT_RECURRENCE)
+      }
+
+      try {
+        await request('/api/tasks', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) })
+        resetForm()
+        await loadTasks(); showMessage('Task added', 'success')
+      } catch (err) {
+        if (!(err instanceof TypeError)) throw err
+        // Offline: queue the create and show it locally right away — synced
+        // automatically once connectivity returns (see the 'online' effect).
+        const clientId = crypto.randomUUID()
+        await queueMutation({ type: 'create', clientId, workspaceId: selectedWorkspaceId, payload: body })
+        const optimisticTask: Task = {
+          id: `offline-${clientId}`, title: taskTitle, description: taskDescription, status: 'TODO', priority: taskPriority,
+          workspaceId: selectedWorkspaceId, dueDate: dueDateTime, assignedToId: taskAssignedTo || null,
+        }
+        setTasks(prev => [optimisticTask, ...prev])
+        await upsertCachedTask(optimisticTask as unknown as Record<string, unknown> & { id: string; workspaceId: string })
+        setPendingSyncCount(await getOutboxCount())
+        resetForm()
+        showMessage("You're offline — task saved locally and will sync automatically", 'info')
+      }
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create task', 'error') }
   }
 
@@ -411,7 +474,20 @@ export default function DashboardApp() {
       } else if (d.nextOccurrence) {
         showMessage(`Task completed — next occurrence scheduled for ${new Date(d.nextOccurrence.dueDate).toLocaleDateString()}`, 'success')
       }
-    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update task', 'error') }
+    } catch (err) {
+      if (!(err instanceof TypeError)) {
+        showMessage(err instanceof Error ? err.message : 'Unable to update task', 'error')
+        return
+      }
+      // Offline: queue the status change and reflect it immediately.
+      await queueMutation({ type: 'update', taskId, payload: { status: nextStatus } })
+      const updated = tasks.map(tk => tk.id === taskId ? { ...tk, status: nextStatus, completedAt: nextStatus === 'COMPLETED' ? new Date().toISOString() : null } : tk)
+      setTasks(updated)
+      const changed = updated.find(tk => tk.id === taskId)
+      if (changed) await upsertCachedTask(changed as unknown as Record<string, unknown> & { id: string; workspaceId: string })
+      setPendingSyncCount(await getOutboxCount())
+      showMessage("You're offline — change saved locally and will sync automatically", 'info')
+    }
   }
 
   const handleSubtaskToggle = async (subtaskId: string, completed: boolean) => {
@@ -697,6 +773,7 @@ export default function DashboardApp() {
       {selectedWorkspaceId && (
         <QuickCapture workspaces={workspaces} selectedWorkspaceId={selectedWorkspaceId} onCreated={loadTasks} onMessage={showMessage} />
       )}
+      <InstallPrompt />
       {focusTask && (
         <FocusMode
           task={focusTask}
@@ -802,6 +879,19 @@ export default function DashboardApp() {
                   <button type="button" className="mini-btn accept-btn" onClick={() => handleAcceptInvitation(inv.token)}>Accept</button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {isOffline && (
+            <div className="offline-banner">
+              <WifiOff size={14} strokeWidth={1.8} />
+              <span>You're offline — showing your last-loaded tasks. Changes you make will sync automatically once you're back online.</span>
+            </div>
+          )}
+          {!isOffline && pendingSyncCount > 0 && (
+            <div className="offline-banner syncing">
+              <RefreshCw size={14} strokeWidth={1.8} />
+              <span>{pendingSyncCount} change{pendingSyncCount === 1 ? '' : 's'} waiting to sync…</span>
             </div>
           )}
 

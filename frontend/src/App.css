@@ -1644,3 +1644,50 @@ textarea:focus { border-color: #a78bfa; }
     transition: none !important;
   }
 }
+
+/* ─── PWA install prompt ─── */
+@keyframes installPromptIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.install-prompt {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 360px;
+  padding: 14px 16px;
+  background: #0c1130;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  color: #c084fc;
+  animation: installPromptIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.install-prompt-body { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.install-prompt-body strong { color: #f1f5f9; font-size: 0.85rem; }
+.install-prompt-body span { color: #94a3b8; font-size: 0.76rem; line-height: 1.4; }
+.install-prompt-dismiss { background: none; border: none; color: #64748b; cursor: pointer; padding: 2px; display: grid; place-items: center; }
+.install-prompt-dismiss:hover { color: #f1f5f9; }
+@media (max-width: 640px) { .install-prompt { left: 12px; right: 12px; max-width: none; } }
+
+/* ─── Offline banner ─── */
+.offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+  font-size: 0.8rem;
+  margin-bottom: 14px;
+  animation: panelFadeIn 0.2s ease both;
+}
+.offline-banner.syncing { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: #38bdf8; }
+.offline-banner.syncing svg { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
