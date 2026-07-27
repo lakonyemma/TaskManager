@@ -30,3 +30,10 @@ export const moveToWorkspace = (tempPath: string, workspaceId: string, storedNam
     fs.mkdirSync(workspaceDir, { recursive: true });
     fs.renameSync(tempPath, path.join(workspaceDir, storedName));
 };
+
+export const AVATARS_DIR = path.join(UPLOADS_ROOT, "avatars");
+fs.mkdirSync(AVATARS_DIR, { recursive: true });
+
+export const moveToAvatars = (tempPath: string, storedName: string): void => {
+    fs.renameSync(tempPath, path.join(AVATARS_DIR, storedName));
+};

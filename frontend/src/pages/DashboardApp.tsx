@@ -1,10 +1,11 @@
-import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { List } from 'react-window'
 import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
   CreditCard, Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
+  User as UserIcon, Upload, Trash2,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -13,7 +14,6 @@ import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sen
 import { REMINDER_OFFSETS } from '../lib/reminders'
 import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
 import { cacheTasks, getCachedTasks, getOutboxCount, isOnline, queueMutation, syncOutbox, upsertCachedTask } from '../lib/offline'
-import { generateIdenticon } from '../lib/identicon'
 import { StatSummaryCards } from '../components/StatSummaryCards'
 import type { StatusCounts, TrendPoint } from '../components/TaskCharts'
 import Modal from '../components/Modal'
@@ -134,7 +134,6 @@ const translations: TranslationMap = {
   language: { en: 'Language', sw: 'Lugha', fr: 'Langue', ko: '언어', es: 'Idioma', zh: '语言', lg: 'Olulimi' },
   fontStyle: { en: 'Font style', sw: 'Mtindo wa herufi', fr: 'Style de police', ko: '글꼴 스타일', es: 'Estilo de fuente', zh: '字体风格', lg: 'Enkola y\'ennukuta' },
   colorTheme: { en: 'Color theme', sw: 'Mandhari ya rangi', fr: 'Thème de couleur', ko: '색상 테마', es: 'Tema de color', zh: '颜色主题', lg: 'Essomero l\'langi' },
-  bio: { en: 'Bio', sw: 'Wasifu', fr: 'Biographie', ko: '소개', es: 'Biografía', zh: '简介', lg: 'Ebyafaayo' },
   invite: { en: 'Invite member', sw: 'Alika mwanatimu', fr: 'Inviter un membre', ko: '멤버 초대', es: 'Invitar miembro', zh: '邀请成员', lg: 'Yita omu ttiimu' },
   workspaceName: { en: 'Workspace name', sw: 'Jina la eneo la kazi', fr: 'Nom de l\'espace', ko: '워크스페이스 이름', es: 'Nombre del espacio', zh: '工作区名称', lg: 'Erinnya ly\'ekifo ky\'omulimu' },
   sendInvite: { en: 'Send invite', sw: 'Tuma mwaliko', fr: 'Envoyer l\'invitation', ko: '초대 보내기', es: 'Enviar invitación', zh: '发送邀请', lg: 'Tuma obuyito' },
@@ -161,6 +160,12 @@ const greeting = (lang: string): string => {
   const key = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'
   return t(key, lang)
 }
+// Shows the user's uploaded photo when they have one; otherwise a plain
+// neutral person-outline icon (not a generated graphic, not a letter).
+const AvatarThumb = ({ url }: { url?: string | null }) => (
+  url ? <img className="avatar-img" src={url} alt="" /> : <UserIcon size={14} strokeWidth={1.8} />
+)
+
 const FONTS = ['default', 'serif', 'mono', 'georgia', 'impact', 'comic', 'courier', 'fantasy', 'trebuchet']
 const COLORS = ['purple', 'blue', 'green', 'orange', 'red', 'pink', 'teal', 'yellow', 'indigo']
 const ASSIGNABLE_ROLES = ['ADMIN', 'MANAGER', 'MEMBER']
@@ -222,7 +227,8 @@ export default function DashboardApp() {
   // guarantees `user` is already loaded before this component mounts).
   const [settingsName, setSettingsName] = useState(() => user?.firstname || '')
   const [settingsLast, setSettingsLast] = useState(() => user?.lastName || '')
-  const [settingsBio, setSettingsBio] = useState(() => user?.bio || '')
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const avatarFileInputRef = useRef<HTMLInputElement>(null)
   const [settingsLang, setSettingsLang] = useState(() => user?.language || 'en')
   const [settingsFont, setSettingsFont] = useState(() => user?.fontStyle || 'default')
   const [settingsColor, setSettingsColor] = useState(() => user?.colorTheme || 'purple')
@@ -595,13 +601,42 @@ export default function DashboardApp() {
         method: 'PATCH', headers: jsonHeaders,
         body: JSON.stringify({
           firstname: settingsName, lastName: settingsLast,
-          bio: settingsBio || null, language: settingsLang, fontStyle: settingsFont, colorTheme: settingsColor,
+          language: settingsLang, fontStyle: settingsFont, colorTheme: settingsColor,
           taskNotificationsEnabled, emailNotificationsEnabled,
         }),
       }) as { user: typeof user }
       if (d.user) setUser(d.user)
       showMessage('Settings saved', 'success')
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save', 'error') }
+  }
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setAvatarUploading(true)
+    try {
+      const form = new FormData()
+      form.append('avatar', file)
+      const token = getStoredToken()
+      const response = await fetch('/api/settings/avatar', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : undefined, body: form })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.message || 'Upload failed')
+      if (data.user) setUser(data.user)
+      showMessage('Profile photo updated', 'success')
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : 'Unable to upload photo', 'error')
+    } finally {
+      setAvatarUploading(false)
+    }
+  }
+
+  const handleAvatarRemove = async () => {
+    try {
+      const d = await request('/api/settings/avatar', { method: 'DELETE' }) as { user: typeof user }
+      if (d.user) setUser(d.user)
+      showMessage('Profile photo removed', 'info')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to remove photo', 'error') }
   }
 
   // Language applies to every t(...) call across the whole app instantly via
@@ -845,7 +880,7 @@ export default function DashboardApp() {
         <div className="sidebar-footer">
           <div className="sidebar-user">
             <div className="sidebar-avatar">
-              <img className="avatar-img" src={generateIdenticon(user.id)} alt="" />
+              <AvatarThumb url={user.avatarUrl} />
             </div>
             <div className="sidebar-user-info">
               <div className="sidebar-user-name">{user.firstname}</div>
@@ -910,7 +945,7 @@ export default function DashboardApp() {
             </div>
             <div className="topbar-avatar" onClick={() => setNavPage('settings')} title={t('settings', settingsLang)}>
               <div className="sidebar-avatar">
-                <img className="avatar-img" src={generateIdenticon(user.id)} alt="" />
+                <AvatarThumb url={user.avatarUrl} />
               </div>
             </div>
           </div>
@@ -1209,7 +1244,7 @@ export default function DashboardApp() {
                 <div className="member-list">
                   {members.map(m => (
                     <div key={m.id} className="member-item">
-                      <div className="sidebar-avatar"><img className="avatar-img" src={generateIdenticon(m.userId)} alt="" /></div>
+                      <div className="sidebar-avatar"><AvatarThumb url={m.user.avatarUrl} /></div>
                       <div className="member-info">
                         <strong>{m.user.firstname} {m.user.lastName}</strong>
                         <span>{m.user.email}</span>
@@ -1381,14 +1416,26 @@ export default function DashboardApp() {
                 <h2>{t('profile', settingsLang)}</h2>
                 <form className="stack-form" onSubmit={handleSaveSettings}>
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 4 }}>
-                    <img src={generateIdenticon(user.id)} alt="Your avatar" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover' }} />
-                    <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Your avatar is generated automatically and can't be changed.</span>
+                    <div className="sidebar-avatar" style={{ width: 56, height: 56, borderRadius: 12 }}>
+                      <AvatarThumb url={user.avatarUrl} />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button type="button" className="mini-btn secondary-btn" onClick={() => avatarFileInputRef.current?.click()} disabled={avatarUploading}>
+                          <Upload size={13} /> {avatarUploading ? 'Uploading…' : 'Upload photo'}
+                        </button>
+                        {user.avatarUrl && (
+                          <button type="button" className="mini-btn danger-btn" onClick={handleAvatarRemove}><Trash2 size={13} /> Remove</button>
+                        )}
+                      </div>
+                      <span style={{ color: '#64748b', fontSize: '0.72rem' }}>JPG, PNG, or GIF — up to 5MB.</span>
+                      <input ref={avatarFileInputRef} type="file" accept="image/*" onChange={handleAvatarFileChange} style={{ display: 'none' }} />
+                    </div>
                   </div>
                   <div className="name-row">
                     <label>First name<input value={settingsName} onChange={e => setSettingsName(e.target.value)} /></label>
                     <label>Last name<input value={settingsLast} onChange={e => setSettingsLast(e.target.value)} /></label>
                   </div>
-                  <label>{t('bio', settingsLang)}<textarea value={settingsBio} onChange={e => setSettingsBio(e.target.value)} rows={2} /></label>
                   <label style={{ color: '#64748b', fontSize: '0.82rem' }}>Email: {user.email}</label>
                   <button type="submit">{t('saveProfile', settingsLang)}</button>
                 </form>
