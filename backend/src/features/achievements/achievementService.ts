@@ -66,7 +66,7 @@ export const checkAndGrantAchievements = async (userId: string): Promise<{ key: 
     await ensureAchievementsSeeded();
 
     const completedTasks = await prisma.task.findMany({
-        where: { assignedToId: userId, status: "COMPLETED", completedAt: { not: null } },
+        where: { completedById: userId, status: "COMPLETED", completedAt: { not: null } },
         select: { completedAt: true },
         orderBy: { completedAt: "desc" },
     });

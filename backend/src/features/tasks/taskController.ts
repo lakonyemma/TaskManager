@@ -26,9 +26,15 @@ const TASK_INCLUDE = {
 
 // Runs after a task transitions into COMPLETED: spins up the next occurrence
 // if the task is recurring, and checks/grants any newly-earned achievements
-// for whoever the task is credited to. Both are best-effort side effects —
-// failures here shouldn't fail the completion request itself.
-const handleCompletionSideEffects = async (task: { id: string; assignedToId: string | null } & Parameters<typeof generateNextOccurrence>[0]) => {
+// for whoever actually completed it — not the assignee. A solo user very
+// often completes tasks they never bothered to explicitly self-assign, and
+// crediting assignedToId meant those completions silently never counted
+// toward anything. Both are best-effort side effects — failures here
+// shouldn't fail the completion request itself.
+const handleCompletionSideEffects = async (
+    task: Parameters<typeof generateNextOccurrence>[0],
+    completedByUserId: string,
+) => {
     let nextOccurrence = null;
     let newAchievements: Awaited<ReturnType<typeof checkAndGrantAchievements>> = [];
     try {
@@ -36,13 +42,10 @@ const handleCompletionSideEffects = async (task: { id: string; assignedToId: str
     } catch (error) {
         console.error("[tasks] Failed to generate next recurring occurrence:", error);
     }
-    const achievementUserId = task.assignedToId;
-    if (achievementUserId) {
-        try {
-            newAchievements = await checkAndGrantAchievements(achievementUserId);
-        } catch (error) {
-            console.error("[tasks] Failed to check achievements:", error);
-        }
+    try {
+        newAchievements = await checkAndGrantAchievements(completedByUserId);
+    } catch (error) {
+        console.error("[tasks] Failed to check achievements:", error);
     }
     return { nextOccurrence, newAchievements };
 };
@@ -169,6 +172,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
                 priority: priority || "MEDIUM",
                 status: status || "TODO",
                 completedAt: status === "COMPLETED" ? new Date() : null,
+                completedById: status === "COMPLETED" ? authUser.id : null,
                 workspaceId,
                 assignedToId: assignedToId || null,
                 dueDate: dueDate ? new Date(dueDate) : null,
@@ -279,8 +283,8 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             }
 
             const guestData: Record<string, unknown> = { status };
-            if (status === "COMPLETED" && existingTask.status !== "COMPLETED") guestData.completedAt = new Date();
-            else if (status !== "COMPLETED" && existingTask.status === "COMPLETED") guestData.completedAt = null;
+            if (status === "COMPLETED" && existingTask.status !== "COMPLETED") { guestData.completedAt = new Date(); guestData.completedById = authUser.id; }
+            else if (status !== "COMPLETED" && existingTask.status === "COMPLETED") { guestData.completedAt = null; guestData.completedById = null; }
             const task = await prisma.task.update({ where: { id }, data: guestData, include: TASK_INCLUDE });
             await createActivityLog({ userId: authUser.id, action: `Updated task ${task.title}`, workspaceId: task.workspaceId, taskId: task.id });
 
@@ -288,7 +292,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             let newAchievements: Awaited<ReturnType<typeof checkAndGrantAchievements>> = [];
             if (existingTask.status !== "COMPLETED" && task.status === "COMPLETED") {
                 await cancelTaskReminders(task.id);
-                ({ nextOccurrence, newAchievements } = await handleCompletionSideEffects(task));
+                ({ nextOccurrence, newAchievements } = await handleCompletionSideEffects(task, authUser.id));
             } else if (existingTask.status === "COMPLETED" && task.status !== "COMPLETED") {
                 await syncTaskReminders(task);
             }
@@ -329,8 +333,8 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         if (priority !== undefined) data.priority = priority;
         if (status !== undefined) {
             data.status = status;
-            if (status === "COMPLETED" && existingTask.status !== "COMPLETED") data.completedAt = new Date();
-            else if (status !== "COMPLETED" && existingTask.status === "COMPLETED") data.completedAt = null;
+            if (status === "COMPLETED" && existingTask.status !== "COMPLETED") { data.completedAt = new Date(); data.completedById = authUser.id; }
+            else if (status !== "COMPLETED" && existingTask.status === "COMPLETED") { data.completedAt = null; data.completedById = null; }
         }
         if (assignedToId !== undefined) data.assignedToId = assignedToId || null;
         if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
@@ -375,7 +379,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         let newAchievements: Awaited<ReturnType<typeof checkAndGrantAchievements>> = [];
         if (becameCompleted) {
             await cancelTaskReminders(task.id);
-            ({ nextOccurrence, newAchievements } = await handleCompletionSideEffects(task));
+            ({ nextOccurrence, newAchievements } = await handleCompletionSideEffects(task, authUser.id));
         } else if (dueDate !== undefined || assignedToId !== undefined || remindersExplicit || becameReopened) {
             await syncTaskReminders(task, {
                 offsets: Array.isArray(reminderOffsets) ? reminderOffsets : undefined,

@@ -26,6 +26,7 @@ model User {
 
   workspaceMembers       WorkspaceMember[]
   assignedTasks          Task[]                  @relation("AssignedTasks")
+  completedTasks         Task[]                  @relation("CompletedTasks")
   activityLogs           ActivityLog[]
   notifications          Notification[]
   workspaceInvitations   WorkspaceInvitation[]   @relation("InvitedBy")
@@ -92,6 +93,12 @@ model Task {
   status                     TaskStatus      @default(TODO)
   dueDate                    DateTime?
   completedAt                DateTime?
+  // Who actually marked the task complete — distinct from assignedToId.
+  // Achievements/insights credit this, not the assignee: a solo user very
+  // often completes tasks they never bothered to explicitly assign to
+  // themselves, and assignment tracks delegation/ownership, not who did
+  // the work of finishing it.
+  completedById              String?
   estimatedMinutes           Int?
   // Client-generated idempotency key for offline-created tasks — lets the
   // sync layer safely retry a "create" mutation (e.g. after a dropped
@@ -119,6 +126,7 @@ model Task {
 
   workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedTo        User?              @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
+  completedBy       User?              @relation("CompletedTasks", fields: [completedById], references: [id], onDelete: SetNull)
   activityLogs      ActivityLog[]
   notifications     Notification[]
   comments          Comment[]
@@ -136,6 +144,7 @@ model Task {
 
   @@index([workspaceId, status])
   @@index([assignedToId, status])
+  @@index([completedById, status])
   @@index([workspaceId, dueDate])
 }
 

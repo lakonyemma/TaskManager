@@ -21,7 +21,7 @@ export const getInsights = async (req: AuthedRequest, res: Response) => {
         const workspaceIds = memberships.map((m) => m.workspaceId);
 
         const completed = await prisma.task.findMany({
-            where: { assignedToId: authUser.id, status: "COMPLETED", completedAt: { not: null } },
+            where: { completedById: authUser.id, status: "COMPLETED", completedAt: { not: null } },
             select: { completedAt: true, createdAt: true, dueDate: true, workspaceId: true },
         });
 
