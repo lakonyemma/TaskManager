@@ -2,14 +2,17 @@ import prisma from "../../lib/prisma.js";
 
 // Deliberately small and outcome-based (no points/levels/badges-for-logging-in)
 // — professional recognition for real productivity milestones, per spec.
+// Icons are real platform emoji rather than an icon-font name — modern OSes
+// render these as glossy, shaded 3D badge/trophy graphics for free, no
+// custom art assets or an icon-name-to-component lookup needed.
 const CATALOG = [
-    { key: "FIRST_TASK", name: "First Step", description: "Completed your first task.", icon: "CheckCircle2" },
-    { key: "TASKS_10", name: "Getting Things Done", description: "Completed 10 tasks.", icon: "ListChecks" },
-    { key: "TASKS_100", name: "Centurion", description: "Completed 100 tasks.", icon: "Trophy" },
-    { key: "TASKS_500", name: "Taskmaster", description: "Completed 500 tasks.", icon: "Crown" },
-    { key: "STREAK_7", name: "Week Warrior", description: "Completed at least one task every day for 7 days straight.", icon: "Flame" },
-    { key: "STREAK_30", name: "Momentum", description: "Completed at least one task every day for 30 days straight.", icon: "Flame" },
-    { key: "EARLY_BIRD", name: "Early Bird", description: "Completed 10 tasks before 9 AM.", icon: "Sunrise" },
+    { key: "FIRST_TASK", name: "First Step", description: "Completed your first task.", icon: "👣" },
+    { key: "TASKS_10", name: "Getting Things Done", description: "Completed 10 tasks.", icon: "🎯" },
+    { key: "TASKS_100", name: "Centurion", description: "Completed 100 tasks.", icon: "🏆" },
+    { key: "TASKS_500", name: "Taskmaster", description: "Completed 500 tasks.", icon: "👑" },
+    { key: "STREAK_7", name: "Week Warrior", description: "Completed at least one task every day for 7 days straight.", icon: "🔥" },
+    { key: "STREAK_30", name: "Momentum", description: "Completed at least one task every day for 30 days straight.", icon: "🚀" },
+    { key: "EARLY_BIRD", name: "Early Bird", description: "Completed 10 tasks before 9 AM.", icon: "🌅" },
 ] as const;
 
 export type AchievementKey = (typeof CATALOG)[number]["key"];
