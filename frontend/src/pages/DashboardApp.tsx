@@ -604,6 +604,24 @@ export default function DashboardApp() {
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save', 'error') }
   }
 
+  // Language applies to every t(...) call across the whole app instantly via
+  // this state update, but — unlike font/color, which only ever change what
+  // this browser renders — a language choice that isn't persisted would
+  // silently revert to the account's saved value on next login. Saved
+  // immediately on selection rather than requiring the separate "Save
+  // preferences" submit, so it sticks until explicitly changed again.
+  const handleLanguageChange = async (lang: string) => {
+    setSettingsLang(lang)
+    try {
+      const d = await request('/api/settings/profile', {
+        method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ language: lang }),
+      }) as { user: typeof user }
+      if (d.user) setUser(d.user)
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : 'Unable to save language preference', 'error')
+    }
+  }
+
   const handleChangePassword = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     try {
@@ -1381,7 +1399,7 @@ export default function DashboardApp() {
                 <form className="stack-form" onSubmit={handleSaveSettings}>
                   <label>
                     {t('language', settingsLang)}
-                    <select value={settingsLang} onChange={e => setSettingsLang(e.target.value)}>
+                    <select value={settingsLang} onChange={e => handleLanguageChange(e.target.value)}>
                       {Object.entries(LANGUAGES).map(([code, name]) => (
                         <option key={code} value={code}>{name}</option>
                       ))}
