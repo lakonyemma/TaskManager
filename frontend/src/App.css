@@ -847,6 +847,38 @@
   .stat-card-grid {
     grid-template-columns: 1fr 1fr;
   }
+
+  /* Task rows put info and actions (a <select> plus icon buttons) side by
+     side, which doesn't fit a phone's width even with the badges/select
+     shrunk as far as they'll go — stack instead of relying on flex-shrink
+     alone, which was clipping content under the shell's overflow-x:hidden
+     rather than visibly overflowing. */
+  .task-list-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .task-list-actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .task-list-actions select {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Row-style forms (task creation) now wrap rather than overflow, but on
+     a phone it reads better as one field per line than an uneven 2-up wrap. */
+  .stack-form-row input,
+  .stack-form-row select {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .name-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ─── Team / Members ─── */
@@ -926,6 +958,7 @@
 
 .task-list-meta {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 6px;
   font-size: 0.72rem;
@@ -1601,7 +1634,7 @@ textarea:focus { border-color: #a78bfa; }
 /* ─── Recurrence picker ─── */
 .recurrence-picker { display: flex; flex-direction: column; gap: 10px; }
 .recurrence-details { display: flex; flex-direction: column; gap: 12px; padding: 12px; background: rgba(139, 92, 246, 0.05); border: 1px solid rgba(139, 92, 246, 0.15); border-radius: 10px; }
-.recurrence-interval-row { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #94a3b8; }
+.recurrence-interval-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.82rem; color: #94a3b8; }
 .recurrence-interval-row input[type="number"] { width: 60px; }
 .recurrence-weekday-row { display: flex; gap: 6px; }
 .recurrence-weekday {
@@ -1725,4 +1758,29 @@ textarea:focus-visible, [tabindex]:focus-visible {
   .achievements-grid { grid-template-columns: 1fr; }
   .smart-header h1 { font-size: 1.25rem; }
   .dependency-suggestions { max-height: 140px; }
+}
+
+/* ─── Safe-area padding for notched phones ─── */
+/* viewport-fit=cover (added for the PWA) lets the app draw under the
+   status bar/notch/home-indicator; without this, the top bar and bottom
+   FAB can end up visually obscured on an iPhone/notched Android — which
+   reads exactly like "the app is cut off". */
+.dashboard-shell {
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+}
+.quick-capture-fab {
+  bottom: calc(28px + env(safe-area-inset-bottom, 0));
+  right: calc(28px + env(safe-area-inset-right, 0));
+}
+.install-prompt {
+  bottom: calc(20px + env(safe-area-inset-bottom, 0));
+}
+@media (max-width: 600px) {
+  .quick-capture-fab {
+    bottom: calc(20px + env(safe-area-inset-bottom, 0));
+    right: calc(20px + env(safe-area-inset-right, 0));
+  }
 }

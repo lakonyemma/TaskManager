@@ -1018,7 +1018,7 @@ export default function DashboardApp() {
           {navPage === 'tasks' && (
             <div className="panel full-width">
               <h2>My Tasks</h2>
-              <div className="stack-form" style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+              <div className="stack-form stack-form-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                 <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="New task title" />
                 <select value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
                   <option value="LOW">Low</option><option value="MEDIUM">Medium</option>
@@ -1078,7 +1078,7 @@ export default function DashboardApp() {
           {navPage === 'boards' && (
             <>
               <div className="panel" style={{ marginBottom: 16 }}>
-                <div className="stack-form" style={{ flexDirection: 'row', gap: 8 }}>
+                <div className="stack-form stack-form-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="Task title" required />
                   <select value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
                     <option value="LOW">Low</option><option value="MEDIUM">Medium</option>
