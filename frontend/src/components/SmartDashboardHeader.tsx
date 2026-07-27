@@ -21,7 +21,7 @@ export default function SmartDashboardHeader({
 
   return (
     <div className="smart-header">
-      <h1>{greeting}, {firstname}.</h1>
+      <h1>{greeting}, {firstname}. 🫠</h1>
       {hasAnyStat ? (
         <div className="smart-header-stats">
           {dueTodayCount > 0 && <span className="smart-stat"><CalendarClock size={13} strokeWidth={1.8} /> {dueTodayCount} task{dueTodayCount !== 1 ? 's' : ''} due today</span>}
