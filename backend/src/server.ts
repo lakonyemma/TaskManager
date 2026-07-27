@@ -31,6 +31,14 @@ dotenv.config();
 
 const app = express();
 
+// Render (and most PaaS hosts) put a reverse proxy in front of the app —
+// without this, req.ip resolves to the proxy's internal address for every
+// request, which breaks IP-based rate limiting (falls back to sharing one
+// bucket across all users) and makes activity/session logging useless.
+// `1` trusts exactly one hop, matching a single reverse proxy; harmless in
+// local dev, where there's no proxy in front at all.
+app.set("trust proxy", 1);
+
 app.use(helmet());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use(

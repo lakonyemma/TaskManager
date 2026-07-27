@@ -140,6 +140,8 @@ Taskly
 
 ## ⚙️ Installation
 
+For permanent hosting (not just local dev), see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 Clone Repository
 
 git clone <repository-url>
