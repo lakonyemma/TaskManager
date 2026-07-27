@@ -13,6 +13,7 @@ import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sen
 import { REMINDER_OFFSETS } from '../lib/reminders'
 import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
 import { cacheTasks, getCachedTasks, getOutboxCount, isOnline, queueMutation, syncOutbox, upsertCachedTask } from '../lib/offline'
+import { generateIdenticon } from '../lib/identicon'
 import { StatSummaryCards } from '../components/StatSummaryCards'
 import type { StatusCounts, TrendPoint } from '../components/TaskCharts'
 import Modal from '../components/Modal'
@@ -133,8 +134,6 @@ const translations: TranslationMap = {
   language: { en: 'Language', sw: 'Lugha', fr: 'Langue', ko: '언어', es: 'Idioma', zh: '语言', lg: 'Olulimi' },
   fontStyle: { en: 'Font style', sw: 'Mtindo wa herufi', fr: 'Style de police', ko: '글꼴 스타일', es: 'Estilo de fuente', zh: '字体风格', lg: 'Enkola y\'ennukuta' },
   colorTheme: { en: 'Color theme', sw: 'Mandhari ya rangi', fr: 'Thème de couleur', ko: '색상 테마', es: 'Tema de color', zh: '颜色主题', lg: 'Essomero l\'langi' },
-  avatarUrl: { en: 'Avatar image URL', sw: 'URL ya picha', fr: 'URL de l\'avatar', ko: '아바타 이미지 URL', es: 'URL de avatar', zh: '头像图片链接', lg: 'URL y\'endabirira' },
-  uploadPhoto: { en: 'Upload from device', sw: 'Pakia kutoka kifaa', fr: 'Télécharger', ko: '기기에서 업로드', es: 'Subir desde dispositivo', zh: '从设备上传', lg: 'Pulika okuva ku kifaananyi' },
   bio: { en: 'Bio', sw: 'Wasifu', fr: 'Biographie', ko: '소개', es: 'Biografía', zh: '简介', lg: 'Ebyafaayo' },
   invite: { en: 'Invite member', sw: 'Alika mwanatimu', fr: 'Inviter un membre', ko: '멤버 초대', es: 'Invitar miembro', zh: '邀请成员', lg: 'Yita omu ttiimu' },
   workspaceName: { en: 'Workspace name', sw: 'Jina la eneo la kazi', fr: 'Nom de l\'espace', ko: '워크스페이스 이름', es: 'Nombre del espacio', zh: '工作区名称', lg: 'Erinnya ly\'ekifo ky\'omulimu' },
@@ -223,7 +222,6 @@ export default function DashboardApp() {
   // guarantees `user` is already loaded before this component mounts).
   const [settingsName, setSettingsName] = useState(() => user?.firstname || '')
   const [settingsLast, setSettingsLast] = useState(() => user?.lastName || '')
-  const [settingsAvatar, setSettingsAvatar] = useState(() => user?.avatarUrl || '')
   const [settingsBio, setSettingsBio] = useState(() => user?.bio || '')
   const [settingsLang, setSettingsLang] = useState(() => user?.language || 'en')
   const [settingsFont, setSettingsFont] = useState(() => user?.fontStyle || 'default')
@@ -596,7 +594,7 @@ export default function DashboardApp() {
       const d = await request('/api/settings/profile', {
         method: 'PATCH', headers: jsonHeaders,
         body: JSON.stringify({
-          firstname: settingsName, lastName: settingsLast, avatarUrl: settingsAvatar || null,
+          firstname: settingsName, lastName: settingsLast,
           bio: settingsBio || null, language: settingsLang, fontStyle: settingsFont, colorTheme: settingsColor,
           taskNotificationsEnabled, emailNotificationsEnabled,
         }),
@@ -829,9 +827,7 @@ export default function DashboardApp() {
         <div className="sidebar-footer">
           <div className="sidebar-user">
             <div className="sidebar-avatar">
-              {user.avatarUrl
-                ? <img src={user.avatarUrl} alt="" style={{ width: 28, height: 28, borderRadius: 8, objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.textContent = user.firstname.charAt(0).toUpperCase() }} />
-                : user.firstname.charAt(0).toUpperCase()}
+              <img className="avatar-img" src={generateIdenticon(user.id)} alt="" />
             </div>
             <div className="sidebar-user-info">
               <div className="sidebar-user-name">{user.firstname}</div>
@@ -896,9 +892,7 @@ export default function DashboardApp() {
             </div>
             <div className="topbar-avatar" onClick={() => setNavPage('settings')} title={t('settings', settingsLang)}>
               <div className="sidebar-avatar">
-                {user.avatarUrl
-                  ? <img src={user.avatarUrl} alt="" style={{ width: 28, height: 28, borderRadius: 8, objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.textContent = user.firstname.charAt(0).toUpperCase() }} />
-                  : user.firstname.charAt(0).toUpperCase()}
+                <img className="avatar-img" src={generateIdenticon(user.id)} alt="" />
               </div>
             </div>
           </div>
@@ -1197,7 +1191,7 @@ export default function DashboardApp() {
                 <div className="member-list">
                   {members.map(m => (
                     <div key={m.id} className="member-item">
-                      <div className="sidebar-avatar">{m.user.firstname.charAt(0).toUpperCase()}</div>
+                      <div className="sidebar-avatar"><img className="avatar-img" src={generateIdenticon(m.userId)} alt="" /></div>
                       <div className="member-info">
                         <strong>{m.user.firstname} {m.user.lastName}</strong>
                         <span>{m.user.email}</span>
@@ -1368,26 +1362,10 @@ export default function DashboardApp() {
               <div className="panel">
                 <h2>{t('profile', settingsLang)}</h2>
                 <form className="stack-form" onSubmit={handleSaveSettings}>
-                  {settingsAvatar && (
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 4 }}>
-                      <img src={settingsAvatar} alt="Avatar" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover' }}
-                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                      <button type="button" className="mini-btn danger-btn" onClick={() => setSettingsAvatar('')}>Remove</button>
-                    </div>
-                  )}
-                  <label>{t('uploadPhoto', settingsLang)}
-                    <input type="file" accept="image/*" onChange={e => {
-                      const file = e.target.files?.[0]
-                      if (file) {
-                        const reader = new FileReader()
-                        reader.onload = (ev) => { if (ev.target?.result) setSettingsAvatar(ev.target.result as string) }
-                        reader.readAsDataURL(file)
-                      }
-                    }} />
-                  </label>
-                  <label>{t('avatarUrl', settingsLang)}
-                    <input value={settingsAvatar} onChange={e => setSettingsAvatar(e.target.value)} placeholder="https://..." />
-                  </label>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 4 }}>
+                    <img src={generateIdenticon(user.id)} alt="Your avatar" style={{ width: 56, height: 56, borderRadius: 12, objectFit: 'cover' }} />
+                    <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Your avatar is generated automatically and can't be changed.</span>
+                  </div>
                   <div className="name-row">
                     <label>First name<input value={settingsName} onChange={e => setSettingsName(e.target.value)} /></label>
                     <label>Last name<input value={settingsLast} onChange={e => setSettingsLast(e.target.value)} /></label>
