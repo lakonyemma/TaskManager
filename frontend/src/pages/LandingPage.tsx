@@ -61,7 +61,7 @@ export default function LandingPage() {
         <div className="hero-overlay" />
         <div className="hero-content">
           <p className="hero-eyebrow">Taskly &middot; Team Productivity Platform</p>
-          <h1>Work Smarter.<br />Deliver Faster.</h1>
+          <h1>Taskly: Work Smarter.<br />Achieve More.</h1>
           <p className="hero-sub">
             Taskly helps teams organize work, collaborate efficiently, and deliver projects faster.
           </p>
