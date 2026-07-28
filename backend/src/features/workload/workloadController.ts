@@ -59,21 +59,32 @@ export const getWorkload = async (req: AuthedRequest, res: Response) => {
             workspaceId,
             dueDate: { gte: rangeStart, lte: rangeEnd },
         };
-        if (scope === "individual") where.assignedToId = authUser.id;
+        // In a single-member workspace every task is implicitly "yours" even
+        // if never explicitly assigned — so skip the assignedToId filter
+        // rather than showing an empty chart for tasks nobody bothered to
+        // formally assign.
+        let soloWorkspace = false;
+        if (scope === "individual") {
+            const memberCount = await prisma.workspaceMember.count({ where: { workspaceId } });
+            soloWorkspace = memberCount === 1;
+            if (!soloWorkspace) where.assignedToId = authUser.id;
+        }
 
         const tasks = await prisma.task.findMany({
             where,
             select: { id: true, dueDate: true, status: true, priority: true, estimatedMinutes: true, assignedToId: true, assignedTo: { select: { id: true, firstname: true, lastName: true } } },
         });
 
-        const buckets = new Map<string, { date: string; taskCount: number; estimatedMinutes: number; completedCount: number }>();
+        const buckets = new Map<string, { date: string; taskCount: number; estimatedMinutes: number; completedCount: number; low: number; medium: number; high: number; critical: number }>();
         for (const t of tasks) {
             if (!t.dueDate) continue;
             const key = bucketKey(t.dueDate, granularity);
-            const bucket = buckets.get(key) ?? { date: key, taskCount: 0, estimatedMinutes: 0, completedCount: 0 };
+            const bucket = buckets.get(key) ?? { date: key, taskCount: 0, estimatedMinutes: 0, completedCount: 0, low: 0, medium: 0, high: 0, critical: 0 };
             bucket.taskCount += 1;
             bucket.estimatedMinutes += effortMinutes(t);
             if (t.status === "COMPLETED") bucket.completedCount += 1;
+            const priorityKey = t.priority.toLowerCase();
+            if (priorityKey === "low" || priorityKey === "medium" || priorityKey === "high" || priorityKey === "critical") bucket[priorityKey] += 1;
             buckets.set(key, bucket);
         }
         const series = Array.from(buckets.values()).sort((a, b) => a.date.localeCompare(b.date));
@@ -97,7 +108,7 @@ export const getWorkload = async (req: AuthedRequest, res: Response) => {
             byAssignee = Array.from(map.values()).sort((a, b) => b.estimatedMinutes - a.estimatedMinutes);
         }
 
-        return res.status(200).json({ granularity, scope, series, bottlenecks, byAssignee });
+        return res.status(200).json({ granularity, scope, series, bottlenecks, byAssignee, soloWorkspace });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });

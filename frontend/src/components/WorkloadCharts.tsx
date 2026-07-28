@@ -5,11 +5,20 @@ import { authFetch } from '../lib/api'
 import { SkeletonChart } from './Skeleton'
 
 type Granularity = 'daily' | 'weekly' | 'monthly'
-type Bucket = { date: string; taskCount: number; estimatedMinutes: number; completedCount: number }
+type Bucket = { date: string; taskCount: number; estimatedMinutes: number; completedCount: number; low: number; medium: number; high: number; critical: number }
 type Assignee = { userId: string; name: string; taskCount: number; estimatedMinutes: number }
-type WorkloadResponse = { series: Bucket[]; bottlenecks: Bucket[]; byAssignee: Assignee[] }
+type WorkloadResponse = { series: Bucket[]; bottlenecks: Bucket[]; byAssignee: Assignee[]; soloWorkspace: boolean }
 
 const TOOLTIP_STYLE = { background: '#0c1130', border: '1px solid #1e2030', borderRadius: 8, fontSize: '0.78rem', color: '#e2e8f0' }
+
+// Same palette FullCalendar uses for due-date chips, kept consistent here
+// so a task's priority color means the same thing everywhere in the app.
+const PRIORITY_COLOR: Record<'low' | 'medium' | 'high' | 'critical', string> = {
+  low: '#38bdf8', medium: '#8B5CF6', high: '#fb923c', critical: '#f87171',
+}
+const PRIORITY_LABEL: Record<keyof typeof PRIORITY_COLOR, string> = {
+  low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical',
+}
 
 const formatLabel = (date: string, granularity: Granularity) => {
   if (granularity === 'monthly') return new Date(`${date}-01`).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
@@ -64,12 +73,20 @@ export default function WorkloadCharts({ workspaceId, canSeeTeam, currentUserId 
 
       {loading ? <SkeletonChart /> : chartData.every((b) => b.taskCount === 0) ? (
         <p className="empty-column">
-          {scope === 'individual'
+          {scope === 'individual' && !data?.soloWorkspace
             ? "No tasks with a due date are assigned to you in this range. Assign a due-dated task to yourself, or switch to \"Team\" above to see the whole workspace's workload."
             : "No tasks with a due date fall in this range yet."}
         </p>
       ) : (
         <>
+          <div className="workload-priority-legend">
+            {(Object.keys(PRIORITY_COLOR) as (keyof typeof PRIORITY_COLOR)[]).map((p) => (
+              <span key={p} className="workload-priority-legend-item">
+                <span className="workload-priority-dot" style={{ background: PRIORITY_COLOR[p] }} />
+                {PRIORITY_LABEL[p]}
+              </span>
+            ))}
+          </div>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e2030" vertical={false} />
@@ -77,13 +94,15 @@ export default function WorkloadCharts({ workspaceId, canSeeTeam, currentUserId 
               <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
-                formatter={(value) => [value, 'Tasks']}
                 labelFormatter={(label, payload) => {
                   const bucket = payload?.[0]?.payload as { estimatedMinutes?: number } | undefined
                   return bucket ? `${label} · ~${formatHours(bucket.estimatedMinutes ?? 0)} estimated` : label
                 }}
               />
-              <Bar dataKey="taskCount" name="Tasks" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="low" name="Low" stackId="priority" fill={PRIORITY_COLOR.low} />
+              <Bar dataKey="medium" name="Medium" stackId="priority" fill={PRIORITY_COLOR.medium} />
+              <Bar dataKey="high" name="High" stackId="priority" fill={PRIORITY_COLOR.high} />
+              <Bar dataKey="critical" name="Critical" stackId="priority" fill={PRIORITY_COLOR.critical} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
 

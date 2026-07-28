@@ -1579,6 +1579,9 @@ textarea:focus { border-color: #a78bfa; }
 .workload-bottleneck-chip { display: inline-block; font-size: 0.76rem; color: #fef3c7; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25); border-radius: 8px; padding: 6px 10px; margin-right: 6px; }
 .workload-assignee-list { display: flex; flex-direction: column; gap: 6px; }
 .workload-assignee-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #0c1130; border: 1px solid #1e2030; border-radius: 8px; font-size: 0.82rem; }
+.workload-priority-legend { display: flex; gap: 14px; flex-wrap: wrap; }
+.workload-priority-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; color: #94a3b8; }
+.workload-priority-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
 /* ─── Insights ─── */
 .insights-recommendations { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
