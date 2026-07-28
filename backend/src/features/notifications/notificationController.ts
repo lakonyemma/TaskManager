@@ -10,7 +10,9 @@ export const listNotifications = async (req: Request, res: Response) => {
 
         const notifications = await prisma.notification.findMany({
             where: { userId: authUser.id },
+            include: { task: { select: { id: true, title: true, status: true } } },
             orderBy: { createdAt: "desc" },
+            take: 200,
         });
 
         return res.status(200).json({ notifications });

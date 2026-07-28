@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
 import { sendInvitationEmail } from "../../utils/email.js";
+import { assertWithinMemberLimit } from "../../utils/plan.js";
 
 export const inviteByEmail = async (req: Request, res: Response) => {
     try {
@@ -17,8 +18,8 @@ export const inviteByEmail = async (req: Request, res: Response) => {
         }
 
         const inviteRole = role || "MEMBER";
-        if (!["MEMBER", "ADMIN"].includes(inviteRole)) {
-            return res.status(400).json({ message: "Role must be MEMBER or ADMIN" });
+        if (!["MEMBER", "MANAGER", "ADMIN", "GUEST"].includes(inviteRole)) {
+            return res.status(400).json({ message: "Role must be MEMBER, MANAGER, ADMIN, or GUEST" });
         }
 
         // Check the inviter is an OWNER or ADMIN of the workspace
@@ -28,6 +29,9 @@ export const inviteByEmail = async (req: Request, res: Response) => {
         if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) {
             return res.status(403).json({ message: "Only workspace owners and admins can send invitations" });
         }
+
+        const limitError = await assertWithinMemberLimit(workspaceId);
+        if (limitError) return res.status(403).json(limitError);
 
         // Check the workspace exists
         const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
@@ -68,7 +72,7 @@ export const inviteByEmail = async (req: Request, res: Response) => {
                     expiresAt,
                     status: "PENDING",
                     invitedById: authUser.id,
-                    role: inviteRole as "MEMBER" | "ADMIN",
+                    role: inviteRole as "MEMBER" | "MANAGER" | "ADMIN",
                 },
             });
         } else {
@@ -79,7 +83,7 @@ export const inviteByEmail = async (req: Request, res: Response) => {
                     invitedById: authUser.id,
                     token,
                     expiresAt,
-                    role: inviteRole as "MEMBER" | "ADMIN",
+                    role: inviteRole as "MEMBER" | "MANAGER" | "ADMIN",
                 },
             });
         }
@@ -102,8 +106,11 @@ export const inviteByEmail = async (req: Request, res: Response) => {
             workspaceId,
         });
 
-        // Log the invitation email (console-only until email provider is configured)
-        await sendInvitationEmail(email, workspace.name, token);
+        // Skip sending if the recipient already has an account and has opted out
+        // of email notifications; they still get the in-app notification above.
+        if (!invitedUser || invitedUser.emailNotificationsEnabled) {
+            await sendInvitationEmail(email, workspace.name, token);
+        }
 
         return res.status(201).json({
             message: `Invitation sent to ${email}`,
@@ -262,6 +269,67 @@ export const cancelInvitation = async (req: Request, res: Response) => {
     }
 };
 
+export const resendInvitation = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const idParam = req.params.id;
+        const id = Array.isArray(idParam) ? idParam[0] : idParam;
+        if (!id) {
+            return res.status(400).json({ message: "Invitation id is required" });
+        }
+
+        const invitation = await prisma.workspaceInvitation.findUnique({
+            where: { id },
+            include: { workspace: { select: { name: true } } },
+        });
+        if (!invitation) {
+            return res.status(404).json({ message: "Invitation not found" });
+        }
+
+        // Verify the caller is an OWNER/ADMIN of the workspace
+        const membership = await prisma.workspaceMember.findUnique({
+            where: { userId_workspaceId: { userId: authUser.id, workspaceId: invitation.workspaceId } },
+        });
+        if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) {
+            return res.status(403).json({ message: "Only workspace owners and admins can resend invitations" });
+        }
+
+        if (invitation.status !== "PENDING" && invitation.status !== "EXPIRED") {
+            return res.status(400).json({ message: `Invitation is already ${invitation.status.toLowerCase()}` });
+        }
+
+        // Issue a fresh single-use token and expiry — the old link stops working.
+        const token = crypto.randomUUID();
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7);
+
+        await prisma.workspaceInvitation.update({
+            where: { id },
+            data: { token, expiresAt, status: "PENDING" },
+        });
+
+        await createActivityLog({
+            userId: authUser.id,
+            action: `Resent invitation to ${invitation.email}`,
+            workspaceId: invitation.workspaceId,
+        });
+
+        const recipient = await prisma.user.findUnique({ where: { email: invitation.email } });
+        if (!recipient || recipient.emailNotificationsEnabled) {
+            await sendInvitationEmail(invitation.email, invitation.workspace.name, token);
+        }
+
+        return res.status(200).json({ message: `Invitation resent to ${invitation.email}` });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
 export const listWorkspaceInvitations = async (req: Request, res: Response) => {
     try {
         const authUser = (req as Request & { user?: { id: string; email: string } }).user;
@@ -289,6 +357,36 @@ export const listWorkspaceInvitations = async (req: Request, res: Response) => {
         });
 
         return res.status(200).json({ invitations });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+// Public (no auth) preview so the registration page can prefill the invited
+// email and show which workspace the invite is for, without leaking any
+// other invitation data.
+export const previewInvitation = async (req: Request, res: Response) => {
+    try {
+        const tokenParam = req.params.token;
+        const token = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam;
+        if (!token) {
+            return res.status(400).json({ message: "Invitation token is required" });
+        }
+
+        const invitation = await prisma.workspaceInvitation.findUnique({
+            where: { token },
+            include: { workspace: { select: { name: true } } },
+        });
+        if (!invitation || invitation.status !== "PENDING" || invitation.expiresAt < new Date()) {
+            return res.status(404).json({ message: "Invitation not found or no longer valid" });
+        }
+
+        return res.status(200).json({
+            email: invitation.email,
+            workspaceName: invitation.workspace.name,
+            role: invitation.role,
+        });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });

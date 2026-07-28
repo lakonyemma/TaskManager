@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import morgan from "morgan";
 import dotenv from "dotenv";
 import authRoutes from "./features/auth/authRoutes.js";
 import workspaceRoutes from "./features/workspaces/workspaceRoutes.js";
@@ -8,19 +10,49 @@ import notificationRoutes from "./features/notifications/notificationRoutes.js";
 import reportRoutes from "./features/reports/reportRoutes.js";
 import invitationRoutes from "./features/invitations/invitationRoutes.js";
 import settingsRoutes from "./features/settings/settingsRoutes.js";
+import activityRoutes from "./features/activity/activityRoutes.js";
+import commentRoutes from "./features/comments/commentRoutes.js";
+import fileRoutes from "./features/files/fileRoutes.js";
+import exportRoutes from "./features/export/exportRoutes.js";
+import billingRoutes from "./features/billing/billingRoutes.js";
+import paymentsRoutes from "./features/billing/paymentsRoutes.js";
+import { stripeWebhook } from "./features/billing/paymentsController.js";
+import pushRoutes from "./features/push/pushRoutes.js";
+import reminderRoutes from "./features/reminders/reminderRoutes.js";
+import { startReminderWorker } from "./features/reminders/reminderWorker.js";
+import achievementRoutes from "./features/achievements/achievementRoutes.js";
+import insightsRoutes from "./features/insights/insightsRoutes.js";
+import workloadRoutes from "./features/workload/workloadRoutes.js";
+import captureRoutes from "./features/capture/captureRoutes.js";
+import { ensureAchievementsSeeded } from "./features/achievements/achievementService.js";
 import { errorHandler } from "./shared/errorHandler.js";
 
 dotenv.config();
 
 const app = express();
 
+// Render (and most PaaS hosts) put a reverse proxy in front of the app —
+// without this, req.ip resolves to the proxy's internal address for every
+// request, which breaks IP-based rate limiting (falls back to sharing one
+// bucket across all users) and makes activity/session logging useless.
+// `1` trusts exactly one hop, matching a single reverse proxy; harmless in
+// local dev, where there's no proxy in front at all.
+app.set("trust proxy", 1);
+
+app.use(helmet());
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use(
     cors({
-        origin: "http://localhost:5173",
+        origin: process.env.CORS_ORIGIN || "http://localhost:5173",
         credentials: true,
     })
 );
-app.use(express.json());
+
+// Stripe webhook signature verification needs the raw, unparsed request
+// body — this must be mounted before the global express.json() below.
+app.post("/api/payments/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhook);
+
+app.use(express.json({ limit: "5mb" }));
 
 app.get("/", (_req, res) => {
     res.json({
@@ -33,6 +65,8 @@ app.get("/", (_req, res) => {
             tasks: "/api/tasks",
             notifications: "/api/notifications",
             reports: "/api/reports",
+            push: "/api/push",
+            reminders: "/api/reminders",
         },
     });
 });
@@ -44,6 +78,18 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/invitations", invitationRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/activity", activityRoutes);
+app.use("/api", commentRoutes);
+app.use("/api/files", fileRoutes);
+app.use("/api/export", exportRoutes);
+app.use("/api/billing", billingRoutes);
+app.use("/api/payments", paymentsRoutes);
+app.use("/api/push", pushRoutes);
+app.use("/api/reminders", reminderRoutes);
+app.use("/api/achievements", achievementRoutes);
+app.use("/api/insights", insightsRoutes);
+app.use("/api/workload", workloadRoutes);
+app.use("/api/capture", captureRoutes);
 
 app.use((_req, res) => {
     res.status(404).json({ message: "Route not found" });
@@ -54,4 +100,6 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    startReminderWorker();
+    ensureAchievementsSeeded().catch((error) => console.error("[achievements] Failed to seed catalog:", error));
 });

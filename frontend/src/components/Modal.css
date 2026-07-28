@@ -1,0 +1,68 @@
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(4, 6, 20, 0.6);
+  backdrop-filter: var(--blur-soft, blur(10px));
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: modalFade 0.15s ease both;
+}
+
+@keyframes modalFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Apple-influenced frosted glass — reserved for floating overlays like this
+   one rather than applied throughout the app, so it still reads as a
+   deliberate accent instead of a blanket effect. */
+.modal-card {
+  width: min(100%, 420px);
+  background: var(--surface-glass, rgba(13, 17, 40, 0.82));
+  backdrop-filter: var(--blur-glass, blur(20px) saturate(160%));
+  -webkit-backdrop-filter: var(--blur-glass, blur(20px) saturate(160%));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg, 16px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset, var(--shadow-lg, 0 30px 60px -20px rgba(0, 0, 0, 0.7));
+  animation: modalIn 0.2s var(--ease-out, ease) both;
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #f1f5f9);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  padding: 5px;
+  border-radius: var(--radius-sm, 6px);
+  display: flex;
+  transition: background var(--duration-fast, 0.15s) ease, color var(--duration-fast, 0.15s) ease;
+}
+
+.modal-close:hover { color: var(--text-primary, #f1f5f9); background: rgba(255, 255, 255, 0.08); }
+
+.modal-body {
+  padding: 18px;
+}
