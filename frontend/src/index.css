@@ -17,4 +17,5 @@ html, body, #root {
 
 body {
   background: #060B23;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
 }

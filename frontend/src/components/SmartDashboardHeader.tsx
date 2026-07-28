@@ -1,4 +1,4 @@
-import { CalendarClock, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CalendarRange, TrendingDown, TrendingUp } from 'lucide-react'
 
 const greetingFor = (hour: number, lang: Record<string, string>) => hour < 12 ? lang.morning : hour < 18 ? lang.afternoon : lang.evening
 
@@ -21,15 +21,17 @@ export default function SmartDashboardHeader({
 
   return (
     <div className="smart-header">
-      <h1>{greeting}, {firstname}. 🫠</h1>
+      <div className="smart-header-glow" aria-hidden="true" />
+      <p className="smart-header-eyebrow">{greeting}</p>
+      <h1>{firstname} <span className="smart-header-wave">🫠</span></h1>
       {hasAnyStat ? (
         <div className="smart-header-stats">
-          {dueTodayCount > 0 && <span className="smart-stat"><CalendarClock size={13} strokeWidth={1.8} /> {dueTodayCount} task{dueTodayCount !== 1 ? 's' : ''} due today</span>}
-          {overdueCount > 0 && <span className="smart-stat overdue">{overdueCount} overdue</span>}
-          {upcomingCount > 0 && <span className="smart-stat">{upcomingCount} upcoming this week</span>}
+          {overdueCount > 0 && <span className="smart-stat overdue"><AlertTriangle size={13} strokeWidth={1.8} /> {overdueCount} overdue</span>}
+          {dueTodayCount > 0 && <span className="smart-stat"><CalendarClock size={13} strokeWidth={1.8} /> {dueTodayCount} due today</span>}
+          {upcomingCount > 0 && <span className="smart-stat"><CalendarRange size={13} strokeWidth={1.8} /> {upcomingCount} upcoming this week</span>}
         </div>
       ) : (
-        <p className="smart-header-empty">Nothing urgent on your plate right now.</p>
+        <p className="smart-header-empty">Nothing urgent on your plate right now — stay focused.</p>
       )}
       {productivityDeltaPercent !== null && (
         <p className={`smart-header-delta ${productivityDeltaPercent >= 0 ? 'up' : 'down'}`}>

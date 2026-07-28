@@ -9,7 +9,18 @@ type Bucket = { date: string; taskCount: number; estimatedMinutes: number; compl
 type Assignee = { userId: string; name: string; taskCount: number; estimatedMinutes: number }
 type WorkloadResponse = { series: Bucket[]; bottlenecks: Bucket[]; byAssignee: Assignee[]; soloWorkspace: boolean }
 
-const TOOLTIP_STYLE = { background: '#0c1130', border: '1px solid #1e2030', borderRadius: 8, fontSize: '0.78rem', color: '#e2e8f0' }
+const TOOLTIP_STYLE = {
+  background: 'rgba(16, 21, 46, 0.92)',
+  backdropFilter: 'blur(12px)',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 10,
+  padding: '8px 12px',
+  fontSize: '0.78rem',
+  fontWeight: 500,
+  color: '#e2e8f0',
+  boxShadow: '0 12px 28px -10px rgba(0,0,0,0.55)',
+}
+const TOOLTIP_LABEL_STYLE = { color: '#94a3b8', fontWeight: 600, marginBottom: 4 }
 
 // Same palette FullCalendar uses for due-date chips, kept consistent here
 // so a task's priority color means the same thing everywhere in the app.
@@ -89,20 +100,30 @@ export default function WorkloadCharts({ workspaceId, canSeeTeam, currentUserId 
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={chartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+              <defs>
+                {(Object.keys(PRIORITY_COLOR) as (keyof typeof PRIORITY_COLOR)[]).map((p) => (
+                  <linearGradient key={p} id={`workloadFill-${p}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={PRIORITY_COLOR[p]} stopOpacity={1} />
+                    <stop offset="100%" stopColor={PRIORITY_COLOR[p]} stopOpacity={0.6} />
+                  </linearGradient>
+                ))}
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e2030" vertical={false} />
               <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={{ stroke: '#1e2030' }} tickLine={false} />
               <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip
                 contentStyle={TOOLTIP_STYLE}
+                labelStyle={TOOLTIP_LABEL_STYLE}
+                cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                 labelFormatter={(label, payload) => {
                   const bucket = payload?.[0]?.payload as { estimatedMinutes?: number } | undefined
                   return bucket ? `${label} · ~${formatHours(bucket.estimatedMinutes ?? 0)} estimated` : label
                 }}
               />
-              <Bar dataKey="low" name="Low" stackId="priority" fill={PRIORITY_COLOR.low} />
-              <Bar dataKey="medium" name="Medium" stackId="priority" fill={PRIORITY_COLOR.medium} />
-              <Bar dataKey="high" name="High" stackId="priority" fill={PRIORITY_COLOR.high} />
-              <Bar dataKey="critical" name="Critical" stackId="priority" fill={PRIORITY_COLOR.critical} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="low" name="Low" stackId="priority" fill="url(#workloadFill-low)" animationDuration={600} animationEasing="ease-out" />
+              <Bar dataKey="medium" name="Medium" stackId="priority" fill="url(#workloadFill-medium)" animationDuration={600} animationEasing="ease-out" />
+              <Bar dataKey="high" name="High" stackId="priority" fill="url(#workloadFill-high)" animationDuration={600} animationEasing="ease-out" />
+              <Bar dataKey="critical" name="Critical" stackId="priority" fill="url(#workloadFill-critical)" radius={[4, 4, 0, 0]} animationDuration={600} animationEasing="ease-out" />
             </BarChart>
           </ResponsiveContainer>
 

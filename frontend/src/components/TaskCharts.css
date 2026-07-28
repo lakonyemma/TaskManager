@@ -1,26 +1,43 @@
 .stat-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 10px;
-  margin-top: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: var(--space-3, 12px);
+  margin-top: 12px;
 }
 
 .stat-card {
-  padding: 14px;
-  border-radius: 10px;
-  background: #060B23;
-  border: 1px solid #1e2030;
+  padding: 16px;
+  border-radius: var(--radius-md, 12px);
+  background: var(--surface-2, #10152e);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
   font-size: 0.82rem;
   font-weight: 500;
-  color: #94a3b8;
+  color: var(--text-muted, #94a3b8);
   display: flex;
   flex-direction: column;
 }
 
+.stat-card-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
 .stat-card strong {
-  font-size: 1.4rem;
-  font-weight: 700;
+  font-size: 1.55rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
   margin-bottom: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-card-label {
+  font-size: 0.78rem;
+  color: var(--text-muted, #94a3b8);
 }
 
 .chart-doughnut-wrap {
@@ -41,10 +58,10 @@
 .chart-doughnut-center strong {
   font-size: 1.3rem;
   font-weight: 800;
-  color: #f1f5f9;
+  color: var(--text-primary, #f1f5f9);
 }
 
 .chart-doughnut-center span {
   font-size: 0.65rem;
-  color: #94a3b8;
+  color: var(--text-muted, #94a3b8);
 }
