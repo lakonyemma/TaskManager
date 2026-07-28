@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Lock } from 'lucide-react'
 import { authFetch } from '../lib/api'
 import { SkeletonList } from './Skeleton'
+import EmptyState from './EmptyState'
 
 type Earned = { key: string; name: string; description: string; icon: string; earnedAt: string }
 type Locked = { key: string; name: string; description: string; icon: string }
@@ -50,7 +51,9 @@ export default function AchievementsPanel() {
           </div>
         </div>
       ))}
-      {earned.length === 0 && locked.length === 0 && <p className="empty-column">No achievements yet</p>}
+      {earned.length === 0 && locked.length === 0 && (
+        <EmptyState kind="achievements" compact title="No achievements yet" description="Complete tasks to start earning recognition." />
+      )}
     </div>
   )
 }

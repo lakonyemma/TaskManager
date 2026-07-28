@@ -24,6 +24,9 @@ import FocusMode, { type FocusTask } from '../components/FocusMode'
 import SmartDashboardHeader from '../components/SmartDashboardHeader'
 import AchievementsPanel from '../components/AchievementsPanel'
 import InstallPrompt from '../components/InstallPrompt'
+import NotificationCard, { type NotifItem } from '../components/NotificationCard'
+import EmptyState from '../components/EmptyState'
+import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
 import { SkeletonChart, SkeletonList, SkeletonStatCards } from '../components/Skeleton'
 
@@ -193,8 +196,9 @@ export default function DashboardApp() {
   const [members, setMembers] = useState<Member[]>([])
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
   const [notifCount, setNotifCount] = useState(0)
-  const [notifList, setNotifList] = useState<{ id: string; message: string; isRead: boolean; createdAt: string; taskId?: string | null; task?: { id: string; title: string; status: string } | null }[]>([])
+  const [notifList, setNotifList] = useState<NotifItem[]>([])
   const [showNotifs, setShowNotifs] = useState(false)
+  const [pendingOpenTaskId, setPendingOpenTaskId] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({ pushEnabled: true, soundEnabled: true, vibrationEnabled: true, defaultReminderMinutes: [15] })
   const [pushPermission, setPushPermission] = useState(getNotificationPermission())
@@ -220,6 +224,7 @@ export default function DashboardApp() {
   const [activityTo, setActivityTo] = useState('')
   const [loadingDashboard, setLoadingDashboard] = useState(true)
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false)
+  const [onboardingActive, setOnboardingActive] = useState(false)
   const [isOffline, setIsOffline] = useState(!isOnline())
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
 
@@ -347,6 +352,12 @@ export default function DashboardApp() {
   // safe, but the lint rule can't distinguish that from a genuine sync setState.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadWorkspaces(); loadMyInvitations(); loadNotifs(); loadNotifPrefs() }, [loadWorkspaces, loadMyInvitations, loadNotifs, loadNotifPrefs])
+  // Onboarding kicks in the first time we know for certain the account has
+  // zero workspaces — once triggered it stays on its own state (not tied
+  // directly to workspace count) so the wizard's later steps aren't yanked
+  // away the instant the workspace-creation step succeeds.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (workspacesLoaded && workspaces.length === 0) setOnboardingActive(true) }, [workspacesLoaded, workspaces.length])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -427,7 +438,7 @@ export default function DashboardApp() {
   useEffect(() => { if (location.pathname.startsWith('/app/billing')) setNavPage('billing') }, [location.pathname])
 
 
-  const handleCreateWorkspace = async (e: FormEvent<HTMLFormElement>) => {
+  const handleCreateWorkspace = async (e: FormEvent<HTMLFormElement>): Promise<boolean> => {
     e.preventDefault()
     try {
       const d = await request('/api/workspaces', {
@@ -436,7 +447,8 @@ export default function DashboardApp() {
       }) as { workspace: Workspace }
       setWorkspaceName(''); setWorkspaceDescription(''); setSelectedWorkspaceId(d.workspace.id)
       await loadWorkspaces(); showMessage('Workspace created', 'success')
-    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create workspace', 'error') }
+      return true
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create workspace', 'error'); return false }
   }
 
   const handleCreateTask = async (e: FormEvent<HTMLFormElement>) => {
@@ -752,6 +764,38 @@ export default function DashboardApp() {
     } catch { /* ignore */ }
   }
 
+  // "Open task" from a notification card — the task may belong to a
+  // workspace other than the one currently selected, so switch to it first
+  // and defer opening the detail panel until that workspace's tasks have
+  // actually loaded (handled by the effect below watching `tasks`).
+  const handleOpenNotifTask = (n: NotifItem) => {
+    if (!n.taskId) return
+    if (!n.isRead) handleMarkNotifRead(n.id)
+    setShowNotifs(false)
+    if (n.workspaceId && n.workspaceId !== selectedWorkspaceId) {
+      setSelectedWorkspaceId(n.workspaceId)
+      setPendingOpenTaskId(n.taskId)
+      setNavPage('tasks')
+      return
+    }
+    const found = tasks.find(tk => tk.id === n.taskId)
+    if (found) setSelectedTask(found)
+    else { setPendingOpenTaskId(n.taskId); setNavPage('tasks') }
+  }
+
+  useEffect(() => {
+    if (!pendingOpenTaskId) return
+    const found = tasks.find(tk => tk.id === pendingOpenTaskId)
+    if (found) { setSelectedTask(found); setPendingOpenTaskId(null) }
+  }, [tasks, pendingOpenTaskId])
+
+  const handleCompleteFromNotif = async (n: NotifItem) => {
+    if (!n.taskId) return
+    if (!n.isRead) handleMarkNotifRead(n.id)
+    await handleMoveTask(n.taskId, 'COMPLETED')
+    setNotifList(prev => prev.map(item => item.id === n.id && item.task ? { ...item, task: { ...item.task, status: 'COMPLETED' } } : item))
+  }
+
   const logout = async () => { await authLogout(); navigate('/login') }
 
   const handleExport = async (type: 'tasks' | 'workspaces' | 'report', format: 'csv' | 'json' | 'xlsx' | 'pdf', range?: { from?: string; to?: string }) => {
@@ -808,6 +852,8 @@ export default function DashboardApp() {
   const dueTodayCount = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate).toDateString() === todayStr).length
   const in7Days = new Date(); in7Days.setDate(in7Days.getDate() + 7)
   const upcomingWeekCount = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate) > new Date() && new Date(tk.dueDate) <= in7Days).length
+  const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString() })()
+  const completedYesterdayCount = tasks.filter(tk => tk.completedAt && new Date(tk.completedAt).toDateString() === yesterdayStr).length
   const productivityDeltaPercent = (() => {
     const now = new Date().getTime(); const oneWeekMs = 7 * 24 * 60 * 60 * 1000
     const thisWeek = tasks.filter(tk => tk.completedAt && (now - new Date(tk.completedAt).getTime()) < oneWeekMs).length
@@ -850,7 +896,12 @@ export default function DashboardApp() {
         </div>
       )}
       {selectedWorkspaceId && (
-        <QuickCapture workspaces={workspaces} selectedWorkspaceId={selectedWorkspaceId} onCreated={loadTasks} onMessage={showMessage} />
+        <QuickCapture
+          workspaces={workspaces} selectedWorkspaceId={selectedWorkspaceId} onCreated={loadTasks} onMessage={showMessage}
+          workspaceName={workspaceName} setWorkspaceName={setWorkspaceName}
+          workspaceDescription={workspaceDescription} setWorkspaceDescription={setWorkspaceDescription}
+          onCreateWorkspace={handleCreateWorkspace}
+        />
       )}
       <InstallPrompt />
       {focusTask && (
@@ -931,13 +982,14 @@ export default function DashboardApp() {
                     <strong>Notifications</strong>
                     {notifCount > 0 && <button className="mini-btn" onClick={handleMarkAllRead}>Mark all read</button>}
                   </div>
-                  {notifList.length === 0 ? <p className="empty-column">No notifications</p> : (
-                    notifList.slice(0, 10).map(n => (
-                      <div key={n.id} className={`notif-item ${n.isRead ? '' : 'unread'}`} onClick={() => !n.isRead && handleMarkNotifRead(n.id)} style={{ cursor: n.isRead ? 'default' : 'pointer' }}>
-                        {n.task?.title && <strong style={{ display: 'block', fontSize: '0.75rem', color: '#c084fc' }}>{n.task.title}</strong>}
-                        {n.message}
-                      </div>
-                    ))
+                  {notifList.length === 0 ? (
+                    <EmptyState kind="notifications" compact title="You're all caught up" description="New activity on your tasks will show up here." />
+                  ) : (
+                    <div className="notif-card-list">
+                      {notifList.slice(0, 10).map(n => (
+                        <NotificationCard key={n.id} notif={n} compact onOpenTask={handleOpenNotifTask} onComplete={handleCompleteFromNotif} onMarkRead={handleMarkNotifRead} />
+                      ))}
+                    </div>
                   )}
                   <button type="button" className="mini-btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setShowNotifs(false); setNavPage('notifications') }}>View all notifications</button>
                 </div>
@@ -986,24 +1038,21 @@ export default function DashboardApp() {
                 dueTodayCount={dueTodayCount}
                 overdueCount={overdueTasks.length}
                 upcomingCount={upcomingWeekCount}
+                completedYesterdayCount={completedYesterdayCount}
                 productivityDeltaPercent={productivityDeltaPercent}
                 translations={{ morning: t('morning', settingsLang), afternoon: t('afternoon', settingsLang), evening: t('evening', settingsLang) }}
               />
 
-              {workspacesLoaded && workspaces.length === 0 ? (
-                <div className="panel full-width onboarding-panel">
-                  <p className="eyebrow">Welcome to Taskly</p>
-                  <h2>Create your first workspace to get started</h2>
-                  <p style={{ color: '#94a3b8', fontSize: '0.85rem', maxWidth: 480 }}>
-                    A workspace is where your tasks, boards, and team live — personal or shared with others.
-                    You can always create more later.
-                  </p>
-                  <form className="stack-form" style={{ maxWidth: 360, marginTop: 16 }} onSubmit={handleCreateWorkspace}>
-                    <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder={t('workspaceName', settingsLang)} required autoFocus />
-                    <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder={`${t('taskDescription', settingsLang)} (optional)`} />
-                    <button type="submit" className="primary-btn">{t('addWorkspace', settingsLang)}</button>
-                  </form>
-                </div>
+              {onboardingActive ? (
+                <OnboardingWizard
+                  firstname={user.firstname}
+                  workspaceName={workspaceName} setWorkspaceName={setWorkspaceName}
+                  workspaceDescription={workspaceDescription} setWorkspaceDescription={setWorkspaceDescription}
+                  onCreateWorkspace={handleCreateWorkspace}
+                  languages={LANGUAGES} settingsLang={settingsLang} onLanguageChange={handleLanguageChange}
+                  settingsColor={settingsColor} onColorChange={c => { setSettingsColor(c); document.documentElement.setAttribute('data-theme', c) }}
+                  onFinish={() => setOnboardingActive(false)}
+                />
               ) : (
                 <>
               <div className="dashboard-grid">
@@ -1036,7 +1085,9 @@ export default function DashboardApp() {
                           <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
                         </div>
                       ))}
-                      {tasks.length === 0 && <p className="empty-column">{t('noTasks', settingsLang)}</p>}
+                      {tasks.length === 0 && (
+                        <EmptyState kind="tasks" compact title="You're all caught up" description="Create your next task to stay organized." />
+                      )}
                     </>
                   )}
                 </div>
@@ -1049,7 +1100,9 @@ export default function DashboardApp() {
                       <span>{new Date(tk.dueDate!).toLocaleDateString()} {tk.dueDate!.includes('T') ? new Date(tk.dueDate!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                     </div>
                   ))}
-                  {upcomingDeadlines.length === 0 && <p className="empty-column">{t('noTasks', settingsLang)}</p>}
+                  {upcomingDeadlines.length === 0 && (
+                    <EmptyState kind="success" compact title="Nothing on the horizon" description="Deadlines you set will appear here." />
+                  )}
                 </div>
               </div>
 
@@ -1062,7 +1115,9 @@ export default function DashboardApp() {
                       <span>{entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}</span>
                     </div>
                   ))}
-                  {activityLog.length === 0 && <p className="empty-column">No activity yet</p>}
+                  {activityLog.length === 0 && (
+                    <EmptyState kind="sparkle" compact title="No activity yet" description="Actions your team takes will show up here in real time." />
+                  )}
                 </div>
                 <div className="panel">
                   <h2>Recent projects</h2>
@@ -1072,7 +1127,9 @@ export default function DashboardApp() {
                       <span>{ws.description || ''}</span>
                     </div>
                   ))}
-                  {workspaces.length === 0 && <p className="empty-column">No workspaces yet</p>}
+                  {workspaces.length === 0 && (
+                    <EmptyState kind="workspace" compact title="No projects yet" description="Start your first project and build momentum." />
+                  )}
                 </div>
               </div>
 
@@ -1081,7 +1138,7 @@ export default function DashboardApp() {
               ) : (
                 <div className="panel full-width">
                   <h2>Smart insights</h2>
-                  <p className="empty-column">Unlock productivity insights (productive hours, trends, recommendations) with a Premium or Team plan.</p>
+                  <EmptyState kind="sparkle" compact title="Unlock smart insights" description="Productive hours, trends, and recommendations become available on a Premium or Team plan." />
                 </div>
               )}
 
@@ -1173,7 +1230,7 @@ export default function DashboardApp() {
                   <div key={status} className="kanban-column">
                     <h3>{status.replace('_', ' ')}</h3>
                     {tasks.filter(tk => tk.status === status).length === 0
-                      ? <p className="empty-column">No tasks</p>
+                      ? <p className="empty-column">Nothing here yet</p>
                       : tasks.filter(tk => tk.status === status).map(tk => {
                         const blocked = tk.dependsOn?.some(d => d.status !== 'COMPLETED')
                         return (
@@ -1384,22 +1441,40 @@ export default function DashboardApp() {
                 <span>Notification Center</span>
                 {notifCount > 0 && <button type="button" className="mini-btn" onClick={handleMarkAllRead}><CheckCheck size={13} /> Mark all read</button>}
               </h2>
-              {notifList.length === 0 ? <p className="empty-column">{t('noNotifs', settingsLang)}</p> : (
-                <div className="task-list">
-                  {notifList.map(n => (
-                    <div key={n.id} className={`task-list-item ${n.isRead ? '' : 'unread-row'}`} onClick={() => !n.isRead && handleMarkNotifRead(n.id)} style={{ cursor: n.isRead ? 'default' : 'pointer' }}>
-                      <div className="task-list-info">
-                        <strong>{n.task?.title || 'Taskly'}</strong>
-                        <span>{n.message}</span>
-                        <div className="task-list-meta">
-                          <span className={`status-badge ${n.isRead ? 'completed' : 'todo'}`}>{n.isRead ? 'Read' : 'Unread'}</span>
-                          <span>{new Date(n.createdAt).toLocaleString()}</span>
-                        </div>
-                      </div>
-                      {!n.isRead && <button type="button" className="mini-btn" onClick={e => { e.stopPropagation(); handleMarkNotifRead(n.id) }}>Mark read</button>}
-                    </div>
-                  ))}
-                </div>
+              {notifList.length === 0 ? (
+                <EmptyState kind="notifications" title="You're all caught up" description="Task assignments, comments, and due-date reminders will show up here as they happen." />
+              ) : (
+                <>
+                  {(() => {
+                    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0)
+                    const today = notifList.filter(n => new Date(n.createdAt) >= startOfToday)
+                    const earlier = notifList.filter(n => new Date(n.createdAt) < startOfToday)
+                    return (
+                      <>
+                        {today.length > 0 && (
+                          <div className="notif-group">
+                            <p className="notif-group-label">Today</p>
+                            <div className="notif-card-list">
+                              {today.map(n => (
+                                <NotificationCard key={n.id} notif={n} onOpenTask={handleOpenNotifTask} onComplete={handleCompleteFromNotif} onMarkRead={handleMarkNotifRead} />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {earlier.length > 0 && (
+                          <div className="notif-group">
+                            <p className="notif-group-label">Earlier</p>
+                            <div className="notif-card-list">
+                              {earlier.map(n => (
+                                <NotificationCard key={n.id} notif={n} onOpenTask={handleOpenNotifTask} onComplete={handleCompleteFromNotif} onMarkRead={handleMarkNotifRead} />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                </>
               )}
             </div>
           )}

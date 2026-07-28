@@ -1,18 +1,20 @@
-import { AlertTriangle, CalendarClock, CalendarRange, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CalendarRange, CheckCircle2, TrendingDown, TrendingUp } from 'lucide-react'
 
 const greetingFor = (hour: number, lang: Record<string, string>) => hour < 12 ? lang.morning : hour < 18 ? lang.afternoon : lang.evening
 
 // Personalized dashboard header: greeting, a plain-language summary of
-// today's priorities, and a productivity delta vs. last week — the "feels
-// alive" opening the dashboard is built around, using only real numbers
-// already computed from the user's own tasks (no synthetic content).
+// today's priorities, yesterday's momentum, and a productivity delta vs.
+// last week — the "feels alive" opening the dashboard is built around,
+// using only real numbers already computed from the user's own tasks
+// (no synthetic content).
 export default function SmartDashboardHeader({
-  firstname, dueTodayCount, overdueCount, upcomingCount, productivityDeltaPercent, translations,
+  firstname, dueTodayCount, overdueCount, upcomingCount, completedYesterdayCount, productivityDeltaPercent, translations,
 }: {
   firstname: string
   dueTodayCount: number
   overdueCount: number
   upcomingCount: number
+  completedYesterdayCount: number
   productivityDeltaPercent: number | null
   translations: { morning: string; afternoon: string; evening: string }
 }) {
@@ -24,6 +26,11 @@ export default function SmartDashboardHeader({
       <div className="smart-header-glow" aria-hidden="true" />
       <p className="smart-header-eyebrow">{greeting}</p>
       <h1>{firstname} <span className="smart-header-wave">🫠</span></h1>
+      {completedYesterdayCount > 0 && (
+        <p className="smart-header-yesterday">
+          <CheckCircle2 size={13} strokeWidth={1.8} /> You completed {completedYesterdayCount} task{completedYesterdayCount !== 1 ? 's' : ''} yesterday.
+        </p>
+      )}
       {hasAnyStat ? (
         <div className="smart-header-stats">
           {overdueCount > 0 && <span className="smart-stat overdue"><AlertTriangle size={13} strokeWidth={1.8} /> {overdueCount} overdue</span>}

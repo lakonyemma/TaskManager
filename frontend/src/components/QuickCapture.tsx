@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Plus, Sparkles } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { FolderPlus, Plus, Sparkles, X } from 'lucide-react'
 import { authFetch, jsonHeaders } from '../lib/api'
 import Modal from './Modal'
 
@@ -18,17 +18,29 @@ type ParsedTask = {
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const PRIORITIES: ParsedTask['priority'][] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 
-// Universal quick capture: a floating action button plus a global "c" / ⌘K
-// shortcut open a single-field modal anywhere in the app. Typing free text
-// gets parsed (debounced) into a structured task preview the user confirms
-// before it's actually created — natural-language task creation end to end.
-export default function QuickCapture({ workspaces, selectedWorkspaceId, onCreated, onMessage }: {
+// Universal quick-create: a floating action button that expands into a
+// short glass menu (Task / Workspace — the two entities Taskly actually
+// lets you create) rather than jumping straight into task capture. The
+// global "c" / ⌘K shortcut still opens task capture directly, unchanged,
+// for people who already rely on it — the menu is additive, not a
+// replacement for that fast path.
+export default function QuickCapture({
+  workspaces, selectedWorkspaceId, onCreated, onMessage,
+  workspaceName, setWorkspaceName, workspaceDescription, setWorkspaceDescription, onCreateWorkspace,
+}: {
   workspaces: { id: string; name: string }[]
   selectedWorkspaceId: string
   onCreated: () => void
   onMessage: (msg: string, type?: 'info' | 'success' | 'error') => void
+  workspaceName: string
+  setWorkspaceName: (v: string) => void
+  workspaceDescription: string
+  setWorkspaceDescription: (v: string) => void
+  onCreateWorkspace: (e: FormEvent<HTMLFormElement>) => void | Promise<void> | Promise<boolean>
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
   const [open, setOpen] = useState(false)
+  const [workspaceModalOpen, setWorkspaceModalOpen] = useState(false)
   const [text, setText] = useState('')
   const [parsed, setParsed] = useState<ParsedTask | null>(null)
   const [priority, setPriority] = useState<ParsedTask['priority']>('MEDIUM')
@@ -36,25 +48,53 @@ export default function QuickCapture({ workspaces, selectedWorkspaceId, onCreate
   const [workspaceId, setWorkspaceId] = useState(selectedWorkspaceId)
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const fabRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const firstMenuItemRef = useRef<HTMLButtonElement>(null)
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open) setWorkspaceId(selectedWorkspaceId) }, [open, selectedWorkspaceId])
 
+  // Global shortcuts still jump straight to task capture — the menu never
+  // gates the keyboard fast-path.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
+        setMenuOpen(false)
         setOpen(true)
-      } else if (!typing && !open && e.key.toLowerCase() === 'c') {
+      } else if (!typing && !open && !menuOpen && e.key.toLowerCase() === 'c') {
         e.preventDefault()
         setOpen(true)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [open])
+  }, [open, menuOpen])
+
+  // Menu: focus the first item on open, Escape closes and returns focus to
+  // the FAB, and a click outside the menu/FAB closes it too.
+  useEffect(() => {
+    if (!menuOpen) return
+    const id = setTimeout(() => firstMenuItemRef.current?.focus(), 10)
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setMenuOpen(false); fabRef.current?.focus() }
+    }
+    const onClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (menuRef.current?.contains(target) || fabRef.current?.contains(target)) return
+      setMenuOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onClickOutside)
+    return () => {
+      clearTimeout(id)
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onClickOutside)
+    }
+  }, [menuOpen])
 
   useEffect(() => {
     if (!open) return
@@ -107,11 +147,47 @@ export default function QuickCapture({ workspaces, selectedWorkspaceId, onCreate
     }
   }
 
+  const handleWorkspaceSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    await onCreateWorkspace(e)
+    setWorkspaceModalOpen(false)
+  }
+
   return (
     <>
-      <button type="button" className="quick-capture-fab" onClick={() => setOpen(true)} aria-label="Quick add task (press C, or ⌘K)" title="Quick add (C)">
-        <Plus size={22} strokeWidth={2.2} />
-      </button>
+      <div className="quick-create">
+        {menuOpen && (
+          <div className="quick-create-menu" ref={menuRef} role="menu" aria-label="Create new">
+            <button
+              type="button" role="menuitem" ref={firstMenuItemRef}
+              className="quick-create-item"
+              onClick={() => { setMenuOpen(false); setOpen(true) }}
+            >
+              <span className="quick-create-item-icon"><Sparkles size={15} strokeWidth={1.8} /></span>
+              Task
+            </button>
+            <button
+              type="button" role="menuitem"
+              className="quick-create-item"
+              onClick={() => { setMenuOpen(false); setWorkspaceModalOpen(true) }}
+            >
+              <span className="quick-create-item-icon workspace"><FolderPlus size={15} strokeWidth={1.8} /></span>
+              Workspace
+            </button>
+          </div>
+        )}
+        <button
+          ref={fabRef}
+          type="button"
+          className={`quick-capture-fab ${menuOpen ? 'open' : ''}`}
+          onClick={() => setMenuOpen(v => !v)}
+          aria-label="Create new (press C for a quick task, or ⌘K)"
+          title="Create (C)"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+        >
+          {menuOpen ? <X size={20} strokeWidth={2.2} /> : <Plus size={22} strokeWidth={2.2} />}
+        </button>
+      </div>
 
       {open && (
         <Modal title="Quick capture" onClose={close}>
@@ -164,6 +240,19 @@ export default function QuickCapture({ workspaces, selectedWorkspaceId, onCreate
               </button>
             </div>
           )}
+        </Modal>
+      )}
+
+      {workspaceModalOpen && (
+        <Modal title="New workspace" onClose={() => setWorkspaceModalOpen(false)}>
+          <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 0 }}>
+            A workspace is where a set of tasks and teammates live — personal or shared.
+          </p>
+          <form className="stack-form" onSubmit={handleWorkspaceSubmit}>
+            <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder="Workspace name" required autoFocus />
+            <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder="Description (optional)" />
+            <button type="submit" className="primary-btn">Create workspace</button>
+          </form>
         </Modal>
       )}
     </>

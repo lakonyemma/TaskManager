@@ -3,6 +3,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts'
 import { Lightbulb, TrendingUp } from 'lucide-react'
 import { authFetch } from '../lib/api'
 import { SkeletonChart, SkeletonList } from './Skeleton'
+import EmptyState from './EmptyState'
 
 type Insights = {
   mostProductiveHours: { hour: number; count: number }[]
@@ -34,7 +35,7 @@ export default function InsightsPanel() {
   if (loading) return <div className="dashboard-grid"><div className="panel full-width"><SkeletonChart /></div><div className="panel"><SkeletonList rows={3} /></div></div>
 
   if (!data || data.totalCompleted === 0) {
-    return <p className="empty-column">Complete a few tasks and your productivity insights will show up here.</p>
+    return <EmptyState kind="sparkle" title="Insights are warming up" description="Complete a few tasks and your productivity trends, patterns, and recommendations will show up here." />
   }
 
   return (
@@ -58,7 +59,7 @@ export default function InsightsPanel() {
 
       <div className="panel">
         <h2>Most productive hours</h2>
-        {data.mostProductiveHours.length === 0 ? <p className="empty-column">Not enough data yet</p> : (
+        {data.mostProductiveHours.length === 0 ? <p className="empty-column">Keep completing tasks — patterns will appear here soon</p> : (
           <div className="task-list">
             {data.mostProductiveHours.map((h) => (
               <div key={h.hour} className="recent-task-item"><strong>{hourLabel(h.hour)}</strong><span>{h.count} tasks completed</span></div>
@@ -69,7 +70,7 @@ export default function InsightsPanel() {
 
       <div className="panel">
         <h2>Most productive days</h2>
-        {data.mostProductiveDays.length === 0 ? <p className="empty-column">Not enough data yet</p> : (
+        {data.mostProductiveDays.length === 0 ? <p className="empty-column">Keep completing tasks — patterns will appear here soon</p> : (
           <div className="task-list">
             {data.mostProductiveDays.map((d) => (
               <div key={d.day} className="recent-task-item"><strong>{d.day}</strong><span>{d.count} tasks completed</span></div>
@@ -88,7 +89,7 @@ export default function InsightsPanel() {
 
       <div className="panel">
         <h2>Project health</h2>
-        {data.projectHealth.length === 0 ? <p className="empty-column">No projects yet</p> : (
+        {data.projectHealth.length === 0 ? <p className="empty-column">No project data yet</p> : (
           <div className="task-list">
             {data.projectHealth.map((p) => (
               <div key={p.workspaceId} className="recent-task-item">
