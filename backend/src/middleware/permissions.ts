@@ -1,11 +1,10 @@
 import { Request, Response, NextFunction } from "express";
-import { getMembership, getWorkspacePlan } from "../utils/plan.js";
-import type { Plan, WorkspaceRole } from "../../generated/prisma/client.js";
+import { getMembership } from "../utils/membership.js";
+import type { WorkspaceRole } from "../../generated/prisma/client.js";
 
 export type AuthedRequest = Request & {
     user?: { id: string; email: string };
     membership?: { id: string; role: WorkspaceRole; userId: string; workspaceId: string };
-    workspacePlan?: Plan;
 };
 
 const getWorkspaceIdFromRequest = (req: Request): string | undefined => {
@@ -36,32 +35,6 @@ export const requireWorkspaceRole = (...allowedRoles: WorkspaceRole[]) => {
             }
 
             req.membership = membership;
-            next();
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: "Server error" });
-        }
-    };
-};
-
-// Loads the workspace's plan and 403s with an `upgradeRequired` flag if the
-// named boolean feature flag isn't enabled — the frontend uses that flag to
-// show an upgrade prompt instead of a generic error.
-export const requirePlanFeature = (feature: keyof Plan) => {
-    return async (req: AuthedRequest, res: Response, next: NextFunction) => {
-        try {
-            const workspaceId = getWorkspaceIdFromRequest(req);
-            if (!workspaceId) return res.status(400).json({ message: "Workspace id is required" });
-
-            const plan = await getWorkspacePlan(workspaceId);
-            if (!plan[feature]) {
-                return res.status(403).json({
-                    message: "This feature requires a plan upgrade.",
-                    upgradeRequired: true,
-                    feature,
-                });
-            }
-            req.workspacePlan = plan;
             next();
         } catch (error) {
             console.error(error);

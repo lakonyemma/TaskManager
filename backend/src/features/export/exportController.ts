@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
-import { getMembership, getWorkspacePlan } from "../../utils/plan.js";
+import { getMembership } from "../../utils/membership.js";
 import { buildWorkbook, type Sheet } from "./xlsxWriter.js";
 import { buildReportPdf, type ReportData } from "./pdfWriter.js";
 
@@ -81,11 +81,6 @@ export const exportData = async (req: AuthedRequest, res: Response) => {
             const membership = await getMembership(authUser.id, workspaceId);
             if (!membership) return res.status(403).json({ message: "You are not a member of this workspace" });
 
-            const plan = await getWorkspacePlan(workspaceId);
-            if (!plan.canUseExport) {
-                return res.status(403).json({ message: "Exporting requires a plan upgrade.", upgradeRequired: true, feature: "canUseExport" });
-            }
-
             const tasks = await prisma.task.findMany({
                 where: { workspaceId },
                 include: { assignedTo: { select: { firstname: true, lastName: true, email: true } } },
@@ -113,11 +108,6 @@ export const exportData = async (req: AuthedRequest, res: Response) => {
                 include: { workspace: { include: { _count: { select: { tasks: true, members: true } } } } },
             });
 
-            const plans = await Promise.all(memberships.map((m) => getWorkspacePlan(m.workspaceId)));
-            if (!plans.some((p) => p.canUseExport)) {
-                return res.status(403).json({ message: "Exporting requires a plan upgrade.", upgradeRequired: true, feature: "canUseExport" });
-            }
-
             const rows = memberships.map((m) => ({
                 workspaceId: m.workspace.id,
                 name: m.workspace.name,
@@ -142,11 +132,6 @@ export const exportData = async (req: AuthedRequest, res: Response) => {
             } else {
                 const memberships = await prisma.workspaceMember.findMany({ where: { userId: authUser.id }, select: { workspaceId: true } });
                 scopeWorkspaceIds = memberships.map((m) => m.workspaceId);
-            }
-
-            const plans = await Promise.all(scopeWorkspaceIds.map((id) => getWorkspacePlan(id)));
-            if (!plans.some((p) => p.canUseExport)) {
-                return res.status(403).json({ message: "Exporting requires a plan upgrade.", upgradeRequired: true, feature: "canUseExport" });
             }
 
             const dateWhere: Record<string, unknown> = {};

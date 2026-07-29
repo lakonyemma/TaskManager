@@ -537,7 +537,6 @@
 .empty-state-badge.kind-notifications { color: var(--accent-secondary); background: var(--accent-secondary-soft); box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.3), 0 12px 28px -12px rgba(99, 102, 241, 0.35); }
 .empty-state-badge.kind-team { color: var(--info); background: var(--info-soft); box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.3), 0 12px 28px -12px rgba(56, 189, 248, 0.35); }
 .empty-state-badge.kind-achievements { color: var(--warning); background: var(--warning-soft); box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.3), 0 12px 28px -12px rgba(251, 191, 36, 0.35); }
-.empty-state-badge.kind-billing { color: var(--success); background: var(--success-soft); box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.3), 0 12px 28px -12px rgba(52, 211, 153, 0.35); }
 
 .empty-state-title {
   margin: 0;
@@ -770,94 +769,6 @@
   cursor: pointer;
 }
 
-/* ─── Billing ─── */
-.current-plan-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.billing-cycle-toggle {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.billing-cycle-toggle .mini-btn {
-  background: var(--surface-hover);
-  color: var(--text-muted);
-  padding: 7px 14px;
-}
-
-.billing-cycle-toggle .mini-btn.active {
-  background: rgba(192, 132, 252, 0.15);
-  color: var(--accent-glow);
-}
-
-.plan-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-}
-
-.plan-card {
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  padding: 16px;
-  background: var(--bg-base);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.plan-card.current {
-  border-color: rgba(192, 132, 252, 0.4);
-}
-
-.plan-card h3 {
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--text-primary);
-}
-
-.plan-price {
-  margin: 0;
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: var(--accent-glow);
-}
-
-.plan-price span {
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: var(--text-faint);
-}
-
-.plan-features {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 0.8rem;
-  color: var(--text-tertiary);
-}
-
-.plan-features li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--success);
-}
-
-.plan-checkout-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-}
-
 /* ─── Feedback / message ─── */
 .message-bar {
   margin-bottom: 14px;
@@ -1004,22 +915,6 @@
 
   .name-row {
     grid-template-columns: 1fr;
-  }
-
-  /* The notification dropdown is a fixed 300px box absolutely positioned
-     off the bell icon, which sits near the topbar's right edge — on a
-     narrow phone that leaves it flush against (or past) the screen edge
-     with no margin. Detach it from the bell and float it as its own
-     fixed panel below the topbar instead, so its width is always relative
-     to the viewport rather than to where the bell happens to sit. */
-  .notif-dropdown {
-    position: fixed;
-    top: 64px;
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-height: calc(100vh - 84px);
-    overflow-y: auto;
   }
 }
 
@@ -1261,6 +1156,28 @@ textarea:focus { border-color: var(--accent-primary-light); }
   z-index: 100;
   padding: 10px;
   margin-top: 8px;
+}
+
+/* The base rule above is a fixed 300px box absolutely positioned off the
+   bell icon, which sits near the topbar's right edge — on a narrow phone
+   that leaves it flush against (or past) the screen edge with no margin.
+   Detach it from the bell and float it as its own fixed panel below the
+   topbar instead, so its width is always relative to the viewport rather
+   than to where the bell happens to sit. Must come after the base rule
+   above (not just inside a media query) — equal-specificity CSS rules are
+   resolved by source order regardless of which one is in a @media block,
+   so placing this earlier let the unconditional base rule win and pushed
+   the dropdown off-screen on mobile. */
+@media (max-width: 600px) {
+  .notif-dropdown {
+    position: fixed;
+    top: 64px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: calc(100vh - 84px);
+    overflow-y: auto;
+  }
 }
 
 .notif-dropdown-header {

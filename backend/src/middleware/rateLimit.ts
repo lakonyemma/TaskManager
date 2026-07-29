@@ -11,6 +11,18 @@ export const authRateLimiter = rateLimit({
     message: { message: "Too many attempts. Please try again in a few minutes." },
 });
 
+// Verify-email / resend-verification spam protection — keyed by IP since
+// these routes are unauthenticated (a caller could otherwise hammer
+// resend-verification for an arbitrary email address).
+export const verificationRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => ipKeyGenerator(req.ip || "unknown"),
+    message: { message: "Too many attempts. Please try again in a few minutes." },
+});
+
 // Invitation spam protection, keyed per authenticated user (falls back to IP
 // for unauthenticated callers, though this route always requires auth).
 export const invitationRateLimiter = rateLimit({

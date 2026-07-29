@@ -1,18 +1,22 @@
 import { type FormEvent, useState } from 'react'
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { EmailNotVerifiedError, setPendingInvite } from '../lib/api'
 import './AuthPages.css'
 
 export default function LoginPage() {
   const { user, login, sessionNotice } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
+  const inviteToken = searchParams.get('invite')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [remember, setRemember] = useState(true)
   const [error, setError] = useState('')
+  const [needsVerification, setNeedsVerification] = useState(false)
   const [loading, setLoading] = useState(false)
 
   if (user) {
@@ -22,12 +26,20 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    setError(''); setLoading(true)
+    setError(''); setNeedsVerification(false); setLoading(true)
     try {
+      // Stash the invite (if this login was reached via an invite link) so
+      // login()'s redeemPendingInvite() can consume it right after signing in.
+      if (inviteToken) setPendingInvite(inviteToken)
       await login(email, password, remember)
       navigate('/app')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to sign in')
+      if (err instanceof EmailNotVerifiedError) {
+        setNeedsVerification(true)
+        setError(err.message)
+      } else {
+        setError(err instanceof Error ? err.message : 'Unable to sign in')
+      }
     } finally {
       setLoading(false)
     }
@@ -68,6 +80,11 @@ export default function LoginPage() {
 
         {sessionNotice && <p className="auth-notice">{sessionNotice}</p>}
         {error && <p className="auth-error">{error}</p>}
+        {needsVerification && (
+          <p className="auth-switch">
+            <Link to={`/resend-verification${email ? `?email=${encodeURIComponent(email)}` : ''}`}>Resend verification email</Link>
+          </p>
+        )}
 
         <p className="auth-switch">
           Don't have an account?

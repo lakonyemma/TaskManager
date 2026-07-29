@@ -14,9 +14,6 @@ import activityRoutes from "./features/activity/activityRoutes.js";
 import commentRoutes from "./features/comments/commentRoutes.js";
 import fileRoutes from "./features/files/fileRoutes.js";
 import exportRoutes from "./features/export/exportRoutes.js";
-import billingRoutes from "./features/billing/billingRoutes.js";
-import paymentsRoutes from "./features/billing/paymentsRoutes.js";
-import { stripeWebhook } from "./features/billing/paymentsController.js";
 import pushRoutes from "./features/push/pushRoutes.js";
 import reminderRoutes from "./features/reminders/reminderRoutes.js";
 import { startReminderWorker } from "./features/reminders/reminderWorker.js";
@@ -48,10 +45,6 @@ app.use(
     })
 );
 
-// Stripe webhook signature verification needs the raw, unparsed request
-// body — this must be mounted before the global express.json() below.
-app.post("/api/payments/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhook);
-
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/", (_req, res) => {
@@ -82,8 +75,6 @@ app.use("/api/activity", activityRoutes);
 app.use("/api", commentRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/export", exportRoutes);
-app.use("/api/billing", billingRoutes);
-app.use("/api/payments", paymentsRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/reminders", reminderRoutes);
 app.use("/api/achievements", achievementRoutes);

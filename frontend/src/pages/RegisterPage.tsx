@@ -32,6 +32,7 @@ export default function RegisterPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [inviteInfo, setInviteInfo] = useState<{ workspaceName: string } | null>(null)
+  const [registered, setRegistered] = useState(false)
 
   useEffect(() => {
     if (!inviteToken) return
@@ -61,18 +62,39 @@ export default function RegisterPage() {
     }
     setLoading(true)
     try {
-      // Stash the invite before the account is created so it can be
-      // redeemed immediately once register() establishes a session.
+      // Stash the invite now — it can't be redeemed until the account is
+      // verified and the user logs in (register() no longer establishes a
+      // session directly), so it stays put until that first login.
       if (inviteToken) setPendingInvite(inviteToken)
       await register({ firstname, lastName, email, password })
-      // AuthContext.setUser now holds the new session — the `if (user)`
-      // guard above redirects to /app on the next render.
+      setRegistered(true)
     } catch (err) {
       if (inviteToken) clearPendingInvite()
       setError(err instanceof Error ? err.message : 'Unable to create account')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (registered) {
+    return (
+      <div className="auth-bg">
+        <Link to="/" className="back-to-landing">&larr; Back to Taskly</Link>
+        <div className="glass-card">
+          <p className="glass-logo">Taskly</p>
+          <h1>Check your email</h1>
+          <p className="glass-subtitle">
+            We sent a verification link to <strong>{email}</strong>. Click it to activate your account, then sign in.
+          </p>
+          <p className="auth-switch">
+            Didn't get it? <Link to="/resend-verification">Resend verification email</Link>
+          </p>
+          <p className="auth-switch">
+            <Link to="/login">Back to sign in</Link>
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (

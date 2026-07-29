@@ -24,13 +24,9 @@ type FileAttachment = {
 
 const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`)
 
-// Comments and file attachments both require a plan upgrade on the backend
-// (canUseFileAttachments); a 403 with upgradeRequired is surfaced through the
-// shared `onMessage` toast rather than a bespoke paywall UI, consistent with
-// how the rest of the dashboard reports permission errors today.
 export default function TaskDetailPanel({
   taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId,
-  dependsOn, blocks, workspaceTasks, recurrence, canUseDependencies, canUseRecurringTasks, onTaskUpdated,
+  dependsOn, blocks, workspaceTasks, recurrence, onTaskUpdated,
 }: {
   taskId: string
   workspaceId: string
@@ -43,8 +39,6 @@ export default function TaskDetailPanel({
   blocks: DepTask[]
   workspaceTasks: DepTask[]
   recurrence: RecurrenceConfig
-  canUseDependencies: boolean
-  canUseRecurringTasks: boolean
   onTaskUpdated: () => void
 }) {
   const [comments, setComments] = useState<Comment[]>([])
@@ -244,22 +238,14 @@ export default function TaskDetailPanel({
         </>
       )}
 
-      {canUseDependencies && (
-        <>
-          <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><GitBranch size={14} strokeWidth={1.8} /> Dependencies</h3>
-          <DependencyPicker taskId={taskId} candidateTasks={workspaceTasks} dependsOn={dependsOn} blocks={blocks} onChange={updateDependsOn} />
-        </>
-      )}
+      <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><GitBranch size={14} strokeWidth={1.8} /> Dependencies</h3>
+      <DependencyPicker taskId={taskId} candidateTasks={workspaceTasks} dependsOn={dependsOn} blocks={blocks} onChange={updateDependsOn} />
 
-      {canUseRecurringTasks && (
-        <>
-          <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Repeat size={14} strokeWidth={1.8} /> Recurrence</h3>
-          <RecurrencePicker value={recurrenceDraft} onChange={setRecurrenceDraft} />
-          <button type="button" className="mini-btn" style={{ marginTop: 8 }} onClick={saveRecurrence} disabled={savingRecurrence}>
-            {savingRecurrence ? 'Saving…' : 'Save recurrence'}
-          </button>
-        </>
-      )}
+      <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Repeat size={14} strokeWidth={1.8} /> Recurrence</h3>
+      <RecurrencePicker value={recurrenceDraft} onChange={setRecurrenceDraft} />
+      <button type="button" className="mini-btn" style={{ marginTop: 8 }} onClick={saveRecurrence} disabled={savingRecurrence}>
+        {savingRecurrence ? 'Saving…' : 'Save recurrence'}
+      </button>
 
       <h3 style={{ marginTop: 20 }}>Attachments</h3>
       <div className="attachment-list">

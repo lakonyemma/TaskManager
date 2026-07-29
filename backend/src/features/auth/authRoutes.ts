@@ -1,15 +1,17 @@
 import express from "express";
 import {
     login, logout, logoutAll, listSessions, me, refresh, register,
-    revokeSession,
+    resendVerification, revokeSession, verifyEmail,
 } from "./authController.js";
 import { authenticate } from "../../middleware/authMiddleware.js";
-import { authRateLimiter } from "../../middleware/rateLimit.js";
+import { authRateLimiter, verificationRateLimiter } from "../../middleware/rateLimit.js";
 
 const router = express.Router();
 
 router.post("/register", authRateLimiter, register);
 router.post("/login", authRateLimiter, login);
+router.post("/verify-email", verificationRateLimiter, verifyEmail);
+router.post("/resend-verification", verificationRateLimiter, resendVerification);
 router.post("/refresh", refresh);
 router.post("/logout", logout);
 router.post("/logout-all", authenticate, logoutAll);

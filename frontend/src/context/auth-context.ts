@@ -21,7 +21,7 @@ export type AuthContextValue = {
   setSessionNotice: (msg: string) => void
   setUser: (user: UserSession) => void
   login: (email: string, password: string, remember?: boolean) => Promise<UserSession>
-  register: (data: { firstname: string; lastName: string; email: string; password: string }) => Promise<UserSession>
+  register: (data: { firstname: string; lastName: string; email: string; password: string }) => Promise<void>
   logout: () => Promise<void>
 }
 
