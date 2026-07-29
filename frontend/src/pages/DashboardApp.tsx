@@ -1,10 +1,10 @@
 import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { List } from 'react-window'
 import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
-  CreditCard, Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
+  Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
   User as UserIcon, Upload, Trash2,
   type LucideIcon,
 } from 'lucide-react'
@@ -30,12 +30,11 @@ import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
 import { SkeletonChart, SkeletonList, SkeletonStatCards } from '../components/Skeleton'
 
-// FullCalendar (TaskCalendar) and the billing/checkout UI are each sizeable
-// and only needed on their own tab — code-split out of the main
-// DashboardApp chunk (itself already lazy-loaded from App.tsx) so visiting
-// Tasks/Boards/Dashboard doesn't pay for either.
+// FullCalendar (TaskCalendar) is sizeable and only needed on its own tab —
+// code-split out of the main DashboardApp chunk (itself already
+// lazy-loaded from App.tsx) so visiting Tasks/Boards/Dashboard doesn't pay
+// for it.
 const TaskCalendar = lazy(() => import('../components/TaskCalendar'))
-const BillingPanel = lazy(() => import('../components/BillingPanel'))
 
 // recharts alone is ~356KB — the single largest dependency in the app — and
 // was previously loaded eagerly just by DashboardApp importing TaskCharts
@@ -52,15 +51,10 @@ const WorkloadCharts = lazy(() => import('../components/WorkloadCharts'))
 const InsightsPanel = lazy(() => import('../components/InsightsPanel'))
 import '../App.css'
 
-type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'billing' | 'workload'
+type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'workload'
 
 type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vibrationEnabled: boolean; defaultReminderMinutes: number[] }
 type Toast = { id: string; title: string; body: string; taskId?: string | null }
-type WorkspacePlan = {
-  canUseKanban: boolean; canUseCalendar: boolean; canUseSubtasks: boolean; canUseRecurringTasks: boolean
-  canUseDependencies: boolean; canUseLabels: boolean; canUseAnalytics: boolean; canUseFileAttachments: boolean; canUseExport: boolean
-}
-const DEFAULT_PLAN: WorkspacePlan = { canUseKanban: false, canUseCalendar: false, canUseSubtasks: false, canUseRecurringTasks: false, canUseDependencies: false, canUseLabels: false, canUseAnalytics: false, canUseFileAttachments: false, canUseExport: false }
 
 type Workspace = { id: string; name: string; description?: string | null }
 type DepRef = { id: string; title: string; status: string }
@@ -101,7 +95,6 @@ const navItems: { page: NavPage; label: string; icon: LucideIcon }[] = [
   { page: 'reports', label: 'Reports', icon: ChartColumn },
   { page: 'activity', label: 'Activity', icon: ActivityIcon },
   { page: 'notifications', label: 'Notifications', icon: BellRing },
-  { page: 'billing', label: 'Billing', icon: CreditCard },
   { page: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
@@ -150,7 +143,6 @@ const translations: TranslationMap = {
   markAllRead: { en: 'Mark all read', sw: 'Soma zote', fr: 'Tout marquer lu', ko: '모두 읽음', es: 'Marcar todo leído', zh: '全部标记已读', lg: 'Soma zonna' },
   noNotifs: { en: 'No notifications', sw: 'Hakuna arifa', fr: 'Aucune notification', ko: '알림 없음', es: 'Sin notificaciones', zh: '没有通知', lg: 'Tewali kutegeesa' },
   welcome: { en: 'Welcome back', sw: 'Karibu tena', fr: 'Bon retour', ko: '다시 오신 것을 환영합니다', es: 'Bienvenido de nuevo', zh: '欢迎回来', lg: 'Tunakwaniriza' },
-  billing: { en: 'Billing', sw: 'Malipo', fr: 'Facturation', ko: '결제', es: 'Facturación', zh: '账单', lg: 'Sasulo' },
   notifications: { en: 'Notifications', sw: 'Arifa', fr: 'Notifications', ko: '알림', es: 'Notificaciones', zh: '通知', lg: 'Okutegeeza' },
   workload: { en: 'Workload', sw: 'Mzigo wa kazi', fr: 'Charge de travail', ko: '업무량', es: 'Carga de trabajo', zh: '工作量', lg: 'Omugugu' },
 }
@@ -176,13 +168,14 @@ const ASSIGNABLE_ROLES = ['ADMIN', 'MANAGER', 'MEMBER']
 export default function DashboardApp() {
   const { user, setUser, logout: authLogout } = useAuth()
   const navigate = useNavigate()
-  const location = useLocation()
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
   const [workspaceName, setWorkspaceName] = useState('')
   const [workspaceDescription, setWorkspaceDescription] = useState('')
+  const [deleteWorkspaceConfirm, setDeleteWorkspaceConfirm] = useState('')
+  const [deletingWorkspace, setDeletingWorkspace] = useState(false)
   const [taskTitle, setTaskTitle] = useState('')
   const [taskDescription, setTaskDescription] = useState('')
   const [taskPriority, setTaskPriority] = useState('MEDIUM')
@@ -214,7 +207,6 @@ export default function DashboardApp() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
-  const [workspacePlan, setWorkspacePlan] = useState<WorkspacePlan>(DEFAULT_PLAN)
   const [taskRecurrence, setTaskRecurrence] = useState<RecurrenceConfig>(DEFAULT_RECURRENCE)
   const [focusTask, setFocusTask] = useState<FocusTask | null>(null)
   const [reportFrom, setReportFrom] = useState('')
@@ -289,15 +281,6 @@ export default function DashboardApp() {
     }
   }, [request, selectedWorkspaceId])
 
-  const loadPlan = useCallback(async () => {
-    if (!selectedWorkspaceId) return
-    try {
-      const d = await request(`/api/billing/workspaces/${selectedWorkspaceId}/subscription`) as { subscription: { plan: WorkspacePlan } | null }
-      setWorkspacePlan(d.subscription?.plan || DEFAULT_PLAN)
-    } catch { setWorkspacePlan(DEFAULT_PLAN) }
-  }, [request, selectedWorkspaceId])
-
-
   const loadMyInvitations = useCallback(async () => {
     try { const d = await request('/api/invitations/mine') as { invitations: Invitation[] }; setMyInvitations(d.invitations || []) } catch { setMyInvitations([]) }
   }, [request])
@@ -361,7 +344,7 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadPlan() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadPlan])
+  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations() }, [loadTasks, loadMembers, loadWorkspaceInvitations])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'reports') loadReports() }, [navPage, loadReports])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -431,12 +414,6 @@ export default function DashboardApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navPage])
 
-  // Stripe/PayPal/Flutterwave checkout redirects land on /app/billing (the
-  // static success/cancel URL configured server-side) — open the Billing
-  // tab automatically so the returning user sees the result there.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (location.pathname.startsWith('/app/billing')) setNavPage('billing') }, [location.pathname])
-
 
   const handleCreateWorkspace = async (e: FormEvent<HTMLFormElement>): Promise<boolean> => {
     e.preventDefault()
@@ -449,6 +426,28 @@ export default function DashboardApp() {
       await loadWorkspaces(); showMessage('Workspace created', 'success')
       return true
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create workspace', 'error'); return false }
+  }
+
+  // Irreversible — the confirmation input above this (must match the
+  // workspace name exactly) is the actual safeguard; this just executes
+  // once that's satisfied. Falls back to another workspace the user
+  // belongs to if one exists, otherwise the onboarding wizard reappears on
+  // its own (it's driven by workspaces.length === 0, see the effect above).
+  const handleDeleteWorkspace = async () => {
+    const target = workspaces.find(w => w.id === selectedWorkspaceId)
+    if (!target || deleteWorkspaceConfirm.trim() !== target.name) return
+    setDeletingWorkspace(true)
+    try {
+      await request(`/api/workspaces/${selectedWorkspaceId}`, { method: 'DELETE' })
+      setSelectedWorkspaceId(workspaces.find(w => w.id !== selectedWorkspaceId)?.id || '')
+      setDeleteWorkspaceConfirm('')
+      await loadWorkspaces()
+      showMessage(`"${target.name}" was deleted`, 'info')
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : 'Unable to delete workspace', 'error')
+    } finally {
+      setDeletingWorkspace(false)
+    }
   }
 
   const handleCreateTask = async (e: FormEvent<HTMLFormElement>) => {
@@ -1133,14 +1132,7 @@ export default function DashboardApp() {
                 </div>
               </div>
 
-              {workspacePlan.canUseAnalytics ? (
-                <Suspense fallback={<SkeletonChart />}><InsightsPanel /></Suspense>
-              ) : (
-                <div className="panel full-width">
-                  <h2>Smart insights</h2>
-                  <EmptyState kind="sparkle" compact title="Unlock smart insights" description="Productive hours, trends, and recommendations become available on a Premium or Team plan." />
-                </div>
-              )}
+              <Suspense fallback={<SkeletonChart />}><InsightsPanel /></Suspense>
 
               <div className="panel full-width">
                 <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Trophy size={16} strokeWidth={1.8} /> Achievements</h2>
@@ -1187,11 +1179,9 @@ export default function DashboardApp() {
                   </label>
                 </div>
               )}
-              {workspacePlan.canUseRecurringTasks && (
-                <div style={{ marginBottom: 16 }}>
-                  <RecurrencePicker value={taskRecurrence} onChange={setTaskRecurrence} />
-                </div>
-              )}
+              <div style={{ marginBottom: 16 }}>
+                <RecurrencePicker value={taskRecurrence} onChange={setTaskRecurrence} />
+              </div>
               {tasks.length > VIRTUALIZE_THRESHOLD ? (
                 <List
                   className="task-list"
@@ -1275,13 +1265,9 @@ export default function DashboardApp() {
           {navPage === 'workload' && (
             <div className="panel full-width">
               <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Gauge size={16} strokeWidth={1.8} /> {t('workload', settingsLang)}</h2>
-              {workspacePlan.canUseAnalytics ? (
-                <Suspense fallback={<SkeletonChart />}>
-                  <WorkloadCharts workspaceId={selectedWorkspaceId} canSeeTeam={!!canManageMembers || myMembership?.role === 'MANAGER'} currentUserId={user.id} />
-                </Suspense>
-              ) : (
-                <p className="empty-column">Workload visualization requires a Premium or Team plan.</p>
-              )}
+              <Suspense fallback={<SkeletonChart />}>
+                <WorkloadCharts workspaceId={selectedWorkspaceId} canSeeTeam={!!canManageMembers || myMembership?.role === 'MANAGER'} currentUserId={user.id} />
+              </Suspense>
             </div>
           )}
 
@@ -1350,6 +1336,44 @@ export default function DashboardApp() {
                   </div>
                 )}
               </div>
+
+              {myMembership?.role === 'OWNER' && selectedWs && (
+                <div className="panel full-width danger-zone">
+                  <h2>Danger zone</h2>
+                  <div className="danger-zone-row">
+                    <div>
+                      <strong>Delete this workspace</strong>
+                      <p>
+                        Permanently deletes "{selectedWs.name}" — every task, comment, and file goes with it
+                        {members.length > 1 ? `, and the other ${members.length - 1} member${members.length - 1 === 1 ? '' : 's'} lose access immediately` : ''}.
+                        This cannot be undone.
+                      </p>
+                    </div>
+                    <div className="danger-zone-confirm">
+                      <label htmlFor="delete-workspace-confirm">
+                        Type <strong>{selectedWs.name}</strong> to confirm
+                      </label>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                          id="delete-workspace-confirm"
+                          value={deleteWorkspaceConfirm}
+                          onChange={e => setDeleteWorkspaceConfirm(e.target.value)}
+                          placeholder={selectedWs.name}
+                          autoComplete="off"
+                        />
+                        <button
+                          type="button"
+                          className="mini-btn danger-btn"
+                          disabled={deletingWorkspace || deleteWorkspaceConfirm.trim() !== selectedWs.name}
+                          onClick={handleDeleteWorkspace}
+                        >
+                          <Trash2 size={13} /> {deletingWorkspace ? 'Deleting…' : 'Delete workspace'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1479,14 +1503,11 @@ export default function DashboardApp() {
             </div>
           )}
 
-          {navPage === 'billing' && (
-            <Suspense fallback={<SkeletonChart height={320} />}>
-              <BillingPanel workspaceId={selectedWorkspaceId} isOwner={myMembership?.role === 'OWNER'} onMessage={showMessage} />
-            </Suspense>
-          )}
-
           {navPage === 'settings' && (
             <div className="dashboard-grid">
+              <div className="panel full-width" style={{ color: '#64748b', fontSize: '0.82rem' }}>
+                All Taskly features are available to every user.
+              </div>
               <div className="panel">
                 <h2>{t('profile', settingsLang)}</h2>
                 <form className="stack-form" onSubmit={handleSaveSettings}>
@@ -1670,8 +1691,6 @@ export default function DashboardApp() {
             blocks={selectedTask.blocks || []}
             workspaceTasks={tasks.map(tk => ({ id: tk.id, title: tk.title, status: tk.status }))}
             recurrence={taskToRecurrence(selectedTask)}
-            canUseDependencies={workspacePlan.canUseDependencies}
-            canUseRecurringTasks={workspacePlan.canUseRecurringTasks}
             onTaskUpdated={() => { loadTasks(); }}
           />
         </Modal>

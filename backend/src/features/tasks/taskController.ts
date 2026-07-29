@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
-import { assertWithinTaskLimit, getMembership, getWorkspacePlan } from "../../utils/plan.js";
+import { getMembership } from "../../utils/membership.js";
 import { cancelTaskReminders, syncTaskReminders } from "../reminders/reminderService.js";
 import { getIncompleteDependencies, wouldCreateCycle } from "./dependencyService.js";
 import { generateNextOccurrence } from "./recurrenceService.js";
@@ -137,23 +137,6 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
         // else is a Manager+ action (see spec: "Manager: assign tasks").
         if (membership.role === "MEMBER" && assignedToId && assignedToId !== authUser.id) {
             return res.status(403).json({ message: "Only managers, admins, and owners can assign tasks to other members" });
-        }
-
-        const limitError = await assertWithinTaskLimit(workspaceId);
-        if (limitError) return res.status(403).json(limitError);
-
-        const plan = await getWorkspacePlan(workspaceId);
-        if (labels?.length && !plan.canUseLabels) {
-            return res.status(403).json({ message: "Labels require a plan upgrade.", upgradeRequired: true, feature: "canUseLabels" });
-        }
-        if (parentTaskId && !plan.canUseSubtasks) {
-            return res.status(403).json({ message: "Subtasks require a plan upgrade.", upgradeRequired: true, feature: "canUseSubtasks" });
-        }
-        if (isRecurring && !plan.canUseRecurringTasks) {
-            return res.status(403).json({ message: "Recurring tasks require a plan upgrade.", upgradeRequired: true, feature: "canUseRecurringTasks" });
-        }
-        if (dependsOn?.length && !plan.canUseDependencies) {
-            return res.status(403).json({ message: "Task dependencies require a plan upgrade.", upgradeRequired: true, feature: "canUseDependencies" });
         }
 
         // Dependencies must live in the same workspace — silently drop any
@@ -309,14 +292,6 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             return res.status(403).json({ message: "Only managers, admins, and owners can assign tasks to other members" });
         }
 
-        const plan = await getWorkspacePlan(existingTask.workspaceId);
-        if (labels?.length && !plan.canUseLabels) {
-            return res.status(403).json({ message: "Labels require a plan upgrade.", upgradeRequired: true, feature: "canUseLabels" });
-        }
-        if (isRecurring && !plan.canUseRecurringTasks) {
-            return res.status(403).json({ message: "Recurring tasks require a plan upgrade.", upgradeRequired: true, feature: "canUseRecurringTasks" });
-        }
-
         const blockedBy = await checkDependencyBlock();
         if (blockedBy.length > 0) {
             return res.status(409).json({ message: `Cannot complete this task — it depends on ${blockedBy.length} incomplete task(s): ${blockedBy.map((d) => d.title).join(", ")}`, blockedBy });
@@ -349,9 +324,6 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         if (recurrenceCount !== undefined) data.recurrenceCount = recurrenceCount;
 
         if (Array.isArray(dependsOn)) {
-            if (!plan.canUseDependencies) {
-                return res.status(403).json({ message: "Task dependencies require a plan upgrade.", upgradeRequired: true, feature: "canUseDependencies" });
-            }
             const candidateIds = dependsOn.filter((depId: string) => depId !== id);
             let validIds: string[] = [];
             if (candidateIds.length > 0) {

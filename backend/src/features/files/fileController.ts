@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
-import { getMembership, getWorkspacePlan } from "../../utils/plan.js";
+import { getMembership } from "../../utils/membership.js";
 import { deleteObject, getObject, putObject } from "./storage.js";
 
 type AuthedRequest = Request & { user?: { id: string; email: string } };
@@ -23,11 +23,6 @@ export const uploadFile = async (req: UploadedRequest, res: Response) => {
         const membership = await getMembership(authUser.id, workspaceId);
         if (!membership || membership.role === "GUEST") {
             return res.status(403).json({ message: "You do not have permission to upload files here" });
-        }
-
-        const plan = await getWorkspacePlan(workspaceId);
-        if (!plan.canUseFileAttachments) {
-            return res.status(403).json({ message: "File attachments require a plan upgrade.", upgradeRequired: true, feature: "canUseFileAttachments" });
         }
 
         if (taskId) {

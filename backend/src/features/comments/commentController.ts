@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
-import { getMembership } from "../../utils/plan.js";
+import { getMembership } from "../../utils/membership.js";
 
 type AuthedRequest = Request & { user?: { id: string; email: string } };
 

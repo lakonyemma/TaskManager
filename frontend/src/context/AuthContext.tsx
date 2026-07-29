@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  authFetch, clearPendingInvite, clearTokens, getPendingInvite, getStoredRefreshToken,
+  authFetch, clearPendingInvite, clearTokens, EmailNotVerifiedError, getPendingInvite, getStoredRefreshToken,
   getStoredToken, jsonHeaders, persistTokens, SessionExpiredError,
 } from '../lib/api'
 import { AuthContext, type UserSession } from './auth-context'
@@ -46,7 +46,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string, remember = true) => {
     const res = await fetch('/api/auth/login', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ email, password }) })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.message || 'Unable to sign in')
+    if (!res.ok) {
+      if (data.emailNotVerified) throw new EmailNotVerifiedError(data.message || 'Please verify your email before signing in')
+      throw new Error(data.message || 'Unable to sign in')
+    }
     persistTokens(data.accessToken, data.refreshToken, remember)
     setUser(data.user)
     setSessionNotice('')
@@ -54,15 +57,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.user as UserSession
   }, [])
 
+  // Registration no longer establishes a session directly — the account is
+  // created in a pending/unverified state and a verification email is sent.
+  // The pending invite (if any) stays stashed until the user verifies and
+  // logs in, at which point login()'s redeemPendingInvite() picks it up.
   const register = useCallback(async (payload: { firstname: string; lastName: string; email: string; password: string }) => {
     const res = await fetch('/api/auth/register', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(payload) })
     const data = await res.json()
     if (!res.ok) throw new Error(data.message || 'Unable to create account')
-    persistTokens(data.accessToken, data.refreshToken, true)
-    setUser(data.user)
-    setSessionNotice('')
-    await redeemPendingInvite()
-    return data.user as UserSession
   }, [])
 
   const logout = useCallback(async () => {

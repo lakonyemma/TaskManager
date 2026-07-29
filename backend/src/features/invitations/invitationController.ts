@@ -2,8 +2,7 @@ import { Request, Response } from "express";
 import crypto from "node:crypto";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
-import { sendInvitationEmail } from "../../utils/email.js";
-import { assertWithinMemberLimit } from "../../utils/plan.js";
+import { sendInvitationAcceptedEmail, sendInvitationEmail } from "../../utils/email.js";
 
 export const inviteByEmail = async (req: Request, res: Response) => {
     try {
@@ -29,9 +28,6 @@ export const inviteByEmail = async (req: Request, res: Response) => {
         if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) {
             return res.status(403).json({ message: "Only workspace owners and admins can send invitations" });
         }
-
-        const limitError = await assertWithinMemberLimit(workspaceId);
-        if (limitError) return res.status(403).json(limitError);
 
         // Check the workspace exists
         const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
@@ -109,7 +105,8 @@ export const inviteByEmail = async (req: Request, res: Response) => {
         // Skip sending if the recipient already has an account and has opted out
         // of email notifications; they still get the in-app notification above.
         if (!invitedUser || invitedUser.emailNotificationsEnabled) {
-            await sendInvitationEmail(email, workspace.name, token);
+            const inviter = await prisma.user.findUnique({ where: { id: authUser.id }, select: { firstname: true, lastName: true } });
+            await sendInvitationEmail(email, workspace.name, token, inviter ? `${inviter.firstname} ${inviter.lastName}` : undefined, inviteRole, expiresAt);
         }
 
         return res.status(201).json({
@@ -143,7 +140,7 @@ export const acceptInvitation = async (req: Request, res: Response) => {
 
         const invitation = await prisma.workspaceInvitation.findUnique({
             where: { token },
-            include: { workspace: true },
+            include: { workspace: true, invitedBy: { select: { firstname: true, lastName: true, email: true } } },
         });
         if (!invitation) {
             return res.status(404).json({ message: "Invitation not found" });
@@ -186,6 +183,14 @@ export const acceptInvitation = async (req: Request, res: Response) => {
             action: `Accepted invitation to workspace ${invitation.workspace.name}`,
             workspaceId: invitation.workspaceId,
         });
+
+        const accepter = await prisma.user.findUnique({ where: { id: authUser.id }, select: { firstname: true, lastName: true } });
+        await sendInvitationAcceptedEmail(
+            invitation.invitedBy.email,
+            invitation.invitedBy.firstname,
+            accepter ? `${accepter.firstname} ${accepter.lastName}` : authUser.email,
+            invitation.workspace.name,
+        );
 
         return res.status(200).json({
             message: `You've joined workspace "${invitation.workspace.name}"`,
@@ -320,7 +325,8 @@ export const resendInvitation = async (req: Request, res: Response) => {
 
         const recipient = await prisma.user.findUnique({ where: { email: invitation.email } });
         if (!recipient || recipient.emailNotificationsEnabled) {
-            await sendInvitationEmail(invitation.email, invitation.workspace.name, token);
+            const inviter = await prisma.user.findUnique({ where: { id: authUser.id }, select: { firstname: true, lastName: true } });
+            await sendInvitationEmail(invitation.email, invitation.workspace.name, token, inviter ? `${inviter.firstname} ${inviter.lastName}` : undefined, invitation.role, expiresAt);
         }
 
         return res.status(200).json({ message: `Invitation resent to ${invitation.email}` });

@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
-import { getMembership, getWorkspacePlan } from "../../utils/plan.js";
+import { getMembership } from "../../utils/membership.js";
 
 type AuthedRequest = Request & { user?: { id: string; email: string } };
 
@@ -44,11 +44,6 @@ export const getWorkload = async (req: AuthedRequest, res: Response) => {
         if (!membership) {
             return res.status(403).json({ message: "You are not a member of this workspace" });
         }
-        const plan = await getWorkspacePlan(workspaceId);
-        if (!plan.canUseAnalytics) {
-            return res.status(403).json({ message: "Workload visualization requires a plan upgrade.", upgradeRequired: true, feature: "canUseAnalytics" });
-        }
-
         const rangeStart = new Date();
         rangeStart.setHours(0, 0, 0, 0);
         rangeStart.setDate(rangeStart.getDate() - Math.floor(RANGE_DAYS[granularity] / 2));

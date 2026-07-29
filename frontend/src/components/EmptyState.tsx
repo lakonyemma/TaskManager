@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from 'react'
 import {
-  Bell, CheckCircle2, FolderKanban, Inbox, ListChecks, Search, Sparkles, Trophy, Users, Wallet,
+  Bell, CheckCircle2, FolderKanban, Inbox, ListChecks, Search, Sparkles, Trophy, Users,
 } from 'lucide-react'
 
 // One consistent illustration language reused across every empty state in
@@ -15,7 +15,6 @@ const KIND_ICON: Record<string, ComponentType<{ size?: number; strokeWidth?: num
   workspace: FolderKanban,
   team: Users,
   achievements: Trophy,
-  billing: Wallet,
   search: Search,
   generic: Inbox,
   sparkle: Sparkles,

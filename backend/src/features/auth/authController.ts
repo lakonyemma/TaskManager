@@ -4,6 +4,9 @@ import crypto from "node:crypto";
 import prisma from "../../lib/prisma.js";
 import { hashToken, REFRESH_TOKEN_TTL_MS, signAccessToken, signRefreshToken, verifyToken } from "../../utils/auth.js";
 import { createActivityLog } from "../../utils/activity.js";
+import { sendVerificationEmail, sendVerificationSuccessEmail } from "../../utils/email.js";
+
+const VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 const PROFILE_SELECT = {
     id: true,
@@ -63,25 +66,25 @@ export const register = async (req: Request, res: Response) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
+        const verificationToken = crypto.randomUUID();
         const user = await prisma.user.create({
             data: {
                 firstname,
                 lastName,
                 email,
                 password: hashedPassword,
+                verificationToken,
+                verificationTokenExpiresAt: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS),
             },
             select: PROFILE_SELECT,
         });
 
-        await createActivityLog({ userId: user.id, action: "Registered account" });
+        await createActivityLog({ userId: user.id, action: "Registered account (pending email verification)" });
 
-        const { accessToken, refreshToken } = await issueSession(user, req);
+        await sendVerificationEmail(email, firstname, verificationToken);
 
         return res.status(201).json({
-            message: "Account created",
-            accessToken,
-            refreshToken,
-            user,
+            message: "Account created — check your email to verify your address before signing in.",
         });
     } catch (error) {
         console.error(error);
@@ -108,12 +111,19 @@ export const login = async (req: Request, res: Response) => {
             return res.status(401).json({ message: "Invalid credentials" });
         }
 
+        if (!user.emailVerified) {
+            return res.status(403).json({
+                message: "Please verify your email before signing in. Check your inbox for the verification link, or request a new one.",
+                emailNotVerified: true,
+            });
+        }
+
         const { accessToken, refreshToken } = await issueSession(user, req);
 
         await createActivityLog({ userId: user.id, action: "Logged in" });
 
-        const { password: _password, ...safeUser } = user;
-        void _password;
+        const { password: _password, verificationToken: _verificationToken, verificationTokenExpiresAt: _verificationTokenExpiresAt, ...safeUser } = user;
+        void _password; void _verificationToken; void _verificationTokenExpiresAt;
 
         return res.status(200).json({
             message: "Login successful",
@@ -258,6 +268,79 @@ export const me = async (req: Request, res: Response) => {
         }
 
         return res.status(200).json({ user });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+// Deliberately idempotent — doesn't null the token on success — so it
+// survives a double-fire (React StrictMode, corporate email-scanner link
+// prefetching) without erroring the second time the same link is opened.
+export const verifyEmail = async (req: Request, res: Response) => {
+    try {
+        const { token } = req.body as { token?: string };
+        if (!token) {
+            return res.status(400).json({ message: "Verification token is required" });
+        }
+
+        const user = await prisma.user.findUnique({ where: { verificationToken: token } });
+        if (!user) {
+            return res.status(404).json({ message: "Invalid or already-used verification link" });
+        }
+
+        if (user.emailVerified) {
+            return res.status(200).json({ message: "Email already verified" });
+        }
+
+        if (!user.verificationTokenExpiresAt || user.verificationTokenExpiresAt < new Date()) {
+            return res.status(400).json({ message: "This verification link has expired. Request a new one." });
+        }
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerified: true, emailVerifiedAt: new Date() },
+        });
+
+        await createActivityLog({ userId: user.id, action: "Verified email" });
+
+        await sendVerificationSuccessEmail(user.email, user.firstname);
+
+        return res.status(200).json({ message: "Email verified — you can now sign in" });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+// Always returns the same generic message whether or not the account
+// exists (or is already verified) to avoid leaking which emails are
+// registered.
+export const resendVerification = async (req: Request, res: Response) => {
+    try {
+        const { email } = req.body as { email?: string };
+        if (!email) {
+            return res.status(400).json({ message: "Email is required" });
+        }
+
+        const GENERIC_MESSAGE = "If an account with that email exists and isn't verified yet, a new verification email has been sent.";
+
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user || user.emailVerified) {
+            return res.status(200).json({ message: GENERIC_MESSAGE });
+        }
+
+        const verificationToken = crypto.randomUUID();
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { verificationToken, verificationTokenExpiresAt: new Date(Date.now() + VERIFICATION_TOKEN_TTL_MS) },
+        });
+
+        await createActivityLog({ userId: user.id, action: "Resent verification email" });
+
+        await sendVerificationEmail(user.email, user.firstname, verificationToken);
+
+        return res.status(200).json({ message: GENERIC_MESSAGE });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });

@@ -33,6 +33,10 @@ export class SessionExpiredError extends Error {
   constructor() { super('Session expired'); this.name = 'SessionExpiredError' }
 }
 
+export class EmailNotVerifiedError extends Error {
+  constructor(message: string) { super(message); this.name = 'EmailNotVerifiedError' }
+}
+
 // Performs an authenticated JSON fetch. Transparently retries once with a
 // refreshed access token on 401, and throws SessionExpiredError if the
 // refresh itself fails so callers can redirect to /login.

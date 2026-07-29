@@ -8,21 +8,25 @@ datasource db {
 }
 
 model User {
-  id                        String   @id @default(uuid())
-  firstname                 String
-  lastName                  String
-  email                     String   @unique
-  password                  String
-  avatarUrl                 String?
-  bio                       String?
-  isActive                  Boolean  @default(true)
-  language                  String   @default("en")
-  fontStyle                 String   @default("default")
-  colorTheme                String   @default("purple")
-  taskNotificationsEnabled  Boolean  @default(true)
-  emailNotificationsEnabled Boolean  @default(true)
-  createdAt                 DateTime @default(now())
-  updatedAt                 DateTime @updatedAt
+  id                         String    @id @default(uuid())
+  firstname                  String
+  lastName                   String
+  email                      String    @unique
+  password                   String
+  avatarUrl                  String?
+  bio                        String?
+  isActive                   Boolean   @default(true)
+  language                   String    @default("en")
+  fontStyle                  String    @default("default")
+  colorTheme                 String    @default("purple")
+  taskNotificationsEnabled   Boolean   @default(true)
+  emailNotificationsEnabled  Boolean   @default(true)
+  emailVerified              Boolean   @default(false)
+  emailVerifiedAt            DateTime?
+  verificationToken          String?   @unique
+  verificationTokenExpiresAt DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
 
   workspaceMembers       WorkspaceMember[]
   assignedTasks          Task[]                  @relation("AssignedTasks")
@@ -31,7 +35,6 @@ model User {
   notifications          Notification[]
   workspaceInvitations   WorkspaceInvitation[]   @relation("InvitedBy")
   sessions               Session[]
-  payments               Payment[]
   comments               Comment[]
   files                  File[]
   pushSubscriptions      PushSubscription[]
@@ -68,7 +71,6 @@ model Workspace {
   activityLogs  ActivityLog[]
   notifications Notification[]
   files         File[]
-  subscription  Subscription?
 }
 
 model WorkspaceMember {
@@ -346,38 +348,6 @@ enum RecurrenceRule {
   YEARLY
 }
 
-enum PlanKey {
-  FREE
-  PREMIUM
-  TEAM
-}
-
-enum BillingCycle {
-  MONTHLY
-  ANNUAL
-}
-
-enum SubscriptionStatus {
-  ACTIVE
-  TRIALING
-  PAST_DUE
-  CANCELED
-  EXPIRED
-}
-
-enum PaymentProvider {
-  STRIPE
-  PAYPAL
-  FLUTTERWAVE
-}
-
-enum PaymentStatus {
-  PENDING
-  SUCCEEDED
-  FAILED
-  REFUNDED
-}
-
 enum TaskPriority {
   LOW
   MEDIUM
@@ -399,70 +369,4 @@ enum NotificationType {
   TASK_DELETED
   WORKSPACE_INVITED
   DUE_DATE_REMINDER
-}
-
-model Plan {
-  id                       String   @id @default(uuid())
-  key                      PlanKey  @unique
-  name                     String
-  priceMonthlyCents        Int
-  priceAnnualCents         Int
-  maxWorkspaces            Int?
-  maxTasksPerWorkspace     Int?
-  maxWorkspaceMembers      Int?
-  canUseKanban             Boolean  @default(false)
-  canUseCalendar           Boolean  @default(false)
-  canUseTimeline           Boolean  @default(false)
-  canUseSubtasks           Boolean  @default(false)
-  canUseRecurringTasks     Boolean  @default(false)
-  canUseDependencies       Boolean  @default(false)
-  canUseLabels             Boolean  @default(false)
-  canUseAdvancedFilters    Boolean  @default(false)
-  canUseAnalytics          Boolean  @default(false)
-  canUseFileAttachments    Boolean  @default(false)
-  canUseExport             Boolean  @default(false)
-  canUseCustomDashboard    Boolean  @default(false)
-  canUseEmailNotifications Boolean  @default(false)
-  canCreateTeamWorkspace   Boolean  @default(false)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
-
-  subscriptions Subscription[]
-}
-
-model Subscription {
-  id                     String             @id @default(uuid())
-  workspaceId            String             @unique
-  planId                 String
-  status                 SubscriptionStatus @default(ACTIVE)
-  billingCycle           BillingCycle       @default(MONTHLY)
-  provider               PaymentProvider?
-  providerCustomerId     String?
-  providerSubscriptionId String?            @unique
-  currentPeriodStart     DateTime?
-  currentPeriodEnd       DateTime?
-  cancelAtPeriodEnd      Boolean            @default(false)
-  canceledAt             DateTime?
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
-
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  plan      Plan      @relation(fields: [planId], references: [id])
-  payments  Payment[]
-}
-
-model Payment {
-  id                String          @id @default(uuid())
-  subscriptionId    String
-  userId            String
-  provider          PaymentProvider
-  providerPaymentId String          @unique
-  amountCents       Int
-  currency          String          @default("USD")
-  billingCycle      BillingCycle
-  status            PaymentStatus   @default(PENDING)
-  createdAt         DateTime        @default(now())
-
-  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
