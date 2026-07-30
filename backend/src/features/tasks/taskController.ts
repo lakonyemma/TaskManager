@@ -157,7 +157,14 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
                 completedAt: status === "COMPLETED" ? new Date() : null,
                 completedById: status === "COMPLETED" ? authUser.id : null,
                 workspaceId,
-                assignedToId: assignedToId || null,
+                // Default to the creator when no assignee is picked — the UI's
+                // "assign to" dropdown intentionally excludes yourself (see the
+                // MEMBER-role check above), so an unassigned task is really a
+                // self-assigned one. Without this, solo-owned tasks never get
+                // assignedToId set and reminderService.syncTaskReminders (which
+                // requires an assignee to know who to notify) silently never
+                // schedules a reminder for them.
+                assignedToId: assignedToId || authUser.id,
                 dueDate: dueDate ? new Date(dueDate) : null,
                 estimatedMinutes: estimatedMinutes ?? null,
                 clientId: clientId || null,
