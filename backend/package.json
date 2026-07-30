@@ -28,10 +28,10 @@
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
-    "nodemailer": "^9.0.3",
     "pdfkit": "^0.19.1",
     "pg": "^8.22.0",
     "prisma": "^7.8.0",
+    "resend": "^6.18.1",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
@@ -42,7 +42,6 @@
     "@types/morgan": "^1.9.10",
     "@types/multer": "^2.2.0",
     "@types/node": "^26.1.2",
-    "@types/nodemailer": "^8.0.1",
     "@types/pdfkit": "^0.17.6",
     "@types/web-push": "^3.6.4",
     "ts-node-dev": "^2.0.0",
