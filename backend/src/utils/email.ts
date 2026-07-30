@@ -1,25 +1,17 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-const SMTP_HOST = process.env.SMTP_HOST;
-const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-const SMTP_SECURE = process.env.SMTP_SECURE === "true";
-const SMTP_USER = process.env.SMTP_USER;
-const SMTP_PASS = process.env.SMTP_PASS;
-const SMTP_FROM = process.env.SMTP_FROM || "Taskly <no-reply@taskly.app>";
+// Gmail SMTP (Nodemailer) doesn't work from most PaaS hosts (Render included)
+// — they block outbound SMTP ports to prevent abuse, so the connection just
+// times out rather than failing fast. Resend sends over HTTPS instead, which
+// isn't blocked.
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const EMAIL_FROM = process.env.EMAIL_FROM || "Taskly <onboarding@resend.dev>";
 const APP_URL = process.env.APP_URL || "http://localhost:5173";
 
-const transporter =
-    SMTP_HOST && SMTP_USER && SMTP_PASS
-        ? nodemailer.createTransport({
-              host: SMTP_HOST,
-              port: SMTP_PORT,
-              secure: SMTP_SECURE,
-              auth: { user: SMTP_USER, pass: SMTP_PASS },
-          })
-        : null;
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
-if (!transporter) {
-    console.warn("[email] SMTP_HOST/SMTP_USER/SMTP_PASS are not fully set — emails will be logged to the console instead of sent.");
+if (!resend) {
+    console.warn("[email] RESEND_API_KEY is not set — emails will be logged to the console instead of sent.");
 }
 
 // Shared branded shell so every transactional email looks consistent
@@ -76,9 +68,9 @@ const emailShell = (eyebrow: string, heading: string, bodyHtml: string, ctaLabel
 `;
 
 const sendMail = async (to: string, subject: string, html: string, logLabel: string, linkForLog: string) => {
-    if (!transporter) {
+    if (!resend) {
         console.log("═══════════════════════════════════════════");
-        console.log("[EMAIL] (dev mode, SMTP not configured) To:", to);
+        console.log("[EMAIL] (dev mode, RESEND_API_KEY not set) To:", to);
         console.log("[EMAIL] Subject:", subject);
         console.log(`[EMAIL] ${logLabel}:`, linkForLog);
         console.log("═══════════════════════════════════════════");
@@ -86,9 +78,13 @@ const sendMail = async (to: string, subject: string, html: string, logLabel: str
     }
 
     try {
-        await transporter.sendMail({ from: SMTP_FROM, to, subject, html });
+        const { error } = await resend.emails.send({ from: EMAIL_FROM, to, subject, html });
+        // The SDK resolves with `{ error }` for API-level failures (bad
+        // recipient, unverified domain, rate limit, etc.) rather than
+        // throwing — checking `.error` is required or these fail silently.
+        if (error) console.error(`[email] Resend rejected the ${logLabel.toLowerCase()} email to ${to}:`, error);
     } catch (error) {
-        console.error(`[email] Failed to send ${logLabel.toLowerCase()} email to ${to}:`, error);
+        console.error(`[email] Failed to send ${logLabel.toLowerCase()} email:`, error);
     }
 };
 
