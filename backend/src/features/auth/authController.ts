@@ -81,7 +81,10 @@ export const register = async (req: Request, res: Response) => {
 
         await createActivityLog({ userId: user.id, action: "Registered account (pending email verification)" });
 
-        await sendVerificationEmail(email, firstname, verificationToken);
+        // Fire-and-forget: a slow/unreachable mail server must never hang
+        // the registration response. sendVerificationEmail already logs its
+        // own failures internally.
+        void sendVerificationEmail(email, firstname, verificationToken).catch(() => {});
 
         return res.status(201).json({
             message: "Account created — check your email to verify your address before signing in.",
@@ -304,7 +307,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
 
         await createActivityLog({ userId: user.id, action: "Verified email" });
 
-        await sendVerificationSuccessEmail(user.email, user.firstname);
+        void sendVerificationSuccessEmail(user.email, user.firstname).catch(() => {});
 
         return res.status(200).json({ message: "Email verified — you can now sign in" });
     } catch (error) {
@@ -338,7 +341,7 @@ export const resendVerification = async (req: Request, res: Response) => {
 
         await createActivityLog({ userId: user.id, action: "Resent verification email" });
 
-        await sendVerificationEmail(user.email, user.firstname, verificationToken);
+        void sendVerificationEmail(user.email, user.firstname, verificationToken).catch(() => {});
 
         return res.status(200).json({ message: GENERIC_MESSAGE });
     } catch (error) {
