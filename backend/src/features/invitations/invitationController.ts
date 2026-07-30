@@ -106,7 +106,7 @@ export const inviteByEmail = async (req: Request, res: Response) => {
         // of email notifications; they still get the in-app notification above.
         if (!invitedUser || invitedUser.emailNotificationsEnabled) {
             const inviter = await prisma.user.findUnique({ where: { id: authUser.id }, select: { firstname: true, lastName: true } });
-            await sendInvitationEmail(email, workspace.name, token, inviter ? `${inviter.firstname} ${inviter.lastName}` : undefined, inviteRole, expiresAt);
+            void sendInvitationEmail(email, workspace.name, token, inviter ? `${inviter.firstname} ${inviter.lastName}` : undefined, inviteRole, expiresAt).catch(() => {});
         }
 
         return res.status(201).json({
@@ -185,12 +185,12 @@ export const acceptInvitation = async (req: Request, res: Response) => {
         });
 
         const accepter = await prisma.user.findUnique({ where: { id: authUser.id }, select: { firstname: true, lastName: true } });
-        await sendInvitationAcceptedEmail(
+        void sendInvitationAcceptedEmail(
             invitation.invitedBy.email,
             invitation.invitedBy.firstname,
             accepter ? `${accepter.firstname} ${accepter.lastName}` : authUser.email,
             invitation.workspace.name,
-        );
+        ).catch(() => {});
 
         return res.status(200).json({
             message: `You've joined workspace "${invitation.workspace.name}"`,
@@ -326,7 +326,7 @@ export const resendInvitation = async (req: Request, res: Response) => {
         const recipient = await prisma.user.findUnique({ where: { email: invitation.email } });
         if (!recipient || recipient.emailNotificationsEnabled) {
             const inviter = await prisma.user.findUnique({ where: { id: authUser.id }, select: { firstname: true, lastName: true } });
-            await sendInvitationEmail(invitation.email, invitation.workspace.name, token, inviter ? `${inviter.firstname} ${inviter.lastName}` : undefined, invitation.role, expiresAt);
+            void sendInvitationEmail(invitation.email, invitation.workspace.name, token, inviter ? `${inviter.firstname} ${inviter.lastName}` : undefined, invitation.role, expiresAt).catch(() => {});
         }
 
         return res.status(200).json({ message: `Invitation resent to ${invitation.email}` });
