@@ -1,18 +1,25 @@
-import { Resend } from "resend";
-
 // Gmail SMTP (Nodemailer) doesn't work from most PaaS hosts (Render included)
 // — they block outbound SMTP ports to prevent abuse, so the connection just
-// times out rather than failing fast. Resend sends over HTTPS instead, which
-// isn't blocked.
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const EMAIL_FROM = process.env.EMAIL_FROM || "Taskly <onboarding@resend.dev>";
+// times out rather than failing fast. Brevo's transactional email API sends
+// over HTTPS instead, which isn't blocked — plain fetch(), no SDK needed.
+// Unlike Resend's sandbox mode, Brevo doesn't restrict the recipient to the
+// account owner's own address once a single sender email is verified.
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const EMAIL_FROM = process.env.EMAIL_FROM || "Taskly <onboarding@taskly.app>";
 const APP_URL = process.env.APP_URL || "http://localhost:5173";
 
-const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
-
-if (!resend) {
-    console.warn("[email] RESEND_API_KEY is not set — emails will be logged to the console instead of sent.");
+if (!BREVO_API_KEY) {
+    console.warn("[email] BREVO_API_KEY is not set — emails will be logged to the console instead of sent.");
 }
+
+// EMAIL_FROM is the same "Name <email>" string format used across every
+// provider this project has run on — Brevo's API wants them as separate
+// fields, so split it here instead of introducing yet another env var shape.
+const parseSender = (from: string): { name?: string; email: string } => {
+    const match = from.match(/^(.*?)\s*<(.+)>$/);
+    if (match) return { name: match[1].trim() || undefined, email: match[2].trim() };
+    return { email: from.trim() };
+};
 
 // Shared branded shell so every transactional email looks consistent
 // without duplicating the outer markup in each template. Table-based
@@ -68,9 +75,9 @@ const emailShell = (eyebrow: string, heading: string, bodyHtml: string, ctaLabel
 `;
 
 const sendMail = async (to: string, subject: string, html: string, logLabel: string, linkForLog: string) => {
-    if (!resend) {
+    if (!BREVO_API_KEY) {
         console.log("═══════════════════════════════════════════");
-        console.log("[EMAIL] (dev mode, RESEND_API_KEY not set) To:", to);
+        console.log("[EMAIL] (dev mode, BREVO_API_KEY not set) To:", to);
         console.log("[EMAIL] Subject:", subject);
         console.log(`[EMAIL] ${logLabel}:`, linkForLog);
         console.log("═══════════════════════════════════════════");
@@ -78,11 +85,27 @@ const sendMail = async (to: string, subject: string, html: string, logLabel: str
     }
 
     try {
-        const { error } = await resend.emails.send({ from: EMAIL_FROM, to, subject, html });
-        // The SDK resolves with `{ error }` for API-level failures (bad
-        // recipient, unverified domain, rate limit, etc.) rather than
-        // throwing — checking `.error` is required or these fail silently.
-        if (error) console.error(`[email] Resend rejected the ${logLabel.toLowerCase()} email to ${to}:`, error);
+        const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+            method: "POST",
+            headers: {
+                "api-key": BREVO_API_KEY,
+                "content-type": "application/json",
+                accept: "application/json",
+            },
+            body: JSON.stringify({
+                sender: parseSender(EMAIL_FROM),
+                to: [{ email: to }],
+                subject,
+                htmlContent: html,
+            }),
+        });
+        // Brevo returns a non-2xx status with a JSON error body for API-level
+        // failures (unverified sender, bad recipient, rate limit, etc.)
+        // rather than throwing — fetch() only rejects on network failure.
+        if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            console.error(`[email] Brevo rejected the ${logLabel.toLowerCase()} email to ${to}: ${res.status} ${body}`);
+        }
     } catch (error) {
         console.error(`[email] Failed to send ${logLabel.toLowerCase()} email:`, error);
     }
