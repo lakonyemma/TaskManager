@@ -4,79 +4,356 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
+
 }
 
 model User {
-  lastName         String
-  email            String            @unique
-  password         String
-  firstname        String
-  id               Int               @id @default(autoincrement())
-  activityLogs     ActivityLog[]
-  assignedTasks    Task[]            @relation("AssignedTasks")
-  TaskComment      TaskComment[]
-  workspaceMembers WorkspaceMember[]
+  id                         String    @id @default(uuid())
+  firstname                  String
+  lastName                   String
+  email                      String    @unique
+  password                   String
+  avatarUrl                  String?
+  bio                        String?
+  isActive                   Boolean   @default(true)
+  language                   String    @default("en")
+  fontStyle                  String    @default("default")
+  colorTheme                 String    @default("purple")
+  taskNotificationsEnabled   Boolean   @default(true)
+  emailNotificationsEnabled  Boolean   @default(true)
+  emailVerified              Boolean   @default(false)
+  emailVerifiedAt            DateTime?
+  verificationToken          String?   @unique
+  verificationTokenExpiresAt DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  workspaceMembers       WorkspaceMember[]
+  assignedTasks          Task[]                  @relation("AssignedTasks")
+  completedTasks         Task[]                  @relation("CompletedTasks")
+  activityLogs           ActivityLog[]
+  notifications          Notification[]
+  workspaceInvitations   WorkspaceInvitation[]   @relation("InvitedBy")
+  sessions               Session[]
+  comments               Comment[]
+  files                  File[]
+  pushSubscriptions      PushSubscription[]
+  notificationPreference NotificationPreference?
+  reminderSchedules      ReminderSchedule[]
+  userAchievements       UserAchievement[]
+}
+
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  userAgent  String?
+  ipAddress  String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Workspace {
-  id          String            @id @default(uuid())
+  id          String        @id @default(uuid())
   name        String
   description String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  tasks       Task[]
-  members     WorkspaceMember[]
+  type        WorkspaceType @default(PERSONAL)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tasks         Task[]
+  members       WorkspaceMember[]
+  invitations   WorkspaceInvitation[]
+  activityLogs  ActivityLog[]
+  notifications Notification[]
+  files         File[]
 }
 
 model WorkspaceMember {
+  id          String        @id @default(uuid())
+  userId      String
   workspaceId String
-  role        UserRole  @default(MEMBER)
-  id          Int       @id @default(autoincrement())
-  userId      Int
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
 }
 
 model Task {
-  id           String        @id @default(uuid())
-  title        String
-  description  String?
-  priority     TaskPriority  @default(MEDIUM)
-  status       TaskStatus    @default(TODO)
-  dueDate      DateTime?
+  id                         String          @id @default(uuid())
+  title                      String
+  description                String?
+  priority                   TaskPriority    @default(MEDIUM)
+  status                     TaskStatus      @default(TODO)
+  dueDate                    DateTime?
+  completedAt                DateTime?
+  // Who actually marked the task complete — distinct from assignedToId.
+  // Achievements/insights credit this, not the assignee: a solo user very
+  // often completes tasks they never bothered to explicitly assign to
+  // themselves, and assignment tracks delegation/ownership, not who did
+  // the work of finishing it.
+  completedById              String?
+  estimatedMinutes           Int?
+  // Client-generated idempotency key for offline-created tasks — lets the
+  // sync layer safely retry a "create" mutation (e.g. after a dropped
+  // response) without producing a duplicate task.
+  clientId                   String?         @unique
+  workspaceId                String
+  assignedToId               String?
+  labels                     String[]        @default([])
+  parentTaskId               String?
+  isRecurring                Boolean         @default(false)
+  recurrenceRule             RecurrenceRule?
+  // Recurrence engine config (only meaningful when isRecurring is true).
+  // interval multiplies the base unit ("every N days/weeks/months/years");
+  // daysOfWeek (0=Sun..6=Sat) restricts a WEEKLY rule to specific weekdays;
+  // businessDaysOnly skips generated occurrences that land on a weekend.
+  recurrenceInterval         Int?
+  recurrenceDaysOfWeek       Int[]           @default([])
+  recurrenceBusinessDaysOnly Boolean         @default(false)
+  recurrenceEndDate          DateTime?
+  recurrenceCount            Int?
+  recurrenceOccurrenceNumber Int             @default(1)
+  recurrenceParentId         String?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedTo        User?              @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
+  completedBy       User?              @relation("CompletedTasks", fields: [completedById], references: [id], onDelete: SetNull)
+  activityLogs      ActivityLog[]
+  notifications     Notification[]
+  comments          Comment[]
+  files             File[]
+  reminderSchedules ReminderSchedule[]
+
+  parentTask Task?  @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks   Task[] @relation("Subtasks")
+
+  recurrenceParent   Task?  @relation("RecurrenceChain", fields: [recurrenceParentId], references: [id], onDelete: SetNull)
+  recurrenceChildren Task[] @relation("RecurrenceChain")
+
+  dependsOn Task[] @relation("TaskDependencies")
+  blocks    Task[] @relation("TaskDependencies")
+
+  @@index([workspaceId, status])
+  @@index([assignedToId, status])
+  @@index([completedById, status])
+  @@index([workspaceId, dueDate])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  body      String
+  mentions  String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model File {
+  id           String   @id @default(uuid())
   workspaceId  String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  assignedToId Int?
-  assignedTo   User?         @relation("AssignedTasks", fields: [assignedToId], references: [id])
-  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  TaskComment  TaskComment[]
+  taskId       String?
+  uploadedById String
+  filename     String
+  storedName   String
+  mimeType     String
+  sizeBytes    Int
+  createdAt    DateTime @default(now())
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task       Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
 }
 
 model ActivityLog {
-  id        String   @id @default(uuid())
-  action    String
-  createdAt DateTime @default(now())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid())
+  action      String
+  entityType  String?
+  entityId    String?
+  userId      String
+  workspaceId String?
+  taskId      String?
+  createdAt   DateTime @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task      Task?      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
 }
 
-model TaskComment {
-  id        String   @id
-  content   String
-  taskId    String
-  createdAt DateTime @default(now())
-  authorId  Int
-  User      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  Task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+model Notification {
+  id                 String           @id @default(uuid())
+  userId             String
+  workspaceId        String?
+  taskId             String?
+  reminderScheduleId String?
+  type               NotificationType
+  message            String
+  isRead             Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace        Workspace?        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task             Task?             @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  reminderSchedule ReminderSchedule? @relation(fields: [reminderScheduleId], references: [id], onDelete: SetNull)
+}
+
+// One row per device/browser a user has granted Web Push permission on.
+// `endpoint` is globally unique per browser installation, so it doubles as
+// the natural upsert key when a client re-subscribes.
+model PushSubscription {
+  id         String   @id @default(uuid())
+  userId     String
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model NotificationPreference {
+  id                     String   @id @default(uuid())
+  userId                 String   @unique
+  pushEnabled            Boolean  @default(true)
+  soundEnabled           Boolean  @default(true)
+  vibrationEnabled       Boolean  @default(true)
+  defaultReminderMinutes Int[]    @default([15])
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Static catalog of achievements (streaks, milestones). Seeded idempotently
+// at server boot (see achievementService.ensureAchievementsSeeded) rather
+// than requiring a manual seed run, so the catalog is always present.
+model Achievement {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String
+  icon        String
+  createdAt   DateTime @default(now())
+
+  userAchievements UserAchievement[]
+}
+
+// One row per (user, achievement) the user has actually earned — earning is
+// permanent once granted, so this doubles as the "earned at" audit record.
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String
+  achievementId String
+  earnedAt      DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+}
+
+// A single scheduled reminder for one user on one task. Offset-based
+// reminders (5m/10m/.../1d before) store `offsetMinutes` so they can be
+// recomputed if the due date changes; fully custom reminders leave it null
+// and `remindAt` is authoritative.
+model ReminderSchedule {
+  id            String         @id @default(uuid())
+  taskId        String
+  userId        String
+  offsetMinutes Int?
+  remindAt      DateTime
+  label         String
+  status        ReminderStatus @default(PENDING)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  task          Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifications Notification[]
+
+  @@index([status, remindAt])
+  @@index([taskId])
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  CANCELLED
+  SNOOZED
+}
+
+model WorkspaceInvitation {
+  id          String           @id @default(uuid())
+  email       String
+  workspaceId String
+  invitedById String
+  token       String           @unique
+  status      InvitationStatus @default(PENDING)
+  role        WorkspaceRole    @default(MEMBER)
+  expiresAt   DateTime
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User      @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@unique([email, workspaceId])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
+  GUEST
+}
+
+enum WorkspaceType {
+  PERSONAL
+  TEAM
+}
+
+enum RecurrenceRule {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
 }
 
 enum TaskPriority {
   LOW
   MEDIUM
   HIGH
-  URGENT
+  CRITICAL
 }
 
 enum TaskStatus {
@@ -86,9 +363,11 @@ enum TaskStatus {
   COMPLETED
 }
 
-enum UserRole {
-  OWNER
-  ADMIN
-  MANAGER
-  MEMBER
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_COMMENTED
+  TASK_UPDATED
+  TASK_DELETED
+  WORKSPACE_INVITED
+  DUE_DATE_REMINDER
 }
