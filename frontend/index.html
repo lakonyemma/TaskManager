@@ -8,6 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/notification-icon.svg" />
     <link rel="manifest" href="/manifest.json" />
+    <link rel="preload" as="image" href="/boot-splash.jpg" fetchpriority="high" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0e27" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#8B5CF6" media="(prefers-color-scheme: light)" />
@@ -17,6 +18,62 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Taskly" />
     <title>Taskly</title>
+    <style>
+      /* Paints the instant the HTML parses — before the JS bundle has even
+         started downloading — so there's no blank/white gap between
+         Android's native app-launch screen and Taskly's own branded splash
+         (AppSplashGate/SplashScreen). Hand-written rather than imported
+         since the real stylesheet isn't loaded yet at this point. Colors
+         match the default theme in styles/brand.css; removed by
+         AppSplashGate the moment React mounts its own splash on top. */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: #060b23;
+      }
+      #boot-splash img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      #boot-splash::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 50% 40%, rgba(6, 11, 35, 0.55) 0%, rgba(6, 11, 35, 0.88) 70%),
+          linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(168, 85, 247, 0.15) 45%, rgba(6, 11, 35, 0.92));
+      }
+      #boot-splash-content {
+        position: relative;
+        z-index: 1;
+        text-align: center;
+        font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+      }
+      #boot-splash-content strong {
+        display: block;
+        font-size: clamp(2.4rem, 8vw, 3.4rem);
+        font-weight: 800;
+        background: linear-gradient(135deg, #fff, #c084fc);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      #boot-splash-content span {
+        display: block;
+        margin-top: 10px;
+        font-size: clamp(0.95rem, 2.4vw, 1.15rem);
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.82);
+      }
+    </style>
     <script>
       // Applied synchronously, before first paint, so a reload never
       // flashes the default purple theme while /api/auth/me is in flight —
@@ -33,6 +90,13 @@
     </script>
   </head>
   <body>
+    <div id="boot-splash">
+      <img src="/boot-splash.jpg" alt="" />
+      <div id="boot-splash-content">
+        <strong>Taskly</strong>
+        <span>Work Smarter. Achieve More.</span>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
