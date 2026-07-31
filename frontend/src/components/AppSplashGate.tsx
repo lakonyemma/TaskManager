@@ -29,6 +29,14 @@ export default function AppSplashGate({ children }: { children: React.ReactNode 
     return () => clearTimeout(timer)
   }, [showSplash])
 
+  // index.html paints a static lookalike of this splash (#boot-splash)
+  // before the JS bundle even loads, closing the gap after Android's own
+  // native app-launch screen hands off. Once React's own splash has
+  // rendered in its place, the static one is redundant — drop it.
+  useEffect(() => {
+    document.getElementById('boot-splash')?.remove()
+  }, [])
+
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.hidden) {
