@@ -262,7 +262,9 @@ export default function DashboardApp() {
   const [totalFocusSeconds, setTotalFocusSeconds] = useState(0)
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [showSessions, setShowSessions] = useState(false)
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
+  const [showAuditLog, setShowAuditLog] = useState(false)
   const [auditTypeFilter, setAuditTypeFilter] = useState('')
   const [auditFrom, setAuditFrom] = useState('')
   const [auditTo, setAuditTo] = useState('')
@@ -551,8 +553,13 @@ export default function DashboardApp() {
   useEffect(() => { if (navPage === 'activity') loadActivity() }, [navPage, loadActivity])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'notifications') loadNotifList() }, [navPage, loadNotifList])
+  // Sessions and audit log are loaded on demand — only once the user
+  // actually opens that section (see the toggle buttons in Settings), not
+  // eagerly just for visiting the Settings tab.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (navPage === 'settings') { loadSessions(); loadAuditLogs() } }, [navPage, loadSessions, loadAuditLogs])
+  useEffect(() => { if (showSessions) loadSessions() }, [showSessions, loadSessions])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (showAuditLog) loadAuditLogs() }, [showAuditLog, loadAuditLogs])
 
   // Closes the notification dropdown on an outside click — same pattern as
   // GlobalSearch's own click-outside handling.
@@ -2256,58 +2263,76 @@ export default function DashboardApp() {
               </div>
 
               <div className="panel full-width">
-                <h2>Active sessions</h2>
-                <div className="task-list">
-                  {sessions.map(s => (
-                    <div key={s.id} className="task-list-item">
-                      <div className="task-list-info">
-                        <strong>{s.userAgent || 'Unknown device'} {s.isCurrent && <span className="role-badge member">This device</span>}</strong>
-                        <span>{s.ipAddress || ''} · Last active {new Date(s.lastUsedAt).toLocaleString()}</span>
-                      </div>
-                      {!s.isCurrent && (
-                        <button type="button" className="mini-btn danger-btn" onClick={() => handleRevokeSession(s.id)}>Revoke</button>
-                      )}
+                <h2 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Active sessions</span>
+                  <button type="button" className="mini-btn secondary-btn" onClick={() => setShowSessions(v => !v)}>
+                    {showSessions ? 'Hide' : 'View active sessions'}
+                  </button>
+                </h2>
+                {showSessions && (
+                  <>
+                    <div className="task-list">
+                      {sessions.map(s => (
+                        <div key={s.id} className="task-list-item">
+                          <div className="task-list-info">
+                            <strong>{s.userAgent || 'Unknown device'} {s.isCurrent && <span className="role-badge member">This device</span>}</strong>
+                            <span>{s.ipAddress || ''} · Last active {new Date(s.lastUsedAt).toLocaleString()}</span>
+                          </div>
+                          {!s.isCurrent && (
+                            <button type="button" className="mini-btn danger-btn" onClick={() => handleRevokeSession(s.id)}>Revoke</button>
+                          )}
+                        </div>
+                      ))}
+                      {sessions.length === 0 && <p className="empty-column">No active sessions</p>}
                     </div>
-                  ))}
-                  {sessions.length === 0 && <p className="empty-column">No active sessions</p>}
-                </div>
-                <button type="button" className="mini-btn danger-btn" style={{ marginTop: 12 }} onClick={handleLogoutAllDevices}>Log out of all devices</button>
+                    <button type="button" className="mini-btn danger-btn" style={{ marginTop: 12 }} onClick={handleLogoutAllDevices}>Log out of all devices</button>
+                  </>
+                )}
               </div>
 
               <div className="panel full-width">
                 <h2 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span>Audit Log</span>
-                  <button type="button" className="mini-btn" onClick={handleExportAuditLogs}>Export CSV</button>
-                </h2>
-                <div className="stack-form" style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-                  <select className="notif-filter-select" value={auditTypeFilter} onChange={e => setAuditTypeFilter(e.target.value)} aria-label="Filter by event type">
-                    <option value="">All events</option>
-                    {AUDIT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                  <input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)} aria-label="From date" />
-                  <input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)} aria-label="To date" />
-                  {(auditTypeFilter || auditFrom || auditTo) && (
-                    <button type="button" className="mini-btn" onClick={() => { setAuditTypeFilter(''); setAuditFrom(''); setAuditTo('') }}>Clear</button>
-                  )}
-                </div>
-                {auditLogs.length === 0 ? (
-                  <EmptyState kind="activity" compact title="No audit entries" description="Security and administrative events (logins, password changes, role changes) will show up here." />
-                ) : (
-                  <div className="task-list">
-                    {auditLogs.map(entry => (
-                      <div key={entry.id} className="task-list-item">
-                        <div className="task-list-info">
-                          <strong>{entry.action}</strong>
-                          <span>
-                            {entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}
-                            {entry.workspace ? ` · ${entry.workspace.name}` : ''}
-                            {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
-                          </span>
-                        </div>
-                        <span className="bar-label">{new Date(entry.createdAt).toLocaleString()}</span>
-                      </div>
-                    ))}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {showAuditLog && <button type="button" className="mini-btn" onClick={handleExportAuditLogs}>Export CSV</button>}
+                    <button type="button" className="mini-btn secondary-btn" onClick={() => setShowAuditLog(v => !v)}>
+                      {showAuditLog ? 'Hide' : 'View audit log'}
+                    </button>
                   </div>
+                </h2>
+                {showAuditLog && (
+                  <>
+                    <div className="stack-form" style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                      <select className="notif-filter-select" value={auditTypeFilter} onChange={e => setAuditTypeFilter(e.target.value)} aria-label="Filter by event type">
+                        <option value="">All events</option>
+                        {AUDIT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      <input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)} aria-label="From date" />
+                      <input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)} aria-label="To date" />
+                      {(auditTypeFilter || auditFrom || auditTo) && (
+                        <button type="button" className="mini-btn" onClick={() => { setAuditTypeFilter(''); setAuditFrom(''); setAuditTo('') }}>Clear</button>
+                      )}
+                    </div>
+                    {auditLogs.length === 0 ? (
+                      <EmptyState kind="activity" compact title="No audit entries" description="Security and administrative events (logins, password changes, role changes) will show up here." />
+                    ) : (
+                      <div className="task-list">
+                        {auditLogs.map(entry => (
+                          <div key={entry.id} className="task-list-item">
+                            <div className="task-list-info">
+                              <strong>{entry.action}</strong>
+                              <span>
+                                {entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}
+                                {entry.workspace ? ` · ${entry.workspace.name}` : ''}
+                                {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
+                              </span>
+                            </div>
+                            <span className="bar-label">{new Date(entry.createdAt).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
