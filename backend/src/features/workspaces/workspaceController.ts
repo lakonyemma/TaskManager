@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
 import { deleteObject } from "../files/storage.js";
+import { getMembership } from "../../utils/membership.js";
 
 export const listWorkspaces = async (req: Request, res: Response) => {
     try {
@@ -70,9 +71,7 @@ export const updateWorkspace = async (req: Request, res: Response) => {
         const workspaceId = String(req.params.workspaceId);
         const { name, description } = req.body as { name?: string; description?: string };
 
-        const membership = await prisma.workspaceMember.findUnique({
-            where: { userId_workspaceId: { userId: authUser.id, workspaceId } },
-        });
+        const membership = await getMembership(authUser.id, workspaceId);
         if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
             return res.status(403).json({ message: "Only workspace owners and admins can edit this workspace" });
         }
@@ -85,13 +84,24 @@ export const updateWorkspace = async (req: Request, res: Response) => {
         if (name !== undefined) data.name = name.trim();
         if (description !== undefined) data.description = description;
 
+        const before = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true, description: true } });
+
         const workspace = await prisma.workspace.update({
             where: { id: workspaceId },
             data,
             include: { members: true },
         });
 
-        await createActivityLog({ userId: authUser.id, action: `Updated workspace ${workspace.name}`, workspaceId, entityType: "project_updated", entityId: workspaceId });
+        await createActivityLog({
+            userId: authUser.id,
+            action: `Updated workspace ${workspace.name}`,
+            workspaceId,
+            entityType: "project_updated",
+            entityId: workspaceId,
+            previousValue: before ? { name: before.name, description: before.description } : undefined,
+            newValue: { name: workspace.name, description: workspace.description },
+            ipAddress: req.ip || null,
+        });
 
         const otherMembers = workspace.members.filter((m) => m.userId !== authUser.id);
         await Promise.all(
@@ -127,9 +137,7 @@ export const listMembers = async (req: Request, res: Response) => {
             return res.status(400).json({ message: "Workspace id is required" });
         }
 
-        const membership = await prisma.workspaceMember.findUnique({
-            where: { userId_workspaceId: { userId: authUser.id, workspaceId } },
-        });
+        const membership = await getMembership(authUser.id, workspaceId);
         if (!membership) {
             return res.status(403).json({ message: "You are not a member of this workspace" });
         }
@@ -166,9 +174,7 @@ export const updateMemberRole = async (req: Request, res: Response) => {
             return res.status(400).json({ message: `Role must be one of ${ASSIGNABLE_ROLES.join(", ")}` });
         }
 
-        const membership = await prisma.workspaceMember.findUnique({
-            where: { userId_workspaceId: { userId: authUser.id, workspaceId } },
-        });
+        const membership = await getMembership(authUser.id, workspaceId);
         if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) {
             return res.status(403).json({ message: "Only workspace owners and admins can change member roles" });
         }
@@ -193,6 +199,9 @@ export const updateMemberRole = async (req: Request, res: Response) => {
             workspaceId,
             entityType: "role_changed",
             entityId: updated.id,
+            previousValue: { role: target.role },
+            newValue: { role: updated.role },
+            ipAddress: req.ip || null,
         });
 
         return res.status(200).json({ member: updated });
@@ -212,9 +221,7 @@ export const removeMember = async (req: Request, res: Response) => {
         const workspaceId = String(req.params.workspaceId);
         const memberId = String(req.params.memberId);
 
-        const membership = await prisma.workspaceMember.findUnique({
-            where: { userId_workspaceId: { userId: authUser.id, workspaceId } },
-        });
+        const membership = await getMembership(authUser.id, workspaceId);
         if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) {
             return res.status(403).json({ message: "Only workspace owners and admins can remove members" });
         }
@@ -263,9 +270,12 @@ export const deleteWorkspace = async (req: Request, res: Response) => {
 
         const workspaceId = String(req.params.workspaceId);
 
-        const membership = await prisma.workspaceMember.findUnique({
-            where: { userId_workspaceId: { userId: authUser.id, workspaceId } },
-        });
+        // Deliberately via getMembership (not a raw findUnique) — a
+        // super-admin-disabled workspace often means a moderation hold is in
+        // effect, and self-service deletion would let an owner destroy the
+        // evidence (tasks/files/activity all cascade away) while that hold
+        // is active.
+        const membership = await getMembership(authUser.id, workspaceId);
         if (!membership || membership.role !== "OWNER") {
             return res.status(403).json({ message: "Only the workspace owner can delete this workspace" });
         }

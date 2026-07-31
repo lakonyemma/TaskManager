@@ -12,6 +12,7 @@ export default function VerifyEmailPage() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!token) { setStatus('error'); setMessage('This verification link is missing its token.'); return }
     let cancelled = false
     fetch('/api/auth/verify-email', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ token }) })

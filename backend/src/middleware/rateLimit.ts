@@ -45,3 +45,15 @@ export const captureRateLimiter = rateLimit({
     keyGenerator: (req: Request) => (req as Request & { user?: { id: string } }).user?.id || ipKeyGenerator(req.ip || "unknown"),
     message: { message: "Too many requests. Please slow down." },
 });
+
+// A 4-digit PIN is only 10,000 combinations — tight enough that an
+// unrestricted endpoint would be brute-forceable in minutes. Keyed per
+// authenticated user (the caller must already hold a valid access token).
+export const pinVerifyRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 8,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => (req as Request & { user?: { id: string } }).user?.id || ipKeyGenerator(req.ip || "unknown"),
+    message: { message: "Too many PIN attempts. Please try again later." },
+});

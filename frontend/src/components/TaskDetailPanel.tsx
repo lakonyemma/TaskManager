@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlarmClock, GitBranch, Paperclip, Repeat, Send, Tag as TagIcon, X } from 'lucide-react'
+import { AlarmClock, Camera as CameraIcon, GitBranch, Paperclip, Repeat, Send, Tag as TagIcon, X } from 'lucide-react'
 import { authFetch, getStoredToken, jsonHeaders } from '../lib/api'
 import { REMINDER_OFFSETS, type ReminderSchedule } from '../lib/reminders'
 import type { RecurrenceConfig } from '../lib/recurrence'
 import DependencyPicker from './DependencyPicker'
 import RecurrencePicker from './RecurrencePicker'
 import TagBadge, { type TagRef } from './TagBadge'
+import CameraCapture from './CameraCapture'
 
 type DepTask = { id: string; title: string; status: string }
 
@@ -27,7 +28,7 @@ const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes
 
 export default function TaskDetailPanel({
   taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId,
-  dependsOn, blocks, workspaceTasks, recurrence, onTaskUpdated, taskTags, workspaceTags,
+  dependsOn, blocks, relatedTo, workspaceTasks, recurrence, onTaskUpdated, taskTags, workspaceTags,
 }: {
   taskId: string
   workspaceId: string
@@ -38,6 +39,7 @@ export default function TaskDetailPanel({
   assignedToId?: string | null
   dependsOn: DepTask[]
   blocks: DepTask[]
+  relatedTo: DepTask[]
   workspaceTasks: DepTask[]
   recurrence: RecurrenceConfig
   onTaskUpdated: () => void
@@ -48,6 +50,7 @@ export default function TaskDetailPanel({
   const [newComment, setNewComment] = useState('')
   const [files, setFiles] = useState<FileAttachment[]>([])
   const [uploading, setUploading] = useState(false)
+  const [showCamera, setShowCamera] = useState(false)
   const [reminders, setReminders] = useState<ReminderSchedule[]>([])
   const [customReminderAt, setCustomReminderAt] = useState('')
   const [recurrenceDraft, setRecurrenceDraft] = useState<RecurrenceConfig>(recurrence)
@@ -136,6 +139,13 @@ export default function TaskDetailPanel({
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to update dependencies', 'error') }
   }
 
+  const updateRelatedTo = async (ids: string[]) => {
+    try {
+      await authFetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ relatedTaskIds: ids }) })
+      onTaskUpdated()
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to update related tasks', 'error') }
+  }
+
   const saveRecurrence = async () => {
     setSavingRecurrence(true)
     try {
@@ -174,10 +184,7 @@ export default function TaskDetailPanel({
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to delete comment', 'error') }
   }
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
+  const uploadFile = async (file: File) => {
     setUploading(true)
     try {
       const form = new FormData()
@@ -192,6 +199,13 @@ export default function TaskDetailPanel({
       onMessage('File uploaded', 'success')
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to upload file', 'error') }
     finally { setUploading(false) }
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await uploadFile(file)
   }
 
   const handleDownload = async (file: FileAttachment) => {
@@ -263,7 +277,7 @@ export default function TaskDetailPanel({
       )}
 
       <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><GitBranch size={14} strokeWidth={1.8} /> Dependencies</h3>
-      <DependencyPicker taskId={taskId} candidateTasks={workspaceTasks} dependsOn={dependsOn} blocks={blocks} onChange={updateDependsOn} />
+      <DependencyPicker taskId={taskId} candidateTasks={workspaceTasks} dependsOn={dependsOn} blocks={blocks} relatedTo={relatedTo} onChange={updateDependsOn} onRelatedChange={updateRelatedTo} />
 
       <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Repeat size={14} strokeWidth={1.8} /> Recurrence</h3>
       <RecurrencePicker value={recurrenceDraft} onChange={setRecurrenceDraft} />
@@ -286,10 +300,18 @@ export default function TaskDetailPanel({
         ))}
         {files.length === 0 && <p className="empty-column">No files attached</p>}
       </div>
-      <label className="secondary-btn upload-label">
-        {uploading ? 'Uploading…' : 'Attach a file'}
-        <input type="file" onChange={handleUpload} disabled={uploading} style={{ display: 'none' }} />
-      </label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <label className="secondary-btn upload-label">
+          {uploading ? 'Uploading…' : 'Attach a file'}
+          <input type="file" onChange={handleUpload} disabled={uploading} style={{ display: 'none' }} />
+        </label>
+        <button type="button" className="mini-btn secondary-btn" onClick={() => setShowCamera(true)} disabled={uploading}>
+          <CameraIcon size={13} /> Take photo
+        </button>
+      </div>
+      {showCamera && (
+        <CameraCapture onClose={() => setShowCamera(false)} onCapture={async (file) => { setShowCamera(false); await uploadFile(file) }} />
+      )}
 
       <h3 style={{ marginTop: 20 }}>Comments</h3>
       <div className="comment-list">

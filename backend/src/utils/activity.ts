@@ -12,6 +12,9 @@ export const createActivityLog = async ({
     taskId,
     entityType,
     entityId,
+    previousValue,
+    newValue,
+    ipAddress,
 }: {
     userId: string;
     action: string;
@@ -19,6 +22,9 @@ export const createActivityLog = async ({
     taskId?: string;
     entityType?: string;
     entityId?: string;
+    previousValue?: object;
+    newValue?: object;
+    ipAddress?: string | null;
 }) => {
     return prisma.activityLog.create({
         data: {
@@ -28,6 +34,22 @@ export const createActivityLog = async ({
             taskId,
             entityType,
             entityId,
+            previousValue,
+            newValue,
+            ipAddress,
         },
     });
 };
+
+// Security/administrative entity types that belong in the audit log view
+// (and, for privacy, are excluded from the general collaboration Activity
+// Feed by default — see activityController.ts).
+export const AUDIT_ENTITY_TYPES = [
+    "login",
+    "login_failed",
+    "logout",
+    "account_created",
+    "password_changed",
+    "account_changed",
+    "role_changed",
+] as const;
