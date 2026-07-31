@@ -1,9 +1,16 @@
-import { lazy, Suspense, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { ClipboardCheck, Users, KanbanSquare, CalendarDays, TrendingUp, ChartColumn } from 'lucide-react'
+import { useAuth } from '../hooks/useAuth'
 import heroImageJpg from '../assets/hero-taskly.jpg'
 import heroImageWebp from '../assets/hero-taskly.webp'
 import './LandingPage.css'
+
+// Deliberate pause before redirecting an already-signed-in visitor away from
+// the landing page, so it doesn't flash-and-vanish before they can register
+// it. Fixed via a ref (not effect deps) so the timer never resets while the
+// auth check resolves in the background.
+const AUTO_REDIRECT_DELAY_MS = 3000
 
 // Recharts is a sizeable dependency — defer it until the below-the-fold
 // preview section is actually rendered instead of shipping it in the
@@ -21,6 +28,22 @@ const FEATURES = [
 
 export default function LandingPage() {
   const [heroImageFailed, setHeroImageFailed] = useState(false)
+  const { user, loading } = useAuth()
+  const navigate = useNavigate()
+
+  const authRef = useRef({ user, loading })
+  useEffect(() => {
+    authRef.current = { user, loading }
+  }, [user, loading])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!authRef.current.loading && authRef.current.user) {
+        navigate('/app', { replace: true })
+      }
+    }, AUTO_REDIRECT_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [navigate])
 
   const scrollToFeatures = () => {
     document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })
