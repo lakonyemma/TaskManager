@@ -2347,7 +2347,7 @@ textarea:focus-visible, [tabindex]:focus-visible {
   .achievements-grid { grid-template-columns: 1fr; }
   .smart-header h1 { font-size: 1.25rem; }
   .smart-header { gap: 12px; }
-  .analog-clock { width: 42px; height: 42px; }
+  .analog-clock { width: 64px; height: 64px; }
   .dependency-suggestions { max-height: 140px; }
 }
 
