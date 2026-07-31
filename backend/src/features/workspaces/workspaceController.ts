@@ -85,13 +85,24 @@ export const updateWorkspace = async (req: Request, res: Response) => {
         if (name !== undefined) data.name = name.trim();
         if (description !== undefined) data.description = description;
 
+        const before = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true, description: true } });
+
         const workspace = await prisma.workspace.update({
             where: { id: workspaceId },
             data,
             include: { members: true },
         });
 
-        await createActivityLog({ userId: authUser.id, action: `Updated workspace ${workspace.name}`, workspaceId, entityType: "project_updated", entityId: workspaceId });
+        await createActivityLog({
+            userId: authUser.id,
+            action: `Updated workspace ${workspace.name}`,
+            workspaceId,
+            entityType: "project_updated",
+            entityId: workspaceId,
+            previousValue: before ? { name: before.name, description: before.description } : undefined,
+            newValue: { name: workspace.name, description: workspace.description },
+            ipAddress: req.ip || null,
+        });
 
         const otherMembers = workspace.members.filter((m) => m.userId !== authUser.id);
         await Promise.all(
@@ -193,6 +204,9 @@ export const updateMemberRole = async (req: Request, res: Response) => {
             workspaceId,
             entityType: "role_changed",
             entityId: updated.id,
+            previousValue: { role: target.role },
+            newValue: { role: updated.role },
+            ipAddress: req.ip || null,
         });
 
         return res.status(200).json({ member: updated });

@@ -79,7 +79,7 @@ export const register = async (req: Request, res: Response) => {
             select: PROFILE_SELECT,
         });
 
-        await createActivityLog({ userId: user.id, action: "Registered account (pending email verification)" });
+        await createActivityLog({ userId: user.id, action: "Registered account (pending email verification)", entityType: "account_created", ipAddress: req.ip || null });
 
         // Fire-and-forget: a slow/unreachable mail server must never hang
         // the registration response. sendVerificationEmail already logs its
@@ -110,7 +110,7 @@ export const login = async (req: Request, res: Response) => {
 
         const isValidPassword = await bcrypt.compare(password, user.password);
         if (!isValidPassword) {
-            await createActivityLog({ userId: user.id, action: "Failed login attempt (wrong password)" });
+            await createActivityLog({ userId: user.id, action: "Failed login attempt (wrong password)", entityType: "login_failed", ipAddress: req.ip || null });
             return res.status(401).json({ message: "Invalid credentials" });
         }
 
@@ -123,7 +123,7 @@ export const login = async (req: Request, res: Response) => {
 
         const { accessToken, refreshToken } = await issueSession(user, req);
 
-        await createActivityLog({ userId: user.id, action: "Logged in" });
+        await createActivityLog({ userId: user.id, action: "Logged in", entityType: "login", ipAddress: req.ip || null });
 
         const { password: _password, verificationToken: _verificationToken, verificationTokenExpiresAt: _verificationTokenExpiresAt, ...safeUser } = user;
         void _password; void _verificationToken; void _verificationTokenExpiresAt;
@@ -182,10 +182,14 @@ export const logout = async (req: Request, res: Response) => {
         if (!refreshToken) {
             return res.status(400).json({ message: "Refresh token is required" });
         }
+        const session = await prisma.session.findUnique({ where: { tokenHash: hashToken(refreshToken) }, select: { userId: true } });
         await prisma.session.updateMany({
             where: { tokenHash: hashToken(refreshToken), revokedAt: null },
             data: { revokedAt: new Date() },
         });
+        if (session) {
+            await createActivityLog({ userId: session.userId, action: "Logged out", entityType: "logout", ipAddress: req.ip || null });
+        }
         return res.status(200).json({ message: "Logged out" });
     } catch (error) {
         console.error(error);

@@ -21,9 +21,21 @@ const TASK_INCLUDE = {
     subtasks: { select: { id: true, title: true, status: true } },
     dependsOn: { select: { id: true, title: true, status: true } },
     blocks: { select: { id: true, title: true, status: true } },
+    relatedTo: { select: { id: true, title: true, status: true } },
+    relatedFrom: { select: { id: true, title: true, status: true } },
     tags: { select: { id: true, name: true, color: true } },
     _count: { select: { comments: true, files: true } },
 } as const;
+
+// "Related to" is stored one-directionally (via relatedTo) but should read
+// the same from either task — merge both sides and dedupe for the response.
+const mergeRelated = <T extends { relatedTo: { id: string }[]; relatedFrom: { id: string }[] }>(task: T) => {
+    const seen = new Set<string>();
+    const merged = [...task.relatedTo, ...task.relatedFrom].filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+    const { relatedFrom, ...rest } = task;
+    void relatedFrom;
+    return { ...rest, relatedTo: merged };
+};
 
 // Runs after a task transitions into COMPLETED: spins up the next occurrence
 // if the task is recurring, and checks/grants any newly-earned achievements
@@ -58,17 +70,17 @@ const handleCompletionSideEffects = async (
 const describeTaskChanges = (
     existingTask: { status: string; priority: string; dueDate: Date | null },
     task: { title: string; status: string; priority: string; dueDate: Date | null },
-): { action: string; entityType: string }[] => {
-    const changes: { action: string; entityType: string }[] = [];
+): { action: string; entityType: string; previousValue?: object; newValue?: object }[] => {
+    const changes: { action: string; entityType: string; previousValue?: object; newValue?: object }[] = [];
     const becameCompleted = existingTask.status !== "COMPLETED" && task.status === "COMPLETED";
     const becameReopened = existingTask.status === "COMPLETED" && task.status !== "COMPLETED";
 
-    if (becameCompleted) changes.push({ action: `Completed task ${task.title}`, entityType: "task_completed" });
-    else if (becameReopened) changes.push({ action: `Reopened task ${task.title}`, entityType: "task_reopened" });
-    else if (existingTask.status !== task.status) changes.push({ action: `Changed status of ${task.title} to ${task.status.replace("_", " ")}`, entityType: "status_changed" });
+    if (becameCompleted) changes.push({ action: `Completed task ${task.title}`, entityType: "task_completed", previousValue: { status: existingTask.status }, newValue: { status: task.status } });
+    else if (becameReopened) changes.push({ action: `Reopened task ${task.title}`, entityType: "task_reopened", previousValue: { status: existingTask.status }, newValue: { status: task.status } });
+    else if (existingTask.status !== task.status) changes.push({ action: `Changed status of ${task.title} to ${task.status.replace("_", " ")}`, entityType: "status_changed", previousValue: { status: existingTask.status }, newValue: { status: task.status } });
 
     if (existingTask.priority !== task.priority) {
-        changes.push({ action: `Changed priority of ${task.title} to ${task.priority}`, entityType: "priority_changed" });
+        changes.push({ action: `Changed priority of ${task.title} to ${task.priority}`, entityType: "priority_changed", previousValue: { priority: existingTask.priority }, newValue: { priority: task.priority } });
     }
 
     const oldDue = existingTask.dueDate ? existingTask.dueDate.getTime() : null;
@@ -77,6 +89,8 @@ const describeTaskChanges = (
         changes.push({
             action: task.dueDate ? `Changed due date of ${task.title} to ${new Date(task.dueDate).toLocaleDateString()}` : `Removed due date from ${task.title}`,
             entityType: "due_date_changed",
+            previousValue: { dueDate: existingTask.dueDate },
+            newValue: { dueDate: task.dueDate },
         });
     }
 
@@ -120,7 +134,7 @@ export const listTasks = async (req: AuthedRequest, res: Response) => {
             orderBy: { createdAt: "desc" },
         });
 
-        return res.status(200).json({ tasks });
+        return res.status(200).json({ tasks: tasks.map(mergeRelated) });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });
@@ -136,7 +150,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
 
         const {
             title, description, priority, status, workspaceId, assignedToId, dueDate,
-            tagIds, parentTaskId, isRecurring, recurrenceRule, dependsOn,
+            tagIds, parentTaskId, isRecurring, recurrenceRule, dependsOn, relatedTaskIds,
             reminderOffsets, customReminderTimes,
             recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly, recurrenceEndDate, recurrenceCount,
             estimatedMinutes, clientId,
@@ -163,7 +177,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
         if (clientId) {
             const existing = await prisma.task.findUnique({ where: { clientId }, include: TASK_INCLUDE });
             if (existing && existing.workspaceId === workspaceId) {
-                return res.status(200).json({ task: existing, deduped: true });
+                return res.status(200).json({ task: mergeRelated(existing), deduped: true });
             }
         }
 
@@ -190,6 +204,14 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
             validTagIds = refTags.filter((tg) => tg.workspaceId === workspaceId).map((tg) => tg.id);
         }
 
+        // Related tasks: same cross-tenant guard, no cycle check needed since
+        // this link carries no blocking semantics.
+        let validRelatedIds: string[] = [];
+        if (Array.isArray(relatedTaskIds) && relatedTaskIds.length > 0) {
+            const refRelated = await prisma.task.findMany({ where: { id: { in: relatedTaskIds } }, select: { id: true, workspaceId: true } });
+            validRelatedIds = refRelated.filter((t) => t.workspaceId === workspaceId).map((t) => t.id);
+        }
+
         const task = await prisma.task.create({
             data: {
                 title,
@@ -211,6 +233,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
                 estimatedMinutes: estimatedMinutes ?? null,
                 clientId: clientId || null,
                 ...(validTagIds.length ? { tags: { connect: validTagIds.map((tid) => ({ id: tid })) } } : {}),
+                ...(validRelatedIds.length ? { relatedTo: { connect: validRelatedIds.map((tid) => ({ id: tid })) } } : {}),
                 parentTaskId: parentTaskId || null,
                 isRecurring: !!isRecurring,
                 recurrenceRule: isRecurring ? recurrenceRule : null,
@@ -243,7 +266,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
             });
         }
 
-        return res.status(201).json({ task });
+        return res.status(201).json({ task: mergeRelated(task) });
     } catch (error) {
         // Only reachable if a clientId collides with another workspace's
         // task (the same-workspace case is already handled as a dedup hit
@@ -283,7 +306,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         }
 
         const {
-            title, description, priority, status, assignedToId, dueDate, tagIds, reminderOffsets, customReminderTimes,
+            title, description, priority, status, assignedToId, dueDate, tagIds, relatedTaskIds, reminderOffsets, customReminderTimes,
             dependsOn, isRecurring, recurrenceRule, recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly,
             recurrenceEndDate, recurrenceCount, estimatedMinutes,
         } = req.body;
@@ -319,7 +342,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             else if (status !== "COMPLETED" && existingTask.status === "COMPLETED") { guestData.completedAt = null; guestData.completedById = null; }
             const task = await prisma.task.update({ where: { id }, data: guestData, include: TASK_INCLUDE });
             for (const change of describeTaskChanges(existingTask, task)) {
-                await createActivityLog({ userId: authUser.id, action: change.action, workspaceId: task.workspaceId, taskId: task.id, entityType: change.entityType, entityId: task.id });
+                await createActivityLog({ userId: authUser.id, action: change.action, workspaceId: task.workspaceId, taskId: task.id, entityType: change.entityType, entityId: task.id, previousValue: change.previousValue, newValue: change.newValue });
             }
 
             let nextOccurrence = null;
@@ -331,7 +354,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
                 await syncTaskReminders(task);
             }
 
-            return res.status(200).json({ task, nextOccurrence, newAchievements });
+            return res.status(200).json({ task: mergeRelated(task), nextOccurrence, newAchievements });
         }
 
         if (
@@ -392,6 +415,13 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             data.tags = { set: validTagIds.map((tid) => ({ id: tid })) };
         }
 
+        if (Array.isArray(relatedTaskIds)) {
+            const candidateIds = relatedTaskIds.filter((rid: string) => rid !== id);
+            const refRelated = await prisma.task.findMany({ where: { id: { in: candidateIds } }, select: { id: true, workspaceId: true } });
+            const validRelatedIds = refRelated.filter((t) => t.workspaceId === existingTask.workspaceId).map((t) => t.id);
+            data.relatedTo = { set: validRelatedIds.map((tid) => ({ id: tid })) };
+        }
+
         const task = await prisma.task.update({
             where: { id },
             data,
@@ -399,7 +429,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         });
 
         for (const change of describeTaskChanges(existingTask, task)) {
-            await createActivityLog({ userId: authUser.id, action: change.action, workspaceId: task.workspaceId, taskId: task.id, entityType: change.entityType, entityId: task.id });
+            await createActivityLog({ userId: authUser.id, action: change.action, workspaceId: task.workspaceId, taskId: task.id, entityType: change.entityType, entityId: task.id, previousValue: change.previousValue, newValue: change.newValue });
         }
 
         const becameCompleted = existingTask.status !== "COMPLETED" && task.status === "COMPLETED";
@@ -433,7 +463,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             });
         }
 
-        return res.status(200).json({ task, nextOccurrence, newAchievements });
+        return res.status(200).json({ task: mergeRelated(task), nextOccurrence, newAchievements });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });

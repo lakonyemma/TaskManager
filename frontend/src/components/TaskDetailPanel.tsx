@@ -27,7 +27,7 @@ const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes
 
 export default function TaskDetailPanel({
   taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId,
-  dependsOn, blocks, workspaceTasks, recurrence, onTaskUpdated, taskTags, workspaceTags,
+  dependsOn, blocks, relatedTo, workspaceTasks, recurrence, onTaskUpdated, taskTags, workspaceTags,
 }: {
   taskId: string
   workspaceId: string
@@ -38,6 +38,7 @@ export default function TaskDetailPanel({
   assignedToId?: string | null
   dependsOn: DepTask[]
   blocks: DepTask[]
+  relatedTo: DepTask[]
   workspaceTasks: DepTask[]
   recurrence: RecurrenceConfig
   onTaskUpdated: () => void
@@ -134,6 +135,13 @@ export default function TaskDetailPanel({
       await authFetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ dependsOn: ids }) })
       onTaskUpdated()
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to update dependencies', 'error') }
+  }
+
+  const updateRelatedTo = async (ids: string[]) => {
+    try {
+      await authFetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ relatedTaskIds: ids }) })
+      onTaskUpdated()
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to update related tasks', 'error') }
   }
 
   const saveRecurrence = async () => {
@@ -263,7 +271,7 @@ export default function TaskDetailPanel({
       )}
 
       <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><GitBranch size={14} strokeWidth={1.8} /> Dependencies</h3>
-      <DependencyPicker taskId={taskId} candidateTasks={workspaceTasks} dependsOn={dependsOn} blocks={blocks} onChange={updateDependsOn} />
+      <DependencyPicker taskId={taskId} candidateTasks={workspaceTasks} dependsOn={dependsOn} blocks={blocks} relatedTo={relatedTo} onChange={updateDependsOn} onRelatedChange={updateRelatedTo} />
 
       <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Repeat size={14} strokeWidth={1.8} /> Recurrence</h3>
       <RecurrencePicker value={recurrenceDraft} onChange={setRecurrenceDraft} />

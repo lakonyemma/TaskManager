@@ -56,11 +56,29 @@ export const updateProfile = async (req: Request, res: Response) => {
         if (taskNotificationsEnabled !== undefined) data.taskNotificationsEnabled = !!taskNotificationsEnabled;
         if (emailNotificationsEnabled !== undefined) data.emailNotificationsEnabled = !!emailNotificationsEnabled;
 
+        // Only diff the fields actually being changed — avoids a bloated
+        // previous/new payload and a no-op audit entry on an empty save.
+        const before = await prisma.user.findUnique({ where: { id: authUser.id }, select: SETTINGS_SELECT });
+
         const user = await prisma.user.update({
             where: { id: authUser.id },
             data,
             select: SETTINGS_SELECT,
         });
+
+        const changedKeys = Object.keys(data).filter((key) => before && before[key as keyof typeof before] !== user[key as keyof typeof user]);
+        if (before && changedKeys.length > 0) {
+            const previousValue = Object.fromEntries(changedKeys.map((k) => [k, before[k as keyof typeof before]]));
+            const newValue = Object.fromEntries(changedKeys.map((k) => [k, user[k as keyof typeof user]]));
+            await createActivityLog({
+                userId: authUser.id,
+                action: "Updated account settings",
+                entityType: "account_changed",
+                previousValue,
+                newValue,
+                ipAddress: req.ip || null,
+            });
+        }
 
         return res.status(200).json({ message: "Profile updated", user });
     } catch (error) {
@@ -103,7 +121,7 @@ export const changePassword = async (req: Request, res: Response) => {
             data: { revokedAt: new Date() },
         });
 
-        await createActivityLog({ userId: authUser.id, action: "Changed password" });
+        await createActivityLog({ userId: authUser.id, action: "Changed password", entityType: "password_changed", ipAddress: req.ip || null });
 
         return res.status(200).json({ message: "Password changed. Please sign in again on other devices." });
     } catch (error) {

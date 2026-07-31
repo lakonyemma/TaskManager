@@ -27,6 +27,7 @@ import InstallPrompt from '../components/InstallPrompt'
 import NotificationCard, { NOTIF_TYPE_OPTIONS, type NotifItem, type NotifType } from '../components/NotificationCard'
 import TagBadge, { type TagRef } from '../components/TagBadge'
 import TagManager from '../components/TagManager'
+import GlobalSearch from '../components/GlobalSearch'
 import EmptyState from '../components/EmptyState'
 import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
@@ -63,7 +64,7 @@ type DepRef = { id: string; title: string; status: string }
 export type Task = {
   id: string; title: string; description?: string | null; status: string; priority: string; workspaceId: string
   dueDate?: string | null; assignedToId?: string | null; completedAt?: string | null; updatedAt?: string
-  dependsOn?: DepRef[]; blocks?: DepRef[]; subtasks?: DepRef[]; estimatedMinutes?: number | null
+  dependsOn?: DepRef[]; blocks?: DepRef[]; subtasks?: DepRef[]; relatedTo?: DepRef[]; estimatedMinutes?: number | null
   isRecurring?: boolean; recurrenceRule?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | null
   recurrenceInterval?: number | null; recurrenceDaysOfWeek?: number[]; recurrenceBusinessDaysOnly?: boolean
   recurrenceEndDate?: string | null; recurrenceCount?: number | null
@@ -73,6 +74,23 @@ type Invitation = { id: string; email: string; workspaceId: string; token: strin
 type Member = { id: string; userId: string; role: string; user: { id: string; firstname: string; lastName: string; email: string; avatarUrl?: string | null } }
 type Session = { id: string; userAgent?: string | null; ipAddress?: string | null; createdAt: string; lastUsedAt: string; expiresAt: string; isCurrent: boolean }
 type ActivityEntry = { id: string; action: string; entityType?: string | null; createdAt: string; user?: { firstname: string; lastName: string } | null; workspace?: { name: string } | null; task?: { title: string } | null }
+type AuditEntry = {
+  id: string; action: string; entityType?: string | null; createdAt: string; ipAddress?: string | null
+  previousValue?: unknown; newValue?: unknown
+  user?: { firstname: string; lastName: string; email: string } | null
+  workspace?: { name: string } | null; task?: { title: string } | null
+}
+const AUDIT_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'login', label: 'Login' },
+  { value: 'login_failed', label: 'Failed login' },
+  { value: 'logout', label: 'Logout' },
+  { value: 'account_created', label: 'Account created' },
+  { value: 'password_changed', label: 'Password changed' },
+  { value: 'account_changed', label: 'Account changed' },
+  { value: 'role_changed', label: 'Role changed' },
+  { value: 'project_updated', label: 'Project changed' },
+  { value: 'member_removed', label: 'Member removed' },
+]
 
 const ACTIVITY_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'task_created', label: 'Task created' },
@@ -238,6 +256,10 @@ export default function DashboardApp() {
   const [reportsSummary, setReportsSummary] = useState<{ total: number; completed: number; inProgress: number; overdue: number } | null>(null)
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
+  const [auditTypeFilter, setAuditTypeFilter] = useState('')
+  const [auditFrom, setAuditFrom] = useState('')
+  const [auditTo, setAuditTo] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [taskRecurrence, setTaskRecurrence] = useState<RecurrenceConfig>(DEFAULT_RECURRENCE)
@@ -449,6 +471,37 @@ export default function DashboardApp() {
     } catch { setSessions([]) }
   }, [request])
 
+  const loadAuditLogs = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ limit: '50' })
+      if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId)
+      if (auditTypeFilter) params.set('entityType', auditTypeFilter)
+      if (auditFrom) params.set('from', new Date(auditFrom).toISOString())
+      if (auditTo) params.set('to', new Date(auditTo).toISOString())
+      const d = await request(`/api/audit-logs?${params.toString()}`) as { logs: AuditEntry[] }
+      setAuditLogs(d.logs || [])
+    } catch { setAuditLogs([]) }
+  }, [request, selectedWorkspaceId, auditTypeFilter, auditFrom, auditTo])
+
+  const handleExportAuditLogs = async () => {
+    try {
+      const params = new URLSearchParams({ format: 'csv' })
+      if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId)
+      if (auditTypeFilter) params.set('entityType', auditTypeFilter)
+      if (auditFrom) params.set('from', new Date(auditFrom).toISOString())
+      if (auditTo) params.set('to', new Date(auditTo).toISOString())
+      const token = getStoredToken()
+      const response = await fetch(`/api/audit-logs/export?${params.toString()}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+      if (!response.ok) throw new Error('Export failed')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = 'audit-log.csv'
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to export audit log', 'error') }
+  }
+
   // These fetch-on-mount / fetch-on-tab-change effects call async loaders whose
   // setState calls happen after an await, not synchronously during the effect —
   // safe, but the lint rule can't distinguish that from a genuine sync setState.
@@ -471,7 +524,7 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'notifications') loadNotifList() }, [navPage, loadNotifList])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (navPage === 'settings') loadSessions() }, [navPage, loadSessions])
+  useEffect(() => { if (navPage === 'settings') { loadSessions(); loadAuditLogs() } }, [navPage, loadSessions, loadAuditLogs])
 
   useEffect(() => {
     const interval = setInterval(loadNotifs, 30000)
@@ -908,6 +961,19 @@ export default function DashboardApp() {
     if (found) { setSelectedTask(found); setPendingOpenTaskId(null) }
   }, [tasks, pendingOpenTaskId])
 
+  // Same cross-workspace-open pattern as handleOpenNotifTask above.
+  const handleOpenSearchTask = (taskId: string, taskWorkspaceId: string) => {
+    setNavPage('tasks')
+    if (taskWorkspaceId !== selectedWorkspaceId) {
+      setSelectedWorkspaceId(taskWorkspaceId)
+      setPendingOpenTaskId(taskId)
+      return
+    }
+    const found = tasks.find(tk => tk.id === taskId)
+    if (found) setSelectedTask(found)
+    else setPendingOpenTaskId(taskId)
+  }
+
   const handleCompleteFromNotif = async (n: NotifItem) => {
     if (!n.taskId) return
     if (!n.isRead) handleMarkNotifRead(n.id)
@@ -1128,6 +1194,12 @@ export default function DashboardApp() {
             </div>
           </div>
           <div className="main-topbar-actions">
+            <GlobalSearch
+              workspaceId={selectedWorkspaceId}
+              onOpenTask={handleOpenSearchTask}
+              onSwitchWorkspace={setSelectedWorkspaceId}
+              onGoToMember={() => setNavPage('team')}
+            />
             <div className="workspace-selector">
               {workspaces.map(ws => (
                 <button key={ws.id} type="button"
@@ -1496,9 +1568,11 @@ export default function DashboardApp() {
                                 {tk.tags.map(tag => <TagBadge key={tag.id} tag={tag} size="sm" />)}
                               </div>
                             )}
-                            {(blocked || tk.isRecurring) && (
-                              <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                            {(blocked || tk.isRecurring || !!tk.blocks?.length || !!tk.relatedTo?.length) && (
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                                 {blocked && <span className="status-badge blocked">Blocked</span>}
+                                {!!tk.blocks?.length && <span className="status-badge blocks">Blocks {tk.blocks.length}</span>}
+                                {!!tk.relatedTo?.length && <span className="status-badge related">Related {tk.relatedTo.length}</span>}
                                 {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
                               </div>
                             )}
@@ -1979,6 +2053,43 @@ export default function DashboardApp() {
                 </div>
                 <button type="button" className="mini-btn danger-btn" style={{ marginTop: 12 }} onClick={handleLogoutAllDevices}>Log out of all devices</button>
               </div>
+
+              <div className="panel full-width">
+                <h2 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Audit Log</span>
+                  <button type="button" className="mini-btn" onClick={handleExportAuditLogs}>Export CSV</button>
+                </h2>
+                <div className="stack-form" style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <select className="notif-filter-select" value={auditTypeFilter} onChange={e => setAuditTypeFilter(e.target.value)} aria-label="Filter by event type">
+                    <option value="">All events</option>
+                    {AUDIT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)} aria-label="From date" />
+                  <input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)} aria-label="To date" />
+                  {(auditTypeFilter || auditFrom || auditTo) && (
+                    <button type="button" className="mini-btn" onClick={() => { setAuditTypeFilter(''); setAuditFrom(''); setAuditTo('') }}>Clear</button>
+                  )}
+                </div>
+                {auditLogs.length === 0 ? (
+                  <EmptyState kind="activity" compact title="No audit entries" description="Security and administrative events (logins, password changes, role changes) will show up here." />
+                ) : (
+                  <div className="task-list">
+                    {auditLogs.map(entry => (
+                      <div key={entry.id} className="task-list-item">
+                        <div className="task-list-info">
+                          <strong>{entry.action}</strong>
+                          <span>
+                            {entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}
+                            {entry.workspace ? ` · ${entry.workspace.name}` : ''}
+                            {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
+                          </span>
+                        </div>
+                        <span className="bar-label">{new Date(entry.createdAt).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -2016,6 +2127,7 @@ export default function DashboardApp() {
             assignedToId={selectedTask.assignedToId}
             dependsOn={selectedTask.dependsOn || []}
             blocks={selectedTask.blocks || []}
+            relatedTo={selectedTask.relatedTo || []}
             workspaceTasks={tasks.map(tk => ({ id: tk.id, title: tk.title, status: tk.status }))}
             recurrence={taskToRecurrence(selectedTask)}
             onTaskUpdated={() => { loadTasks(); }}

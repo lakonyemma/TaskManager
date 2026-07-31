@@ -23,6 +23,8 @@ function TaskRowContent({ tk, style, statusColumns, onSelect, onMove, onDelete, 
           <span className={`priority-badge ${tk.priority.toLowerCase()}`}>{tk.priority}</span>
           <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
           {blocked && <span className="status-badge blocked">Blocked</span>}
+          {!!tk.blocks?.length && <span className="status-badge blocks" title={tk.blocks.map((b) => b.title).join(', ')}>Blocks {tk.blocks.length}</span>}
+          {!!tk.relatedTo?.length && <span className="status-badge related">Related {tk.relatedTo.length}</span>}
           {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
           {tk.dueDate && <span>Due: {new Date(tk.dueDate).toLocaleDateString()}</span>}
         </div>

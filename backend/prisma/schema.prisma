@@ -148,6 +148,13 @@ model Task {
   dependsOn Task[] @relation("TaskDependencies")
   blocks    Task[] @relation("TaskDependencies")
 
+  // Purely informational cross-link — no blocking/completion semantics, no
+  // cycle checks (unlike dependsOn/blocks). Undirected in spirit: a link is
+  // stored once (via relatedTo) but the UI/API reads both fields together so
+  // it shows up from either task.
+  relatedTo   Task[] @relation("TaskRelated")
+  relatedFrom Task[] @relation("TaskRelated")
+
   @@index([workspaceId, status])
   @@index([assignedToId, status])
   @@index([completedById, status])
@@ -220,15 +227,25 @@ model File {
   uploadedBy User      @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
 }
 
+// Doubles as both the collaboration "Activity Feed" (task/comment/project
+// events — see /api/activity) and, for the security-relevant entityTypes
+// (login, logout, password_changed, account_changed, role_changed, etc.),
+// the source for /api/audit-logs. previousValue/newValue capture a
+// structured before/after diff where one applies (e.g. {role: "MEMBER"} ->
+// {role: "ADMIN"}) — never populated for password changes, which log the
+// event only, on purpose.
 model ActivityLog {
-  id          String   @id @default(uuid())
-  action      String
-  entityType  String?
-  entityId    String?
-  userId      String
-  workspaceId String?
-  taskId      String?
-  createdAt   DateTime @default(now())
+  id            String   @id @default(uuid())
+  action        String
+  entityType    String?
+  entityId      String?
+  userId        String
+  workspaceId   String?
+  taskId        String?
+  previousValue Json?
+  newValue      Json?
+  ipAddress     String?
+  createdAt     DateTime @default(now())
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
