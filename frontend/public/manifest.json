@@ -1,7 +1,7 @@
 {
-  "name": "Taskly — Task & Team Management",
+  "name": "Taskly: Work Smarter. Achieve More.",
   "short_name": "Taskly",
-  "description": "A premium task and team management platform.",
+  "description": "Taskly: Work Smarter. Achieve More.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

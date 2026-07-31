@@ -20,7 +20,7 @@ export const signAccessToken = (user: { id: string; email: string }) =>
 
 export const signRefreshToken = (user: { id: string; email: string }, jti: string) =>
     jwt.sign({ id: user.id, email: user.email, type: "refresh", jti }, JWT_SECRET, {
-        expiresIn: "7d",
+        expiresIn: "365d",
     });
 
 export const verifyToken = (token: string) =>
@@ -29,4 +29,6 @@ export const verifyToken = (token: string) =>
 export const hashToken = (token: string) =>
     crypto.createHash("sha256").update(token).digest("hex");
 
-export const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// Users should stay signed in on a device until they explicitly sign out —
+// a long TTL keeps the session alive across normal day-to-day gaps.
+export const REFRESH_TOKEN_TTL_MS = 365 * 24 * 60 * 60 * 1000;
