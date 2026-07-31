@@ -1,8 +1,8 @@
 .analog-clock {
   position: relative;
   z-index: 2;
-  width: 58px;
-  height: 58px;
+  width: 96px;
+  height: 96px;
   flex-shrink: 0;
 }
 
