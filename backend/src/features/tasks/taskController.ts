@@ -306,7 +306,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         }
 
         const {
-            title, description, priority, status, assignedToId, dueDate, tagIds, relatedTaskIds, reminderOffsets, customReminderTimes,
+            title, description, notes, priority, status, assignedToId, dueDate, tagIds, relatedTaskIds, reminderOffsets, customReminderTimes,
             dependsOn, isRecurring, recurrenceRule, recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly,
             recurrenceEndDate, recurrenceCount, estimatedMinutes,
         } = req.body;
@@ -379,6 +379,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         const data: Record<string, unknown> = {};
         if (title !== undefined) data.title = title;
         if (description !== undefined) data.description = description;
+        if (notes !== undefined) data.notes = notes;
         if (priority !== undefined) data.priority = priority;
         if (status !== undefined) {
             data.status = status;

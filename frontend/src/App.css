@@ -1875,6 +1875,20 @@ textarea:focus { border-color: var(--accent-primary-light); }
 .focus-mode-progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent-primary), var(--accent-primary-hover)); transition: width 0.3s ease; }
 .focus-mode-progress-label { font-size: 0.75rem; color: var(--text-faint); margin: 0 0 20px; }
 .focus-mode-subtasks { display: flex; flex-direction: column; gap: 8px; text-align: left; margin: 0 0 28px; padding: 14px; background: rgba(255, 255, 255, 0.03); border-radius: 12px; }
+.focus-mode-notes-field { text-align: left; margin: 0 0 24px; }
+.focus-mode-notes-label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); margin-bottom: 6px; }
+.focus-mode-notes-field textarea {
+  width: 100%;
+  resize: vertical;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+.focus-mode-notes-field textarea:focus { border-color: var(--accent-primary-light); }
 .focus-mode-timer { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 28px; }
 .focus-mode-timer-mode { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
 .focus-mode-timer-mode.focus { color: var(--accent-glow); }

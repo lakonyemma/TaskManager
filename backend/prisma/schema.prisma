@@ -43,6 +43,7 @@ model User {
   reminderSchedules      ReminderSchedule[]
   userAchievements       UserAchievement[]
   savedViews             SavedView[]
+  focusSessions          FocusSession[]
 }
 
 model Session {
@@ -95,6 +96,9 @@ model Task {
   id                         String          @id @default(uuid())
   title                      String
   description                String?
+  // Free-form scratchpad distinct from `description` — meant for jottings
+  // made *while working* (e.g. in Focus Mode), not the task's definition.
+  notes                      String?
   priority                   TaskPriority    @default(MEDIUM)
   status                     TaskStatus      @default(TODO)
   dueDate                    DateTime?
@@ -138,6 +142,7 @@ model Task {
   files             File[]
   reminderSchedules ReminderSchedule[]
   tags              Tag[]              @relation("TaskTags")
+  focusSessions     FocusSession[]
 
   parentTask Task?  @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
   subtasks   Task[] @relation("Subtasks")
@@ -196,6 +201,26 @@ model SavedView {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([userId, workspaceId])
+}
+
+// One row per completed stretch of focused time on a task (Focus Mode) —
+// logged when the user exits Focus Mode or a Pomodoro focus interval
+// finishes, whichever comes first. Powers "focus history" and the
+// analytics dashboard's time-on-task figures. Break time is never logged.
+model FocusSession {
+  id              String   @id @default(uuid())
+  userId          String
+  taskId          String
+  durationSeconds Int
+  pomodoroCount   Int      @default(0)
+  startedAt       DateTime
+  endedAt         DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([userId, endedAt])
+  @@index([taskId])
 }
 
 model Comment {

@@ -62,7 +62,7 @@ type Toast = { id: string; title: string; body: string; taskId?: string | null }
 type Workspace = { id: string; name: string; description?: string | null }
 type DepRef = { id: string; title: string; status: string }
 export type Task = {
-  id: string; title: string; description?: string | null; status: string; priority: string; workspaceId: string
+  id: string; title: string; description?: string | null; notes?: string | null; status: string; priority: string; workspaceId: string
   dueDate?: string | null; assignedToId?: string | null; completedAt?: string | null; updatedAt?: string
   dependsOn?: DepRef[]; blocks?: DepRef[]; subtasks?: DepRef[]; relatedTo?: DepRef[]; estimatedMinutes?: number | null
   isRecurring?: boolean; recurrenceRule?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | null
@@ -254,6 +254,9 @@ export default function DashboardApp() {
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'info' | 'success' | 'error'>('info')
   const [reportsSummary, setReportsSummary] = useState<{ total: number; completed: number; inProgress: number; overdue: number } | null>(null)
+  const [byWorkspace, setByWorkspace] = useState<{ workspaceId: string; workspaceName: string; total: number; completed: number }[]>([])
+  const [focusSessions, setFocusSessions] = useState<{ id: string; durationSeconds: number; pomodoroCount: number; endedAt: string; task: { id: string; title: string } }[]>([])
+  const [totalFocusSeconds, setTotalFocusSeconds] = useState(0)
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
@@ -426,7 +429,19 @@ export default function DashboardApp() {
   }, [request])
 
   const loadReports = useCallback(async () => {
-    try { const d = await request('/api/reports') as { summary: typeof reportsSummary }; setReportsSummary(d.summary) } catch { setReportsSummary(null) }
+    try {
+      const d = await request('/api/reports') as { summary: typeof reportsSummary; byWorkspace: typeof byWorkspace }
+      setReportsSummary(d.summary)
+      setByWorkspace(d.byWorkspace || [])
+    } catch { setReportsSummary(null); setByWorkspace([]) }
+  }, [request])
+
+  const loadFocusSessions = useCallback(async () => {
+    try {
+      const d = await request('/api/focus-sessions?limit=8') as { sessions: typeof focusSessions; totalFocusSeconds: number }
+      setFocusSessions(d.sessions || [])
+      setTotalFocusSeconds(d.totalFocusSeconds || 0)
+    } catch { setFocusSessions([]); setTotalFocusSeconds(0) }
   }, [request])
 
   const loadActivity = useCallback(async () => {
@@ -518,7 +533,7 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (navPage === 'reports') loadReports() }, [navPage, loadReports])
+  useEffect(() => { if (navPage === 'reports') { loadReports(); loadFocusSessions() } }, [navPage, loadReports, loadFocusSessions])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'activity') loadActivity() }, [navPage, loadActivity])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -718,8 +733,18 @@ export default function DashboardApp() {
   }
 
   const openFocusMode = (task: Task) => {
-    setFocusTask({ id: task.id, title: task.title, description: task.description, status: task.status, subtasks: task.subtasks || [] })
+    setFocusTask({ id: task.id, title: task.title, description: task.description, notes: task.notes, status: task.status, subtasks: task.subtasks || [] })
     setSelectedTask(null)
+  }
+
+  const handleSaveFocusNotes = async (notes: string) => {
+    if (!focusTask) return
+    try { await request(`/api/tasks/${focusTask.id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ notes }) }); await loadTasks() } catch { /* ignore — non-critical autosave */ }
+  }
+
+  const handleLogFocusSession = async (durationSeconds: number, pomodoroCount: number, startedAt: string) => {
+    if (!focusTask) return
+    try { await request('/api/focus-sessions', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ taskId: focusTask.id, durationSeconds, pomodoroCount, startedAt }) }) } catch { /* ignore — non-critical */ }
   }
 
   const handleDeleteTask = async (taskId: string) => {
@@ -1147,6 +1172,8 @@ export default function DashboardApp() {
           onClose={() => setFocusTask(null)}
           onComplete={handleFocusComplete}
           onSubtaskToggle={handleSubtaskToggle}
+          onSaveNotes={handleSaveFocusNotes}
+          onLogSession={handleLogFocusSession}
           onMessage={showMessage}
         />
       )}
@@ -1756,6 +1783,52 @@ export default function DashboardApp() {
               <div className="panel full-width">
                 <h2>Completed this week</h2>
                 <Suspense fallback={<SkeletonChart />}><CompletionTrendChart data={trendData} /></Suspense>
+              </div>
+
+              <div className="panel">
+                <h2>Project progress</h2>
+                {byWorkspace.length === 0 ? (
+                  <EmptyState kind="workspace" compact title="No projects yet" description="Create a workspace to see progress here." />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {byWorkspace.map(w => {
+                      const pct = w.total > 0 ? Math.round((w.completed / w.total) * 100) : 0
+                      return (
+                        <div key={w.workspaceId}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: 4 }}>
+                            <span>{w.workspaceName}</span>
+                            <span className="bar-label">{w.completed}/{w.total} · {pct}%</span>
+                          </div>
+                          <div className="focus-mode-progress" style={{ margin: 0 }}>
+                            <div className="focus-mode-progress-bar" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="panel">
+                <h2>Focus history</h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.78rem', marginTop: 0 }}>
+                  Total focused time: <strong style={{ color: 'var(--text-primary)' }}>{Math.round(totalFocusSeconds / 60)} min</strong>
+                </p>
+                {focusSessions.length === 0 ? (
+                  <EmptyState kind="generic" compact title="No focus sessions yet" description="Time spent in Focus Mode will show up here." />
+                ) : (
+                  <div className="task-list">
+                    {focusSessions.map(s => (
+                      <div key={s.id} className="task-list-item">
+                        <div className="task-list-info">
+                          <strong>{s.task.title}</strong>
+                          <span>{Math.round(s.durationSeconds / 60)} min{s.pomodoroCount > 0 ? ` · ${s.pomodoroCount} pomodoro${s.pomodoroCount === 1 ? '' : 's'}` : ''}</span>
+                        </div>
+                        <span className="bar-label">{new Date(s.endedAt).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="panel full-width">
