@@ -100,6 +100,7 @@ export const inviteByEmail = async (req: Request, res: Response) => {
             userId: authUser.id,
             action: `Invited ${email} to workspace ${workspace.name}`,
             workspaceId,
+            entityType: "member_invited",
         });
 
         // Skip sending if the recipient already has an account and has opted out

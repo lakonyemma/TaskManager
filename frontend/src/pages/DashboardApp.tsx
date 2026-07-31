@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
   Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
-  User as UserIcon, Upload, Trash2,
+  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -24,7 +24,13 @@ import FocusMode, { type FocusTask } from '../components/FocusMode'
 import SmartDashboardHeader from '../components/SmartDashboardHeader'
 import AchievementsPanel from '../components/AchievementsPanel'
 import InstallPrompt from '../components/InstallPrompt'
-import NotificationCard, { NOTIF_TYPE_OPTIONS, type NotifItem, type NotifType } from '../components/NotificationCard'
+import NotificationCard from '../components/NotificationCard'
+import { NOTIF_TYPE_OPTIONS, type NotifItem, type NotifType } from '../lib/notifications'
+import TagBadge, { type TagRef } from '../components/TagBadge'
+import TagManager from '../components/TagManager'
+import GlobalSearch from '../components/GlobalSearch'
+import AppLockGate from '../components/AppLockGate'
+import CameraCapture from '../components/CameraCapture'
 import EmptyState from '../components/EmptyState'
 import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
@@ -59,17 +65,53 @@ type Toast = { id: string; title: string; body: string; taskId?: string | null }
 type Workspace = { id: string; name: string; description?: string | null }
 type DepRef = { id: string; title: string; status: string }
 export type Task = {
-  id: string; title: string; description?: string | null; status: string; priority: string; workspaceId: string
+  id: string; title: string; description?: string | null; notes?: string | null; status: string; priority: string; workspaceId: string
   dueDate?: string | null; assignedToId?: string | null; completedAt?: string | null; updatedAt?: string
-  dependsOn?: DepRef[]; blocks?: DepRef[]; subtasks?: DepRef[]; estimatedMinutes?: number | null
+  dependsOn?: DepRef[]; blocks?: DepRef[]; subtasks?: DepRef[]; relatedTo?: DepRef[]; estimatedMinutes?: number | null
   isRecurring?: boolean; recurrenceRule?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | null
   recurrenceInterval?: number | null; recurrenceDaysOfWeek?: number[]; recurrenceBusinessDaysOnly?: boolean
   recurrenceEndDate?: string | null; recurrenceCount?: number | null
+  tags?: TagRef[]
 }
 type Invitation = { id: string; email: string; workspaceId: string; token: string; status: string; expiresAt: string; role?: string; workspace?: { id: string; name: string } }
 type Member = { id: string; userId: string; role: string; user: { id: string; firstname: string; lastName: string; email: string; avatarUrl?: string | null } }
 type Session = { id: string; userAgent?: string | null; ipAddress?: string | null; createdAt: string; lastUsedAt: string; expiresAt: string; isCurrent: boolean }
-type ActivityEntry = { id: string; action: string; createdAt: string; user?: { firstname: string; lastName: string } | null; workspace?: { name: string } | null; task?: { title: string } | null }
+type ActivityEntry = { id: string; action: string; entityType?: string | null; createdAt: string; user?: { firstname: string; lastName: string } | null; workspace?: { name: string } | null; task?: { title: string } | null }
+type AuditEntry = {
+  id: string; action: string; entityType?: string | null; createdAt: string; ipAddress?: string | null
+  previousValue?: unknown; newValue?: unknown
+  user?: { firstname: string; lastName: string; email: string } | null
+  workspace?: { name: string } | null; task?: { title: string } | null
+}
+const AUDIT_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'login', label: 'Login' },
+  { value: 'login_failed', label: 'Failed login' },
+  { value: 'logout', label: 'Logout' },
+  { value: 'account_created', label: 'Account created' },
+  { value: 'password_changed', label: 'Password changed' },
+  { value: 'account_changed', label: 'Account changed' },
+  { value: 'role_changed', label: 'Role changed' },
+  { value: 'project_updated', label: 'Project changed' },
+  { value: 'member_removed', label: 'Member removed' },
+]
+
+const ACTIVITY_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'task_created', label: 'Task created' },
+  { value: 'task_updated', label: 'Task updated' },
+  { value: 'task_completed', label: 'Task completed' },
+  { value: 'task_reopened', label: 'Task reopened' },
+  { value: 'task_deleted', label: 'Task deleted' },
+  { value: 'comment_added', label: 'Comment added' },
+  { value: 'project_created', label: 'Project created' },
+  { value: 'project_updated', label: 'Project updated' },
+  { value: 'member_invited', label: 'Member invited' },
+  { value: 'member_removed', label: 'Member removed' },
+  { value: 'role_changed', label: 'Role changed' },
+  { value: 'due_date_changed', label: 'Due date changed' },
+  { value: 'priority_changed', label: 'Priority changed' },
+  { value: 'status_changed', label: 'Status changed' },
+  { value: 'file_uploaded', label: 'File uploaded' },
+]
 
 const taskToRecurrence = (tk?: Task | null): RecurrenceConfig => tk ? {
   isRecurring: !!tk.isRecurring,
@@ -182,15 +224,20 @@ export default function DashboardApp() {
   const [taskDueDate, setTaskDueDate] = useState('')
   const [taskTime, setTaskTime] = useState('')
   const [taskAssignedTo, setTaskAssignedTo] = useState('')
+  const [taskTagIds, setTaskTagIds] = useState<string[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('MEMBER')
   const [myInvitations, setMyInvitations] = useState<Invitation[]>([])
   const [workspaceInvitations, setWorkspaceInvitations] = useState<Invitation[]>([])
   const [members, setMembers] = useState<Member[]>([])
+  const [tags, setTags] = useState<(TagRef & { _count?: { tasks: number } })[]>([])
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
   const [boardAssigneeFilter, setBoardAssigneeFilter] = useState('')
   const [boardPriorityFilter, setBoardPriorityFilter] = useState('')
-  const [taskFilter, setTaskFilter] = useState<{ kind: 'status' | 'overdue' | 'mine'; status?: string; label: string } | null>(null)
+  const [boardTagFilter, setBoardTagFilter] = useState('')
+  type TaskFilter = { kind: 'status' | 'overdue' | 'mine' | 'tag' | 'priority' | 'dueToday' | 'dueWeek'; status?: string; tagId?: string; priority?: string; label: string }
+  const [taskFilter, setTaskFilter] = useState<TaskFilter | null>(null)
+  const [savedViews, setSavedViews] = useState<{ id: string; name: string; pinned: boolean; filters: TaskFilter }[]>([])
   const [notifCount, setNotifCount] = useState(0)
   const [notifList, setNotifList] = useState<NotifItem[]>([])
   const [notifNextCursor, setNotifNextCursor] = useState<string | null>(null)
@@ -210,10 +257,25 @@ export default function DashboardApp() {
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'info' | 'success' | 'error'>('info')
   const [reportsSummary, setReportsSummary] = useState<{ total: number; completed: number; inProgress: number; overdue: number } | null>(null)
+  const [byWorkspace, setByWorkspace] = useState<{ workspaceId: string; workspaceName: string; total: number; completed: number }[]>([])
+  const [focusSessions, setFocusSessions] = useState<{ id: string; durationSeconds: number; pomodoroCount: number; endedAt: string; task: { id: string; title: string } }[]>([])
+  const [totalFocusSeconds, setTotalFocusSeconds] = useState(0)
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
+  const [auditTypeFilter, setAuditTypeFilter] = useState('')
+  const [auditFrom, setAuditFrom] = useState('')
+  const [auditTo, setAuditTo] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false)
+  const [passwordConfirmPin, setPasswordConfirmPin] = useState('')
+  const [appLockSetupPin, setAppLockSetupPin] = useState('')
+  const [appLockSetupPinConfirm, setAppLockSetupPinConfirm] = useState('')
+  const [appLockSetupPassword, setAppLockSetupPassword] = useState('')
+  const [appLockDisablePin, setAppLockDisablePin] = useState('')
+  const [appLockCurrentPin, setAppLockCurrentPin] = useState('')
+  const [appLockNewPin, setAppLockNewPin] = useState('')
   const [taskRecurrence, setTaskRecurrence] = useState<RecurrenceConfig>(DEFAULT_RECURRENCE)
   const [focusTask, setFocusTask] = useState<FocusTask | null>(null)
   const [reportFrom, setReportFrom] = useState('')
@@ -221,6 +283,10 @@ export default function DashboardApp() {
   const [activitySearch, setActivitySearch] = useState('')
   const [activityFrom, setActivityFrom] = useState('')
   const [activityTo, setActivityTo] = useState('')
+  const [activityTypeFilter, setActivityTypeFilter] = useState('')
+  const [activityPage, setActivityPage] = useState(1)
+  const [activityHasMore, setActivityHasMore] = useState(false)
+  const [activityLoadingMore, setActivityLoadingMore] = useState(false)
   const [loadingDashboard, setLoadingDashboard] = useState(true)
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false)
   const [onboardingActive, setOnboardingActive] = useState(false)
@@ -232,6 +298,7 @@ export default function DashboardApp() {
   const [settingsName, setSettingsName] = useState(() => user?.firstname || '')
   const [settingsLast, setSettingsLast] = useState(() => user?.lastName || '')
   const [avatarUploading, setAvatarUploading] = useState(false)
+  const [showAvatarCamera, setShowAvatarCamera] = useState(false)
   const avatarFileInputRef = useRef<HTMLInputElement>(null)
   const [settingsLang, setSettingsLang] = useState(() => user?.language || 'en')
   const [settingsFont, setSettingsFont] = useState(() => user?.fontStyle || 'default')
@@ -302,6 +369,42 @@ export default function DashboardApp() {
     try { const d = await request(`/api/workspaces/${selectedWorkspaceId}/members`) as { members: Member[] }; setMembers(d.members || []) } catch { setMembers([]) }
   }, [request, selectedWorkspaceId])
 
+  const loadSavedViews = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    try { const d = await request(`/api/workspaces/${selectedWorkspaceId}/saved-views`) as { views: { id: string; name: string; pinned: boolean; filters: TaskFilter }[] }; setSavedViews(d.views || []) } catch { setSavedViews([]) }
+  }, [request, selectedWorkspaceId])
+
+  const loadTags = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    try { const d = await request(`/api/workspaces/${selectedWorkspaceId}/tags`) as { tags: (TagRef & { _count: { tasks: number } })[] }; setTags(d.tags || []) } catch { setTags([]) }
+  }, [request, selectedWorkspaceId])
+
+  const handleCreateTag = async (name: string, color: string) => {
+    if (!selectedWorkspaceId) return
+    try {
+      await request(`/api/workspaces/${selectedWorkspaceId}/tags`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name, color }) })
+      await loadTags()
+      showMessage('Tag created', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create tag', 'error') }
+  }
+
+  const handleUpdateTag = async (id: string, data: { name?: string; color?: string }) => {
+    try {
+      await request(`/api/tags/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(data) })
+      await loadTags()
+      await loadTasks()
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update tag', 'error') }
+  }
+
+  const handleDeleteTag = async (id: string) => {
+    try {
+      await request(`/api/tags/${id}`, { method: 'DELETE' })
+      await loadTags()
+      await loadTasks()
+      showMessage('Tag deleted', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to delete tag', 'error') }
+  }
+
   const loadNotifs = useCallback(async () => {
     try { const d = await request('/api/notifications/unread-count') as { count: number }; setNotifCount(d.count ?? 0) } catch { /* ignore */ }
   }, [request])
@@ -338,19 +441,54 @@ export default function DashboardApp() {
   }, [request])
 
   const loadReports = useCallback(async () => {
-    try { const d = await request('/api/reports') as { summary: typeof reportsSummary }; setReportsSummary(d.summary) } catch { setReportsSummary(null) }
+    try {
+      const d = await request('/api/reports') as { summary: typeof reportsSummary; byWorkspace: typeof byWorkspace }
+      setReportsSummary(d.summary)
+      setByWorkspace(d.byWorkspace || [])
+    } catch { setReportsSummary(null); setByWorkspace([]) }
+  }, [request])
+
+  const loadFocusSessions = useCallback(async () => {
+    try {
+      const d = await request('/api/focus-sessions?limit=8') as { sessions: typeof focusSessions; totalFocusSeconds: number }
+      setFocusSessions(d.sessions || [])
+      setTotalFocusSeconds(d.totalFocusSeconds || 0)
+    } catch { setFocusSessions([]); setTotalFocusSeconds(0) }
   }, [request])
 
   const loadActivity = useCallback(async () => {
     try {
-      const params = new URLSearchParams()
+      const params = new URLSearchParams({ page: '1', limit: '30' })
       if (activitySearch.trim()) params.set('search', activitySearch.trim())
       if (activityFrom) params.set('from', new Date(activityFrom).toISOString())
       if (activityTo) params.set('to', new Date(activityTo).toISOString())
-      const d = await request(`/api/activity?${params.toString()}`) as { activity: ActivityEntry[] }
+      if (activityTypeFilter) params.set('type', activityTypeFilter)
+      const d = await request(`/api/activity?${params.toString()}`) as { activity: ActivityEntry[]; total: number }
       setActivityLog(d.activity || [])
-    } catch { setActivityLog([]) }
-  }, [request, activitySearch, activityFrom, activityTo])
+      setActivityPage(1)
+      setActivityHasMore((d.activity || []).length < d.total)
+    } catch { setActivityLog([]); setActivityHasMore(false) }
+  }, [request, activitySearch, activityFrom, activityTo, activityTypeFilter])
+
+  const loadMoreActivity = useCallback(async () => {
+    if (activityLoadingMore) return
+    setActivityLoadingMore(true)
+    try {
+      const nextPage = activityPage + 1
+      const params = new URLSearchParams({ page: String(nextPage), limit: '30' })
+      if (activitySearch.trim()) params.set('search', activitySearch.trim())
+      if (activityFrom) params.set('from', new Date(activityFrom).toISOString())
+      if (activityTo) params.set('to', new Date(activityTo).toISOString())
+      if (activityTypeFilter) params.set('type', activityTypeFilter)
+      const d = await request(`/api/activity?${params.toString()}`) as { activity: ActivityEntry[]; total: number }
+      setActivityLog(prev => {
+        const merged = [...prev, ...(d.activity || [])]
+        setActivityHasMore(merged.length < d.total)
+        return merged
+      })
+      setActivityPage(nextPage)
+    } catch { /* ignore */ } finally { setActivityLoadingMore(false) }
+  }, [request, activityPage, activityLoadingMore, activitySearch, activityFrom, activityTo, activityTypeFilter])
 
   const loadSessions = useCallback(async () => {
     try {
@@ -359,6 +497,37 @@ export default function DashboardApp() {
       setSessions(d.sessions || [])
     } catch { setSessions([]) }
   }, [request])
+
+  const loadAuditLogs = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ limit: '50' })
+      if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId)
+      if (auditTypeFilter) params.set('entityType', auditTypeFilter)
+      if (auditFrom) params.set('from', new Date(auditFrom).toISOString())
+      if (auditTo) params.set('to', new Date(auditTo).toISOString())
+      const d = await request(`/api/audit-logs?${params.toString()}`) as { logs: AuditEntry[] }
+      setAuditLogs(d.logs || [])
+    } catch { setAuditLogs([]) }
+  }, [request, selectedWorkspaceId, auditTypeFilter, auditFrom, auditTo])
+
+  const handleExportAuditLogs = async () => {
+    try {
+      const params = new URLSearchParams({ format: 'csv' })
+      if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId)
+      if (auditTypeFilter) params.set('entityType', auditTypeFilter)
+      if (auditFrom) params.set('from', new Date(auditFrom).toISOString())
+      if (auditTo) params.set('to', new Date(auditTo).toISOString())
+      const token = getStoredToken()
+      const response = await fetch(`/api/audit-logs/export?${params.toString()}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+      if (!response.ok) throw new Error('Export failed')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = 'audit-log.csv'
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to export audit log', 'error') }
+  }
 
   // These fetch-on-mount / fetch-on-tab-change effects call async loaders whose
   // setState calls happen after an await, not synchronously during the effect —
@@ -374,15 +543,15 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations() }, [loadTasks, loadMembers, loadWorkspaceInvitations])
+  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (navPage === 'reports') loadReports() }, [navPage, loadReports])
+  useEffect(() => { if (navPage === 'reports') { loadReports(); loadFocusSessions() } }, [navPage, loadReports, loadFocusSessions])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'activity') loadActivity() }, [navPage, loadActivity])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'notifications') loadNotifList() }, [navPage, loadNotifList])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (navPage === 'settings') loadSessions() }, [navPage, loadSessions])
+  useEffect(() => { if (navPage === 'settings') { loadSessions(); loadAuditLogs() } }, [navPage, loadSessions, loadAuditLogs])
 
   useEffect(() => {
     const interval = setInterval(loadNotifs, 30000)
@@ -490,6 +659,7 @@ export default function DashboardApp() {
         dueDate: dueDateTime, workspaceId: selectedWorkspaceId,
       }
       if (taskAssignedTo) body.assignedToId = taskAssignedTo
+      if (taskTagIds.length) body.tagIds = taskTagIds
       if (dueDateTime) {
         body.reminderOffsets = taskReminderOffsets
         if (taskCustomReminderAt) body.customReminderTimes = [new Date(taskCustomReminderAt).toISOString()]
@@ -504,7 +674,7 @@ export default function DashboardApp() {
         if (taskRecurrence.recurrenceCount) body.recurrenceCount = taskRecurrence.recurrenceCount
       }
       const resetForm = () => {
-        setTaskTitle(''); setTaskDescription(''); setTaskPriority('MEDIUM'); setTaskDueDate(''); setTaskTime(''); setTaskAssignedTo('')
+        setTaskTitle(''); setTaskDescription(''); setTaskPriority('MEDIUM'); setTaskDueDate(''); setTaskTime(''); setTaskAssignedTo(''); setTaskTagIds([])
         setTaskReminderOffsets(notifPrefs.defaultReminderMinutes.length ? notifPrefs.defaultReminderMinutes : [15]); setTaskCustomReminderAt('')
         setTaskRecurrence(DEFAULT_RECURRENCE)
       }
@@ -575,8 +745,18 @@ export default function DashboardApp() {
   }
 
   const openFocusMode = (task: Task) => {
-    setFocusTask({ id: task.id, title: task.title, description: task.description, status: task.status, subtasks: task.subtasks || [] })
+    setFocusTask({ id: task.id, title: task.title, description: task.description, notes: task.notes, status: task.status, subtasks: task.subtasks || [] })
     setSelectedTask(null)
+  }
+
+  const handleSaveFocusNotes = async (notes: string) => {
+    if (!focusTask) return
+    try { await request(`/api/tasks/${focusTask.id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ notes }) }); await loadTasks() } catch { /* ignore — non-critical autosave */ }
+  }
+
+  const handleLogFocusSession = async (durationSeconds: number, pomodoroCount: number, startedAt: string) => {
+    if (!focusTask) return
+    try { await request('/api/focus-sessions', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ taskId: focusTask.id, durationSeconds, pomodoroCount, startedAt }) }) } catch { /* ignore — non-critical */ }
   }
 
   const handleDeleteTask = async (taskId: string) => {
@@ -651,10 +831,7 @@ export default function DashboardApp() {
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save', 'error') }
   }
 
-  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
+  const uploadAvatarFile = async (file: File) => {
     setAvatarUploading(true)
     try {
       const form = new FormData()
@@ -670,6 +847,13 @@ export default function DashboardApp() {
     } finally {
       setAvatarUploading(false)
     }
+  }
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await uploadAvatarFile(file)
   }
 
   const handleAvatarRemove = async () => {
@@ -698,17 +882,78 @@ export default function DashboardApp() {
     }
   }
 
-  const handleChangePassword = async (e: FormEvent<HTMLFormElement>) => {
+  // Password changes require an explicit confirmation step before hitting
+  // the API — see the confirm dialog in the Settings render. If App Lock
+  // is set up, that confirmation is the PIN itself rather than a plain
+  // "Yes" click.
+  const handleChangePassword = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!currentPassword || !newPassword) return
+    setPasswordConfirmPin('')
+    setShowPasswordConfirm(true)
+  }
+
+  const executePasswordChange = async () => {
+    if (!user) return
+    if (user.appLockEnabled) {
+      if (passwordConfirmPin.length !== 4) { showMessage('Enter your 4-digit PIN to confirm', 'error'); return }
+      try {
+        await request('/api/settings/app-lock/verify', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ pin: passwordConfirmPin }) })
+      } catch (err) {
+        showMessage(err instanceof Error ? err.message : 'Incorrect PIN', 'error')
+        return
+      }
+    }
     try {
       const d = await request('/api/settings/password', {
         method: 'PATCH', headers: jsonHeaders,
         body: JSON.stringify({ currentPassword, newPassword }),
       }) as { message: string }
-      setCurrentPassword(''); setNewPassword('')
+      setCurrentPassword(''); setNewPassword(''); setPasswordConfirmPin(''); setShowPasswordConfirm(false)
       showMessage(d.message || 'Password changed', 'success')
       await loadSessions()
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to change password', 'error') }
+  }
+
+  const handleEnableAppLock = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!user) return
+    if (appLockSetupPin.length !== 4 || !/^\d{4}$/.test(appLockSetupPin)) { showMessage('PIN must be exactly 4 digits', 'error'); return }
+    if (appLockSetupPin !== appLockSetupPinConfirm) { showMessage('PINs do not match', 'error'); return }
+    try {
+      await request('/api/settings/app-lock', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ pin: appLockSetupPin, password: appLockSetupPassword }) })
+      setAppLockSetupPin(''); setAppLockSetupPinConfirm(''); setAppLockSetupPassword('')
+      setUser({ ...user, appLockEnabled: true })
+      showMessage('App Lock enabled', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to enable App Lock', 'error') }
+  }
+
+  const handleDisableAppLock = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!user) return
+    try {
+      await request('/api/settings/app-lock', { method: 'DELETE', headers: jsonHeaders, body: JSON.stringify({ pin: appLockDisablePin }) })
+      setAppLockDisablePin('')
+      setUser({ ...user, appLockEnabled: false })
+      showMessage('App Lock disabled', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to disable App Lock', 'error') }
+  }
+
+  const handleChangeAppLockPin = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    try {
+      await request('/api/settings/app-lock/pin', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ currentPin: appLockCurrentPin, newPin: appLockNewPin }) })
+      setAppLockCurrentPin(''); setAppLockNewPin('')
+      showMessage('PIN updated', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to change PIN', 'error') }
+  }
+
+  const handleChangeAppLockTimeout = async (minutes: number) => {
+    if (!user) return
+    try {
+      await request('/api/settings/app-lock/timeout', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ timeoutMinutes: minutes }) })
+      setUser({ ...user, appLockTimeoutMinutes: minutes })
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update timeout', 'error') }
   }
 
   const handleRevokeSession = async (id: string) => {
@@ -815,8 +1060,22 @@ export default function DashboardApp() {
   useEffect(() => {
     if (!pendingOpenTaskId) return
     const found = tasks.find(tk => tk.id === pendingOpenTaskId)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (found) { setSelectedTask(found); setPendingOpenTaskId(null) }
   }, [tasks, pendingOpenTaskId])
+
+  // Same cross-workspace-open pattern as handleOpenNotifTask above.
+  const handleOpenSearchTask = (taskId: string, taskWorkspaceId: string) => {
+    setNavPage('tasks')
+    if (taskWorkspaceId !== selectedWorkspaceId) {
+      setSelectedWorkspaceId(taskWorkspaceId)
+      setPendingOpenTaskId(taskId)
+      return
+    }
+    const found = tasks.find(tk => tk.id === taskId)
+    if (found) setSelectedTask(found)
+    else setPendingOpenTaskId(taskId)
+  }
 
   const handleCompleteFromNotif = async (n: NotifItem) => {
     if (!n.taskId) return
@@ -903,10 +1162,48 @@ export default function DashboardApp() {
     ? { total: reportsSummary.total, completed: reportsSummary.completed, inProgress: reportsSummary.inProgress, todo: Math.max(reportsSummary.total - reportsSummary.completed - reportsSummary.inProgress, 0), overdue: reportsSummary.overdue }
     : statusCounts
 
+  const dueTodayTasks = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate).toDateString() === new Date().toDateString())
+  const dueThisWeekTasks = tasks.filter(tk => {
+    if (!tk.dueDate || tk.status === 'COMPLETED') return false
+    const due = new Date(tk.dueDate); const now = new Date(); const in7 = new Date(); in7.setDate(in7.getDate() + 7)
+    return due >= now && due <= in7
+  })
+
   const filteredTasks = !taskFilter ? tasks
     : taskFilter.kind === 'overdue' ? overdueTasks
     : taskFilter.kind === 'mine' ? myTasks
+    : taskFilter.kind === 'tag' ? tasks.filter(tk => tk.tags?.some(tg => tg.id === taskFilter.tagId))
+    : taskFilter.kind === 'priority' ? tasks.filter(tk => tk.priority === taskFilter.priority)
+    : taskFilter.kind === 'dueToday' ? dueTodayTasks
+    : taskFilter.kind === 'dueWeek' ? dueThisWeekTasks
     : tasks.filter(tk => tk.status === taskFilter.status)
+
+  const QUICK_FILTERS: TaskFilter[] = [
+    { kind: 'mine', label: 'My Tasks' },
+    { kind: 'dueToday', label: 'Due Today' },
+    { kind: 'dueWeek', label: 'Due This Week' },
+    { kind: 'overdue', label: 'Overdue' },
+    { kind: 'priority', priority: 'HIGH', label: 'High Priority' },
+  ]
+
+  const handleSaveCurrentView = async () => {
+    if (!taskFilter || !selectedWorkspaceId) return
+    const name = window.prompt('Name this saved view', taskFilter.label)
+    if (!name?.trim()) return
+    try {
+      await request(`/api/workspaces/${selectedWorkspaceId}/saved-views`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name: name.trim(), filters: taskFilter }) })
+      await loadSavedViews()
+      showMessage('View saved', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save view', 'error') }
+  }
+
+  const handleTogglePinView = async (id: string, pinned: boolean) => {
+    try { await request(`/api/saved-views/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ pinned: !pinned }) }); await loadSavedViews() } catch { /* ignore */ }
+  }
+
+  const handleDeleteSavedView = async (id: string) => {
+    try { await request(`/api/saved-views/${id}`, { method: 'DELETE' }); await loadSavedViews() } catch { /* ignore */ }
+  }
 
   const handleStatCardClick = (key: StatCardKey) => {
     if (key === 'teamMembers' || key === 'projects') { setNavPage('team'); return }
@@ -920,6 +1217,7 @@ export default function DashboardApp() {
   }
 
   return (
+    <AppLockGate enabled={!!user.appLockEnabled} timeoutMinutes={user.appLockTimeoutMinutes ?? 5} userId={user.id}>
     <main className="dashboard-shell">
       {toasts.length > 0 && (
         <div className="toast-stack" role="region" aria-label="Notifications" aria-live="polite">
@@ -953,6 +1251,8 @@ export default function DashboardApp() {
           onClose={() => setFocusTask(null)}
           onComplete={handleFocusComplete}
           onSubtaskToggle={handleSubtaskToggle}
+          onSaveNotes={handleSaveFocusNotes}
+          onLogSession={handleLogFocusSession}
           onMessage={showMessage}
         />
       )}
@@ -970,6 +1270,12 @@ export default function DashboardApp() {
               <span className="nav-label">{t(page === 'tasks' ? 'myTasks' : page, settingsLang)}</span>
             </button>
           ))}
+          {user.isSuperAdmin && (
+            <button className="nav-item" onClick={() => navigate('/admin')} title={sidebarCollapsed ? 'Super Admin' : undefined}>
+              <span className="nav-icon"><ShieldCheck size={17} strokeWidth={1.8} /></span>
+              <span className="nav-label">Super Admin</span>
+            </button>
+          )}
         </nav>
         <div className="sidebar-footer">
           <div className="sidebar-user">
@@ -1000,6 +1306,12 @@ export default function DashboardApp() {
             </div>
           </div>
           <div className="main-topbar-actions">
+            <GlobalSearch
+              workspaceId={selectedWorkspaceId}
+              onOpenTask={handleOpenSearchTask}
+              onSwitchWorkspace={setSelectedWorkspaceId}
+              onGoToMember={() => setNavPage('team')}
+            />
             <div className="workspace-selector">
               {workspaces.map(ws => (
                 <button key={ws.id} type="button"
@@ -1197,7 +1509,44 @@ export default function DashboardApp() {
                     <button type="button" onClick={() => setTaskFilter(null)} aria-label="Clear filter" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'inline-flex' }}><X size={12} /></button>
                   </span>
                 )}
+                {tags.length > 0 && (
+                  <select
+                    className="notif-filter-select"
+                    value={taskFilter?.kind === 'tag' ? taskFilter.tagId : ''}
+                    onChange={e => {
+                      const tagId = e.target.value
+                      const tag = tags.find(tg => tg.id === tagId)
+                      setTaskFilter(tag ? { kind: 'tag', tagId, label: tag.name } : null)
+                    }}
+                    aria-label="Filter by tag"
+                  >
+                    <option value="">Filter by tag…</option>
+                    {tags.map(tg => <option key={tg.id} value={tg.id}>{tg.name}</option>)}
+                  </select>
+                )}
               </h2>
+              <div className="notif-filter-bar">
+                {QUICK_FILTERS.map(f => (
+                  <button
+                    key={f.label}
+                    type="button"
+                    className={`notif-filter-chip ${taskFilter?.label === f.label ? 'active' : ''}`}
+                    onClick={() => setTaskFilter(taskFilter?.label === f.label ? null : f)}
+                  >{f.label}</button>
+                ))}
+                {savedViews.map(v => (
+                  <span key={v.id} className={`notif-filter-chip ${taskFilter?.label === v.name ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <button type="button" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, font: 'inherit' }} onClick={() => setTaskFilter({ ...v.filters, label: v.name })}>
+                      {v.pinned && '📌 '}{v.name}
+                    </button>
+                    <button type="button" title={v.pinned ? 'Unpin' : 'Pin'} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, opacity: 0.7 }} onClick={() => handleTogglePinView(v.id, v.pinned)}>{v.pinned ? '📌' : '📍'}</button>
+                    <button type="button" aria-label={`Delete view ${v.name}`} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, opacity: 0.7 }} onClick={() => handleDeleteSavedView(v.id)}><X size={11} /></button>
+                  </span>
+                ))}
+                {taskFilter && !savedViews.some(v => v.name === taskFilter.label) && (
+                  <button type="button" className="mini-btn" onClick={handleSaveCurrentView}>Save as view</button>
+                )}
+              </div>
               <div className="stack-form stack-form-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                 <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="New task title" />
                 <select value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
@@ -1214,6 +1563,19 @@ export default function DashboardApp() {
                 </select>
                 <button className="primary-btn" onClick={() => handleCreateTask({ preventDefault: () => {} } as FormEvent<HTMLFormElement>)}>Add</button>
               </div>
+              {tags.length > 0 && (
+                <div className="tag-picker-list">
+                  {tags.map(tg => (
+                    <button
+                      key={tg.id}
+                      type="button"
+                      className={`tag-picker-chip ${taskTagIds.includes(tg.id) ? 'active' : ''}`}
+                      style={{ color: taskTagIds.includes(tg.id) ? tg.color : undefined }}
+                      onClick={() => setTaskTagIds(prev => prev.includes(tg.id) ? prev.filter(id => id !== tg.id) : [...prev, tg.id])}
+                    >{tg.name}</button>
+                  ))}
+                </div>
+              )}
               {taskDueDate && (
                 <div className="reminder-picker" style={{ marginBottom: 16 }}>
                   <span className="reminder-picker-label">Remind me</span>
@@ -1280,8 +1642,17 @@ export default function DashboardApp() {
                       <option value="HIGH">High</option><option value="CRITICAL">Critical</option>
                     </select>
                   </label>
-                  {(boardAssigneeFilter || boardPriorityFilter) && (
-                    <button type="button" className="mini-btn" onClick={() => { setBoardAssigneeFilter(''); setBoardPriorityFilter('') }}>Clear filters</button>
+                  {tags.length > 0 && (
+                    <label className="field-label-inline">
+                      <span>Tag</span>
+                      <select value={boardTagFilter} onChange={e => setBoardTagFilter(e.target.value)}>
+                        <option value="">Any tag</option>
+                        {tags.map(tg => <option key={tg.id} value={tg.id}>{tg.name}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  {(boardAssigneeFilter || boardPriorityFilter || boardTagFilter) && (
+                    <button type="button" className="mini-btn" onClick={() => { setBoardAssigneeFilter(''); setBoardPriorityFilter(''); setBoardTagFilter('') }}>Clear filters</button>
                   )}
                 </div>
               </div>
@@ -1289,7 +1660,8 @@ export default function DashboardApp() {
                 {statusColumns.map(status => {
                   const columnTasks = tasks.filter(tk => tk.status === status
                     && (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter))
-                    && (!boardPriorityFilter || tk.priority === boardPriorityFilter))
+                    && (!boardPriorityFilter || tk.priority === boardPriorityFilter)
+                    && (!boardTagFilter || tk.tags?.some(tg => tg.id === boardTagFilter)))
                   return (
                   <div key={status} className="kanban-column">
                     <h3>{status.replace('_', ' ')}</h3>
@@ -1303,9 +1675,16 @@ export default function DashboardApp() {
                             {tk.description && <p>{tk.description}</p>}
                             <p className="task-meta">Priority: {tk.priority}</p>
                             {tk.dueDate && <p className="task-meta">Due: {new Date(tk.dueDate).toLocaleDateString()}</p>}
-                            {(blocked || tk.isRecurring) && (
-                              <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                            {tk.tags && tk.tags.length > 0 && (
+                              <div className="tag-row" style={{ marginBottom: 4 }}>
+                                {tk.tags.map(tag => <TagBadge key={tag.id} tag={tag} size="sm" />)}
+                              </div>
+                            )}
+                            {(blocked || tk.isRecurring || !!tk.blocks?.length || !!tk.relatedTo?.length) && (
+                              <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
                                 {blocked && <span className="status-badge blocked">Blocked</span>}
+                                {!!tk.blocks?.length && <span className="status-badge blocks">Blocks {tk.blocks.length}</span>}
+                                {!!tk.relatedTo?.length && <span className="status-badge related">Related {tk.relatedTo.length}</span>}
                                 {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
                               </div>
                             )}
@@ -1379,6 +1758,18 @@ export default function DashboardApp() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div className="panel">
+                <h2>Tags</h2>
+                <TagManager
+                  tags={tags}
+                  canManage={myMembership?.role !== 'GUEST'}
+                  canDelete={!!canManageMembers || myMembership?.role === 'MANAGER'}
+                  onCreate={handleCreateTag}
+                  onUpdate={handleUpdateTag}
+                  onDelete={handleDeleteTag}
+                />
               </div>
 
               <div className="panel">
@@ -1479,6 +1870,52 @@ export default function DashboardApp() {
                 <Suspense fallback={<SkeletonChart />}><CompletionTrendChart data={trendData} /></Suspense>
               </div>
 
+              <div className="panel">
+                <h2>Project progress</h2>
+                {byWorkspace.length === 0 ? (
+                  <EmptyState kind="workspace" compact title="No projects yet" description="Create a workspace to see progress here." />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {byWorkspace.map(w => {
+                      const pct = w.total > 0 ? Math.round((w.completed / w.total) * 100) : 0
+                      return (
+                        <div key={w.workspaceId}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: 4 }}>
+                            <span>{w.workspaceName}</span>
+                            <span className="bar-label">{w.completed}/{w.total} · {pct}%</span>
+                          </div>
+                          <div className="focus-mode-progress" style={{ margin: 0 }}>
+                            <div className="focus-mode-progress-bar" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="panel">
+                <h2>Focus history</h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.78rem', marginTop: 0 }}>
+                  Total focused time: <strong style={{ color: 'var(--text-primary)' }}>{Math.round(totalFocusSeconds / 60)} min</strong>
+                </p>
+                {focusSessions.length === 0 ? (
+                  <EmptyState kind="generic" compact title="No focus sessions yet" description="Time spent in Focus Mode will show up here." />
+                ) : (
+                  <div className="task-list">
+                    {focusSessions.map(s => (
+                      <div key={s.id} className="task-list-item">
+                        <div className="task-list-info">
+                          <strong>{s.task.title}</strong>
+                          <span>{Math.round(s.durationSeconds / 60)} min{s.pomodoroCount > 0 ? ` · ${s.pomodoroCount} pomodoro${s.pomodoroCount === 1 ? '' : 's'}` : ''}</span>
+                        </div>
+                        <span className="bar-label">{new Date(s.endedAt).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="panel full-width">
                 <h2>Advanced reporting</h2>
                 <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 0 }}>
@@ -1509,26 +1946,39 @@ export default function DashboardApp() {
                 </label>
                 <input type="date" value={activityFrom} onChange={e => setActivityFrom(e.target.value)} aria-label="From date" />
                 <input type="date" value={activityTo} onChange={e => setActivityTo(e.target.value)} aria-label="To date" />
-                {(activitySearch || activityFrom || activityTo) && (
-                  <button type="button" className="mini-btn" onClick={() => { setActivitySearch(''); setActivityFrom(''); setActivityTo('') }}>Clear</button>
+                <select className="notif-filter-select" value={activityTypeFilter} onChange={e => setActivityTypeFilter(e.target.value)} aria-label="Filter by event type">
+                  <option value="">All event types</option>
+                  {ACTIVITY_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {(activitySearch || activityFrom || activityTo || activityTypeFilter) && (
+                  <button type="button" className="mini-btn" onClick={() => { setActivitySearch(''); setActivityFrom(''); setActivityTo(''); setActivityTypeFilter('') }}>Clear</button>
                 )}
               </div>
-              {activityLog.length === 0 ? <p className="empty-column">No activity yet</p> : (
-                <div className="task-list">
-                  {activityLog.map(entry => (
-                    <div key={entry.id} className="task-list-item">
-                      <div className="task-list-info">
-                        <strong>{entry.action}</strong>
-                        <span>
-                          {entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}
-                          {entry.workspace ? ` · ${entry.workspace.name}` : ''}
-                          {entry.task ? ` · ${entry.task.title}` : ''}
-                        </span>
+              {activityLog.length === 0 ? (
+                <EmptyState kind="activity" compact title="No activity yet" description={activitySearch || activityFrom || activityTo || activityTypeFilter ? 'Nothing matches this filter.' : 'Actions your team takes will show up here.'} />
+              ) : (
+                <>
+                  <div className="task-list">
+                    {activityLog.map(entry => (
+                      <div key={entry.id} className="task-list-item">
+                        <div className="task-list-info">
+                          <strong>{entry.action}</strong>
+                          <span>
+                            {entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}
+                            {entry.workspace ? ` · ${entry.workspace.name}` : ''}
+                            {entry.task ? ` · ${entry.task.title}` : ''}
+                          </span>
+                        </div>
+                        <span className="bar-label">{new Date(entry.createdAt).toLocaleString()}</span>
                       </div>
-                      <span className="bar-label">{new Date(entry.createdAt).toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                  {activityHasMore && (
+                    <button type="button" className="notif-load-more" disabled={activityLoadingMore} onClick={loadMoreActivity}>
+                      {activityLoadingMore ? 'Loading…' : 'Load more'}
+                    </button>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -1628,6 +2078,9 @@ export default function DashboardApp() {
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button type="button" className="mini-btn secondary-btn" onClick={() => avatarFileInputRef.current?.click()} disabled={avatarUploading}>
                           <Upload size={13} /> {avatarUploading ? 'Uploading…' : 'Upload photo'}
+                        </button>
+                        <button type="button" className="mini-btn secondary-btn" onClick={() => setShowAvatarCamera(true)} disabled={avatarUploading}>
+                          <Camera size={13} /> Take photo
                         </button>
                         {user.avatarUrl && (
                           <button type="button" className="mini-btn danger-btn" onClick={handleAvatarRemove}><Trash2 size={13} /> Remove</button>
@@ -1743,6 +2196,51 @@ export default function DashboardApp() {
                 </form>
               </div>
 
+              <div className="panel">
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={16} strokeWidth={1.8} /> App Lock</h2>
+                {!user.appLockEnabled ? (
+                  <>
+                    <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 0 }}>
+                      Require a 4-digit PIN to reopen Taskly after it's been idle — protects workspace data if your device is left unattended.
+                    </p>
+                    <form className="stack-form" onSubmit={handleEnableAppLock}>
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="Choose a 4-digit PIN" value={appLockSetupPin} onChange={e => setAppLockSetupPin(e.target.value.replace(/\D/g, ''))} />
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="Confirm PIN" value={appLockSetupPinConfirm} onChange={e => setAppLockSetupPinConfirm(e.target.value.replace(/\D/g, ''))} />
+                      <input type="password" required placeholder="Your account password" value={appLockSetupPassword} onChange={e => setAppLockSetupPassword(e.target.value)} />
+                      <button type="submit">Enable App Lock</button>
+                    </form>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ color: 'var(--success)', fontSize: '0.8rem', marginTop: 0 }}>App Lock is enabled.</p>
+                    <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: 16 }}>
+                      Lock after
+                      <select
+                        value={user.appLockTimeoutMinutes ?? 5}
+                        onChange={e => handleChangeAppLockTimeout(Number(e.target.value))}
+                        style={{ marginLeft: 8 }}
+                      >
+                        <option value={0}>Immediately</option>
+                        <option value={1}>1 minute</option>
+                        <option value={5}>5 minutes</option>
+                        <option value={15}>15 minutes</option>
+                        <option value={30}>30 minutes</option>
+                        <option value={60}>1 hour</option>
+                      </select>
+                    </label>
+                    <form className="stack-form" onSubmit={handleChangeAppLockPin} style={{ marginBottom: 16 }}>
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="Current PIN" value={appLockCurrentPin} onChange={e => setAppLockCurrentPin(e.target.value.replace(/\D/g, ''))} />
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="New PIN" value={appLockNewPin} onChange={e => setAppLockNewPin(e.target.value.replace(/\D/g, ''))} />
+                      <button type="submit" className="mini-btn">Change PIN</button>
+                    </form>
+                    <form className="stack-form" onSubmit={handleDisableAppLock}>
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="Enter PIN to disable" value={appLockDisablePin} onChange={e => setAppLockDisablePin(e.target.value.replace(/\D/g, ''))} />
+                      <button type="submit" className="mini-btn danger-btn">Disable App Lock</button>
+                    </form>
+                  </>
+                )}
+              </div>
+
               <div className="panel full-width">
                 <h2>Active sessions</h2>
                 <div className="task-list">
@@ -1760,6 +2258,43 @@ export default function DashboardApp() {
                   {sessions.length === 0 && <p className="empty-column">No active sessions</p>}
                 </div>
                 <button type="button" className="mini-btn danger-btn" style={{ marginTop: 12 }} onClick={handleLogoutAllDevices}>Log out of all devices</button>
+              </div>
+
+              <div className="panel full-width">
+                <h2 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>Audit Log</span>
+                  <button type="button" className="mini-btn" onClick={handleExportAuditLogs}>Export CSV</button>
+                </h2>
+                <div className="stack-form" style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <select className="notif-filter-select" value={auditTypeFilter} onChange={e => setAuditTypeFilter(e.target.value)} aria-label="Filter by event type">
+                    <option value="">All events</option>
+                    {AUDIT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <input type="date" value={auditFrom} onChange={e => setAuditFrom(e.target.value)} aria-label="From date" />
+                  <input type="date" value={auditTo} onChange={e => setAuditTo(e.target.value)} aria-label="To date" />
+                  {(auditTypeFilter || auditFrom || auditTo) && (
+                    <button type="button" className="mini-btn" onClick={() => { setAuditTypeFilter(''); setAuditFrom(''); setAuditTo('') }}>Clear</button>
+                  )}
+                </div>
+                {auditLogs.length === 0 ? (
+                  <EmptyState kind="activity" compact title="No audit entries" description="Security and administrative events (logins, password changes, role changes) will show up here." />
+                ) : (
+                  <div className="task-list">
+                    {auditLogs.map(entry => (
+                      <div key={entry.id} className="task-list-item">
+                        <div className="task-list-info">
+                          <strong>{entry.action}</strong>
+                          <span>
+                            {entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}
+                            {entry.workspace ? ` · ${entry.workspace.name}` : ''}
+                            {entry.ipAddress ? ` · ${entry.ipAddress}` : ''}
+                          </span>
+                        </div>
+                        <span className="bar-label">{new Date(entry.createdAt).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1798,12 +2333,51 @@ export default function DashboardApp() {
             assignedToId={selectedTask.assignedToId}
             dependsOn={selectedTask.dependsOn || []}
             blocks={selectedTask.blocks || []}
+            relatedTo={selectedTask.relatedTo || []}
             workspaceTasks={tasks.map(tk => ({ id: tk.id, title: tk.title, status: tk.status }))}
             recurrence={taskToRecurrence(selectedTask)}
             onTaskUpdated={() => { loadTasks(); }}
+            taskTags={selectedTask.tags || []}
+            workspaceTags={tags}
           />
         </Modal>
       )}
+
+      {showAvatarCamera && (
+        <CameraCapture
+          onClose={() => setShowAvatarCamera(false)}
+          onCapture={async (file) => { setShowAvatarCamera(false); await uploadAvatarFile(file) }}
+        />
+      )}
+
+      {showPasswordConfirm && (
+        <Modal title="Confirm password change" onClose={() => setShowPasswordConfirm(false)}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            Are you sure you want to change your password? You may be required to log in again on other devices.
+          </p>
+          {user.appLockEnabled ? (
+            <div className="stack-form">
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Enter your PIN to confirm</label>
+              <input
+                type="password" inputMode="numeric" maxLength={4} autoFocus
+                value={passwordConfirmPin}
+                onChange={e => setPasswordConfirmPin(e.target.value.replace(/\D/g, ''))}
+                onKeyDown={e => { if (e.key === 'Enter' && passwordConfirmPin.length === 4) executePasswordChange() }}
+              />
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" className="mini-btn secondary-btn" onClick={() => setShowPasswordConfirm(false)}>Cancel</button>
+                <button type="button" className="mini-btn" disabled={passwordConfirmPin.length !== 4} onClick={executePasswordChange}>Confirm</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button type="button" className="mini-btn secondary-btn" onClick={() => setShowPasswordConfirm(false)}>Cancel</button>
+              <button type="button" className="mini-btn" onClick={executePasswordChange}>Yes, change my password</button>
+            </div>
+          )}
+        </Modal>
+      )}
     </main>
+    </AppLockGate>
   )
 }

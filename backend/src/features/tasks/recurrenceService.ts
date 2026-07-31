@@ -65,7 +65,7 @@ export const computeNextOccurrenceDate = (task: RecurrenceConfig): Date | null =
 // `recurrenceParentId` points back to the original template task, not the
 // immediately preceding occurrence, so "all occurrences of this series" is a
 // single `WHERE recurrenceParentId = <root> OR id = <root>` query.
-export const generateNextOccurrence = async (completedTask: Task): Promise<Task | null> => {
+export const generateNextOccurrence = async (completedTask: Task & { tags?: { id: string }[] }): Promise<Task | null> => {
     if (!completedTask.isRecurring || !completedTask.recurrenceRule || !completedTask.dueDate) return null;
 
     if (completedTask.recurrenceCount && completedTask.recurrenceOccurrenceNumber >= completedTask.recurrenceCount) {
@@ -87,7 +87,7 @@ export const generateNextOccurrence = async (completedTask: Task): Promise<Task 
             dueDate: nextDueDate,
             workspaceId: completedTask.workspaceId,
             assignedToId: completedTask.assignedToId,
-            labels: completedTask.labels,
+            ...(completedTask.tags?.length ? { tags: { connect: completedTask.tags.map((tg) => ({ id: tg.id })) } } : {}),
             isRecurring: true,
             recurrenceRule: completedTask.recurrenceRule,
             recurrenceInterval: completedTask.recurrenceInterval,
