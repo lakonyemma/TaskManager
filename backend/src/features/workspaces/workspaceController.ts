@@ -56,6 +56,64 @@ export const createWorkspace = async (req: Request, res: Response) => {
     }
 };
 
+// Renaming/redescribing a workspace ("project") is a real gap in the API
+// today — there was previously no way to edit one after creation. Notifies
+// every other member so anyone with the old name cached (e.g. in a stale
+// tab) sees why things look different.
+export const updateWorkspace = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const workspaceId = String(req.params.workspaceId);
+        const { name, description } = req.body as { name?: string; description?: string };
+
+        const membership = await prisma.workspaceMember.findUnique({
+            where: { userId_workspaceId: { userId: authUser.id, workspaceId } },
+        });
+        if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
+            return res.status(403).json({ message: "Only workspace owners and admins can edit this workspace" });
+        }
+
+        if (name !== undefined && !name.trim()) {
+            return res.status(400).json({ message: "Workspace name cannot be empty" });
+        }
+
+        const data: Record<string, unknown> = {};
+        if (name !== undefined) data.name = name.trim();
+        if (description !== undefined) data.description = description;
+
+        const workspace = await prisma.workspace.update({
+            where: { id: workspaceId },
+            data,
+            include: { members: true },
+        });
+
+        await createActivityLog({ userId: authUser.id, action: `Updated workspace ${workspace.name}`, workspaceId });
+
+        const otherMembers = workspace.members.filter((m) => m.userId !== authUser.id);
+        await Promise.all(
+            otherMembers.map((m) =>
+                prisma.notification.create({
+                    data: {
+                        userId: m.userId,
+                        workspaceId,
+                        type: "PROJECT_UPDATED",
+                        message: `${workspace.name} was updated`,
+                    },
+                }),
+            ),
+        );
+
+        return res.status(200).json({ workspace });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
 export const listMembers = async (req: Request, res: Response) => {
     try {
         const authUser = (req as Request & { user?: { id: string; email: string } }).user;

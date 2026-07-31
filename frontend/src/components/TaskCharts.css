@@ -15,6 +15,22 @@
   color: var(--text-muted, #94a3b8);
   display: flex;
   flex-direction: column;
+  transition: background var(--duration-base, 0.18s) var(--ease-swift, ease), border-color var(--duration-base, 0.18s) var(--ease-swift, ease), transform var(--duration-fast, 0.12s) var(--ease-swift, ease);
+}
+
+.stat-card-clickable {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.stat-card-clickable:hover,
+.stat-card-clickable:focus-visible {
+  background: var(--surface-hover, #1c1f30);
+  border-color: var(--accent-primary, #8b5cf6);
+  outline: none;
+}
+.stat-card-clickable:active { transform: scale(0.98); }
+@media (hover: none) {
+  .stat-card-clickable:active { background: var(--surface-hover, #1c1f30); }
 }
 
 .stat-card-icon {

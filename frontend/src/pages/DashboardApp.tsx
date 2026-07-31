@@ -14,7 +14,7 @@ import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sen
 import { REMINDER_OFFSETS } from '../lib/reminders'
 import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
 import { cacheTasks, getCachedTasks, getOutboxCount, isOnline, queueMutation, syncOutbox, upsertCachedTask } from '../lib/offline'
-import { StatSummaryCards } from '../components/StatSummaryCards'
+import { StatSummaryCards, type StatCardKey } from '../components/StatSummaryCards'
 import type { StatusCounts, TrendPoint } from '../components/TaskCharts'
 import Modal from '../components/Modal'
 import TaskDetailPanel from '../components/TaskDetailPanel'
@@ -24,7 +24,7 @@ import FocusMode, { type FocusTask } from '../components/FocusMode'
 import SmartDashboardHeader from '../components/SmartDashboardHeader'
 import AchievementsPanel from '../components/AchievementsPanel'
 import InstallPrompt from '../components/InstallPrompt'
-import NotificationCard, { type NotifItem } from '../components/NotificationCard'
+import NotificationCard, { NOTIF_TYPE_OPTIONS, type NotifItem, type NotifType } from '../components/NotificationCard'
 import EmptyState from '../components/EmptyState'
 import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
@@ -188,8 +188,15 @@ export default function DashboardApp() {
   const [workspaceInvitations, setWorkspaceInvitations] = useState<Invitation[]>([])
   const [members, setMembers] = useState<Member[]>([])
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
+  const [boardAssigneeFilter, setBoardAssigneeFilter] = useState('')
+  const [boardPriorityFilter, setBoardPriorityFilter] = useState('')
+  const [taskFilter, setTaskFilter] = useState<{ kind: 'status' | 'overdue' | 'mine'; status?: string; label: string } | null>(null)
   const [notifCount, setNotifCount] = useState(0)
   const [notifList, setNotifList] = useState<NotifItem[]>([])
+  const [notifNextCursor, setNotifNextCursor] = useState<string | null>(null)
+  const [notifLoadingMore, setNotifLoadingMore] = useState(false)
+  const [notifTypeFilter, setNotifTypeFilter] = useState<NotifType | ''>('')
+  const [notifReadFilter, setNotifReadFilter] = useState<'' | 'true' | 'false'>('')
   const [showNotifs, setShowNotifs] = useState(false)
   const [pendingOpenTaskId, setPendingOpenTaskId] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -299,9 +306,32 @@ export default function DashboardApp() {
     try { const d = await request('/api/notifications/unread-count') as { count: number }; setNotifCount(d.count ?? 0) } catch { /* ignore */ }
   }, [request])
 
-  const loadNotifList = useCallback(async () => {
-    try { const d = await request('/api/notifications') as { notifications: typeof notifList }; setNotifList(d.notifications || []) } catch { /* ignore */ }
-  }, [request])
+  const loadNotifList = useCallback(async (opts?: { type?: NotifType | ''; isRead?: '' | 'true' | 'false' }) => {
+    const type = opts?.type ?? notifTypeFilter
+    const isRead = opts?.isRead ?? notifReadFilter
+    const params = new URLSearchParams()
+    if (type) params.set('type', type)
+    if (isRead) params.set('isRead', isRead)
+    try {
+      const qs = params.toString()
+      const d = await request(`/api/notifications${qs ? `?${qs}` : ''}`) as { notifications: typeof notifList; nextCursor: string | null }
+      setNotifList(d.notifications || [])
+      setNotifNextCursor(d.nextCursor ?? null)
+    } catch { /* ignore */ }
+  }, [request, notifTypeFilter, notifReadFilter])
+
+  const loadMoreNotifs = useCallback(async () => {
+    if (!notifNextCursor || notifLoadingMore) return
+    setNotifLoadingMore(true)
+    const params = new URLSearchParams({ cursor: notifNextCursor })
+    if (notifTypeFilter) params.set('type', notifTypeFilter)
+    if (notifReadFilter) params.set('isRead', notifReadFilter)
+    try {
+      const d = await request(`/api/notifications?${params.toString()}`) as { notifications: typeof notifList; nextCursor: string | null }
+      setNotifList(prev => [...prev, ...(d.notifications || [])])
+      setNotifNextCursor(d.nextCursor ?? null)
+    } catch { /* ignore */ } finally { setNotifLoadingMore(false) }
+  }, [request, notifNextCursor, notifLoadingMore, notifTypeFilter, notifReadFilter])
 
   const loadNotifPrefs = useCallback(async () => {
     try { const d = await request('/api/settings/notification-preferences') as { preferences: NotificationPreferences }; if (d.preferences) setNotifPrefs(d.preferences) } catch { /* ignore */ }
@@ -873,10 +903,24 @@ export default function DashboardApp() {
     ? { total: reportsSummary.total, completed: reportsSummary.completed, inProgress: reportsSummary.inProgress, todo: Math.max(reportsSummary.total - reportsSummary.completed - reportsSummary.inProgress, 0), overdue: reportsSummary.overdue }
     : statusCounts
 
-  const themeClass = `theme-${settingsColor || 'purple'} font-${settingsFont || 'default'}`
+  const filteredTasks = !taskFilter ? tasks
+    : taskFilter.kind === 'overdue' ? overdueTasks
+    : taskFilter.kind === 'mine' ? myTasks
+    : tasks.filter(tk => tk.status === taskFilter.status)
+
+  const handleStatCardClick = (key: StatCardKey) => {
+    if (key === 'teamMembers' || key === 'projects') { setNavPage('team'); return }
+    setNavPage('tasks')
+    if (key === 'total') setTaskFilter(null)
+    else if (key === 'overdue') setTaskFilter({ kind: 'overdue', label: 'Overdue' })
+    else if (key === 'myTasks') setTaskFilter({ kind: 'mine', label: 'My Tasks' })
+    else if (key === 'completed') setTaskFilter({ kind: 'status', status: 'COMPLETED', label: 'Completed' })
+    else if (key === 'inProgress') setTaskFilter({ kind: 'status', status: 'IN_PROGRESS', label: 'In Progress' })
+    else if (key === 'todo') setTaskFilter({ kind: 'status', status: 'TODO', label: 'To Do' })
+  }
 
   return (
-    <main className={`dashboard-shell ${themeClass}`}>
+    <main className="dashboard-shell">
       {toasts.length > 0 && (
         <div className="toast-stack" role="region" aria-label="Notifications" aria-live="polite">
           {toasts.map(toast => (
@@ -1057,7 +1101,7 @@ export default function DashboardApp() {
               <div className="dashboard-grid">
                 <div className="panel full-width">
                   <h2>{t('overview', settingsLang)}</h2>
-                  {loadingDashboard ? <SkeletonStatCards /> : <StatSummaryCards counts={statusCounts} myTasks={myTasks.length} teamMembers={members.length} />}
+                  {loadingDashboard ? <SkeletonStatCards /> : <StatSummaryCards counts={statusCounts} myTasks={myTasks.length} teamMembers={members.length} projects={workspaces.length} onCardClick={handleStatCardClick} />}
                 </div>
               </div>
 
@@ -1145,7 +1189,15 @@ export default function DashboardApp() {
 
           {navPage === 'tasks' && (
             <div className="panel full-width">
-              <h2>My Tasks</h2>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span>My Tasks</span>
+                {taskFilter && (
+                  <span className="notif-filter-chip active" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'default' }}>
+                    {taskFilter.label}
+                    <button type="button" onClick={() => setTaskFilter(null)} aria-label="Clear filter" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'inline-flex' }}><X size={12} /></button>
+                  </span>
+                )}
+              </h2>
               <div className="stack-form stack-form-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                 <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="New task title" />
                 <select value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
@@ -1182,18 +1234,25 @@ export default function DashboardApp() {
               <div style={{ marginBottom: 16 }}>
                 <RecurrencePicker value={taskRecurrence} onChange={setTaskRecurrence} />
               </div>
-              {tasks.length > VIRTUALIZE_THRESHOLD ? (
+              {filteredTasks.length === 0 ? (
+                <EmptyState
+                  kind="tasks"
+                  compact
+                  title={taskFilter ? `No ${taskFilter.label.toLowerCase()} tasks` : 'No tasks yet'}
+                  description={taskFilter ? 'Nothing matches this filter right now.' : 'Create your next task to stay organized.'}
+                />
+              ) : filteredTasks.length > VIRTUALIZE_THRESHOLD ? (
                 <List
                   className="task-list"
                   rowComponent={TaskListRow}
-                  rowCount={tasks.length}
+                  rowCount={filteredTasks.length}
                   rowHeight={92}
-                  rowProps={{ tasksList: tasks, statusColumns, onSelect: setSelectedTask, onMove: handleMoveTask, onDelete: (t: Task) => handleDeleteTask(t.id), onFocus: openFocusMode }}
+                  rowProps={{ tasksList: filteredTasks, statusColumns, onSelect: setSelectedTask, onMove: handleMoveTask, onDelete: (t: Task) => handleDeleteTask(t.id), onFocus: openFocusMode }}
                   defaultHeight={640}
                 />
               ) : (
                 <div className="task-list">
-                  {tasks.map(tk => (
+                  {filteredTasks.map(tk => (
                     <TaskListRowStatic key={tk.id} tk={tk} statusColumns={statusColumns} onSelect={setSelectedTask} onMove={handleMoveTask} onDelete={t => handleDeleteTask(t.id)} onFocus={openFocusMode} />
                   ))}
                 </div>
@@ -1204,24 +1263,39 @@ export default function DashboardApp() {
           {navPage === 'boards' && (
             <>
               <div className="panel" style={{ marginBottom: 16 }}>
-                <div className="stack-form stack-form-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="Task title" required />
-                  <select value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
-                    <option value="LOW">Low</option><option value="MEDIUM">Medium</option>
-                    <option value="HIGH">High</option><option value="CRITICAL">Critical</option>
-                  </select>
-                  <label className="field-label-inline"><span>Due date</span><input type="date" value={taskDueDate} onChange={e => setTaskDueDate(e.target.value)} /></label>
-                  <label className="field-label-inline"><span>Due time</span><input type="time" value={taskTime} onChange={e => setTaskTime(e.target.value)} /></label>
-                  <button onClick={() => handleCreateTask({ preventDefault: () => {} } as FormEvent<HTMLFormElement>)}>Add task</button>
+                <div className="stack-form stack-form-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <label className="field-label-inline">
+                    <span>Assignee</span>
+                    <select value={boardAssigneeFilter} onChange={e => setBoardAssigneeFilter(e.target.value)}>
+                      <option value="">Everyone</option>
+                      <option value="unassigned">Unassigned</option>
+                      {members.map(m => <option key={m.userId} value={m.userId}>{m.user.firstname} {m.user.lastName}</option>)}
+                    </select>
+                  </label>
+                  <label className="field-label-inline">
+                    <span>Priority</span>
+                    <select value={boardPriorityFilter} onChange={e => setBoardPriorityFilter(e.target.value)}>
+                      <option value="">Any priority</option>
+                      <option value="LOW">Low</option><option value="MEDIUM">Medium</option>
+                      <option value="HIGH">High</option><option value="CRITICAL">Critical</option>
+                    </select>
+                  </label>
+                  {(boardAssigneeFilter || boardPriorityFilter) && (
+                    <button type="button" className="mini-btn" onClick={() => { setBoardAssigneeFilter(''); setBoardPriorityFilter('') }}>Clear filters</button>
+                  )}
                 </div>
               </div>
               <div className="kanban-board">
-                {statusColumns.map(status => (
+                {statusColumns.map(status => {
+                  const columnTasks = tasks.filter(tk => tk.status === status
+                    && (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter))
+                    && (!boardPriorityFilter || tk.priority === boardPriorityFilter))
+                  return (
                   <div key={status} className="kanban-column">
                     <h3>{status.replace('_', ' ')}</h3>
-                    {tasks.filter(tk => tk.status === status).length === 0
-                      ? <p className="empty-column">Nothing here yet</p>
-                      : tasks.filter(tk => tk.status === status).map(tk => {
+                    {columnTasks.length === 0
+                      ? <p className="empty-column">{boardAssigneeFilter || boardPriorityFilter ? 'No matching tasks' : 'Nothing here yet'}</p>
+                      : columnTasks.map(tk => {
                         const blocked = tk.dependsOn?.some(d => d.status !== 'COMPLETED')
                         return (
                           <div key={tk.id} className="task-card" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
@@ -1242,13 +1316,13 @@ export default function DashboardApp() {
                                   disabled={ns === 'COMPLETED' && blocked}
                                   onClick={() => handleMoveTask(tk.id, ns)}>{ns.replace('_', ' ')}</button>
                               ))}
-                              <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTask(tk.id)} aria-label={`Delete task ${tk.title}`}><X size={13} /></button>
                             </div>
                           </div>
                         )
                       })}
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </>
           )}
@@ -1465,8 +1539,38 @@ export default function DashboardApp() {
                 <span>Notification Center</span>
                 {notifCount > 0 && <button type="button" className="mini-btn" onClick={handleMarkAllRead}><CheckCheck size={13} /> Mark all read</button>}
               </h2>
+              <div className="notif-filter-bar">
+                <button
+                  type="button"
+                  className={`notif-filter-chip ${notifReadFilter === '' ? 'active' : ''}`}
+                  onClick={() => { setNotifReadFilter(''); loadNotifList({ isRead: '' }) }}
+                >All</button>
+                <button
+                  type="button"
+                  className={`notif-filter-chip ${notifReadFilter === 'false' ? 'active' : ''}`}
+                  onClick={() => { setNotifReadFilter('false'); loadNotifList({ isRead: 'false' }) }}
+                >Unread</button>
+                <button
+                  type="button"
+                  className={`notif-filter-chip ${notifReadFilter === 'true' ? 'active' : ''}`}
+                  onClick={() => { setNotifReadFilter('true'); loadNotifList({ isRead: 'true' }) }}
+                >Read</button>
+                <select
+                  className="notif-filter-select"
+                  value={notifTypeFilter}
+                  onChange={e => { const v = e.target.value as NotifType | ''; setNotifTypeFilter(v); loadNotifList({ type: v }) }}
+                  aria-label="Filter by notification type"
+                >
+                  <option value="">All types</option>
+                  {NOTIF_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
               {notifList.length === 0 ? (
-                <EmptyState kind="notifications" title="You're all caught up" description="Task assignments, comments, and due-date reminders will show up here as they happen." />
+                <EmptyState
+                  kind="notifications"
+                  title={notifTypeFilter || notifReadFilter ? 'No matching notifications' : 'You\'re all caught up'}
+                  description={notifTypeFilter || notifReadFilter ? 'Try a different filter.' : 'Task assignments, comments, and due-date reminders will show up here as they happen.'}
+                />
               ) : (
                 <>
                   {(() => {
@@ -1498,6 +1602,11 @@ export default function DashboardApp() {
                       </>
                     )
                   })()}
+                  {notifNextCursor && (
+                    <button type="button" className="notif-load-more" disabled={notifLoadingMore} onClick={loadMoreNotifs}>
+                      {notifLoadingMore ? 'Loading…' : 'Load more'}
+                    </button>
+                  )}
                 </>
               )}
             </div>

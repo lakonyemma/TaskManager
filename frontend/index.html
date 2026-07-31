@@ -17,6 +17,20 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Taskly" />
     <title>Taskly</title>
+    <script>
+      // Applied synchronously, before first paint, so a reload never
+      // flashes the default purple theme while /api/auth/me is in flight —
+      // AuthContext keeps this in sync with the signed-in user's saved
+      // preference (see AuthContext.tsx) once it resolves.
+      (function () {
+        try {
+          var theme = localStorage.getItem('taskly.colorTheme')
+          var font = localStorage.getItem('taskly.fontStyle')
+          if (theme) document.documentElement.setAttribute('data-theme', theme)
+          if (font) document.documentElement.setAttribute('data-font', font)
+        } catch (e) { /* localStorage unavailable (private mode, etc.) — default theme applies */ }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

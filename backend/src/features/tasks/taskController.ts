@@ -9,7 +9,7 @@ import { checkAndGrantAchievements } from "../achievements/achievementService.js
 
 type AuthedRequest = Request & { user?: { id: string; email: string } };
 
-const notifyAssignee = async (data: { userId: string; workspaceId: string; taskId?: string; type: "TASK_ASSIGNED" | "TASK_UPDATED" | "TASK_DELETED"; message: string }) => {
+const notifyAssignee = async (data: { userId: string; workspaceId: string; taskId?: string; type: "TASK_ASSIGNED" | "TASK_UPDATED" | "TASK_DELETED" | "TASK_COMPLETED"; message: string }) => {
     const assignee = await prisma.user.findUnique({ where: { id: data.userId }, select: { taskNotificationsEnabled: true } });
     if (!assignee?.taskNotificationsEnabled) return;
     await prisma.notification.create({ data });
@@ -373,10 +373,12 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
                 userId: newAssigneeId,
                 workspaceId: task.workspaceId,
                 taskId: task.id,
-                type: reassigned ? "TASK_ASSIGNED" : "TASK_UPDATED",
-                message: reassigned
-                    ? `You were assigned to the task "${task.title}"`
-                    : `The task "${task.title}" was updated`,
+                type: becameCompleted ? "TASK_COMPLETED" : reassigned ? "TASK_ASSIGNED" : "TASK_UPDATED",
+                message: becameCompleted
+                    ? `The task "${task.title}" was marked complete`
+                    : reassigned
+                        ? `You were assigned to the task "${task.title}"`
+                        : `The task "${task.title}" was updated`,
             });
         }
 

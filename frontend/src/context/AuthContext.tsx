@@ -39,8 +39,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => { loadProfile() }, [loadProfile])
 
   useEffect(() => {
-    if (user?.colorTheme) document.documentElement.setAttribute('data-theme', user.colorTheme)
-    if (user?.fontStyle) document.documentElement.setAttribute('data-font', user.fontStyle)
+    if (user?.colorTheme) {
+      document.documentElement.setAttribute('data-theme', user.colorTheme)
+      localStorage.setItem('taskly.colorTheme', user.colorTheme)
+    }
+    if (user?.fontStyle) {
+      document.documentElement.setAttribute('data-font', user.fontStyle)
+      localStorage.setItem('taskly.fontStyle', user.fontStyle)
+    }
   }, [user])
 
   const login = useCallback(async (email: string, password: string, remember = true) => {
@@ -71,6 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const refreshToken = getStoredRefreshToken()
     clearTokens()
     setUser(null)
+    // Reset to the default theme/font immediately — otherwise the next
+    // account signed into this browser would flash the previous user's
+    // saved appearance until their own /api/auth/me resolves.
+    localStorage.removeItem('taskly.colorTheme')
+    localStorage.removeItem('taskly.fontStyle')
+    document.documentElement.setAttribute('data-theme', 'purple')
+    document.documentElement.setAttribute('data-font', 'default')
     if (refreshToken) {
       fetch('/api/auth/logout', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ refreshToken }) }).catch(() => {})
     }
