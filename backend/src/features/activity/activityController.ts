@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
+import { AUDIT_ENTITY_TYPES } from "../../utils/activity.js";
 
 export const listActivity = async (req: Request, res: Response) => {
     try {
@@ -13,6 +14,7 @@ export const listActivity = async (req: Request, res: Response) => {
         const page = Math.max(Number(req.query.page) || 1, 1);
         const search = (req.query.search as string | undefined)?.trim();
         const filterUserId = req.query.userId as string | undefined;
+        const entityType = req.query.type as string | undefined;
         const from = req.query.from ? new Date(req.query.from as string) : undefined;
         const to = req.query.to ? new Date(req.query.to as string) : undefined;
 
@@ -26,11 +28,20 @@ export const listActivity = async (req: Request, res: Response) => {
             return res.status(403).json({ message: "You are not a member of this workspace" });
         }
 
-        const where: Record<string, unknown> = workspaceId
+        // Security/administrative events (login, password changes, etc.)
+        // belong in the dedicated audit log (/api/audit-logs), not this
+        // general collaboration feed — they carry an IP address and other
+        // members shouldn't see each other's login history here. `notIn`
+        // alone would also drop every legacy untyped (entityType: null) row
+        // under SQL's three-valued NULL logic, so null is allowed explicitly.
+        const notAuditType = { OR: [{ entityType: null }, { entityType: { notIn: AUDIT_ENTITY_TYPES as unknown as string[] } }] };
+        const scope = workspaceId
             ? { workspaceId }
             : { OR: [{ userId: authUser.id }, { workspaceId: { in: userWorkspaceIds } }] };
+        const where: Record<string, unknown> = { AND: [scope, notAuditType] };
         if (search) where.action = { contains: search, mode: "insensitive" };
         if (filterUserId) where.userId = filterUserId;
+        if (entityType) where.entityType = entityType;
         if (from || to) {
             where.createdAt = {
                 ...(from && !Number.isNaN(from.getTime()) ? { gte: from } : {}),

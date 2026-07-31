@@ -9,10 +9,14 @@ const COMMENT_INCLUDE = {
     user: { select: { id: true, firstname: true, lastName: true, avatarUrl: true } },
 } as const;
 
-const notifyIfEnabled = async (userId: string, data: { workspaceId: string; taskId: string; message: string }) => {
+const notifyIfEnabled = async (
+    userId: string,
+    data: { workspaceId: string; taskId: string; message: string },
+    type: "TASK_COMMENTED" | "MENTION" = "TASK_COMMENTED",
+) => {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { taskNotificationsEnabled: true } });
     if (!user?.taskNotificationsEnabled) return;
-    await prisma.notification.create({ data: { userId, type: "TASK_COMMENTED", ...data } });
+    await prisma.notification.create({ data: { userId, type, ...data } });
 };
 
 export const listComments = async (req: AuthedRequest, res: Response) => {
@@ -75,6 +79,8 @@ export const createComment = async (req: AuthedRequest, res: Response) => {
             action: `Commented on task ${task.title}`,
             workspaceId: task.workspaceId,
             taskId: task.id,
+            entityType: "comment_added",
+            entityId: comment.id,
         });
 
         const notifiedAlready = new Set<string>();
@@ -83,7 +89,7 @@ export const createComment = async (req: AuthedRequest, res: Response) => {
                 workspaceId: task.workspaceId,
                 taskId: task.id,
                 message: `${comment.user.firstname} mentioned you in a comment on "${task.title}"`,
-            });
+            }, "MENTION");
             notifiedAlready.add(mentionedUserId);
         }
         if (task.assignedToId && task.assignedToId !== authUser.id && !notifiedAlready.has(task.assignedToId)) {

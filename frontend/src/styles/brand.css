@@ -23,18 +23,26 @@
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-default: #1e2030;
   --border-strong: #2a2d3e;
-  --border-accent: rgba(139, 92, 246, 0.35);
+  --border-accent: rgba(var(--accent-primary-rgb), 0.35);
   --surface-hover: #1c1f30;
 
-  /* ── Accents — one consistent premium purple + indigo, used sparingly ── */
+  /* ── Accents — theme-swappable. Every rule below resolves against
+     --accent-*-rgb, so a [data-theme="x"] block only needs to redeclare
+     these ~9 custom properties (see the theme palettes at the bottom of
+     this file) and every consumer — buttons, badges, glows, gradients —
+     re-colors automatically instead of needing a hand-picked override
+     per component. ── */
   --accent-primary: #8b5cf6;
+  --accent-primary-rgb: 139, 92, 246;
   --accent-primary-light: #a78bfa;
   --accent-primary-hover: #a855f7;
   --accent-primary-active: #7c4ded;
-  --accent-primary-soft: rgba(139, 92, 246, 0.14);
+  --accent-primary-soft: rgba(var(--accent-primary-rgb), 0.14);
   --accent-glow: #c084fc;
+  --accent-glow-rgb: 192, 132, 252;
   --accent-secondary: #6366f1;
-  --accent-secondary-soft: rgba(99, 102, 241, 0.14);
+  --accent-secondary-rgb: 99, 102, 241;
+  --accent-secondary-soft: rgba(var(--accent-secondary-rgb), 0.14);
   --accent-gradient: linear-gradient(135deg, var(--accent-glow), var(--accent-primary));
 
   /* ── Semantic status colors ── */
@@ -88,7 +96,7 @@
   --shadow-sm: 0 4px 12px -4px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 12px 28px -10px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 28px 56px -18px rgba(0, 0, 0, 0.65);
-  --shadow-glow: 0 0 0 1px var(--border-accent), 0 8px 30px -8px rgba(139, 92, 246, 0.35);
+  --shadow-glow: 0 0 0 1px var(--border-accent), 0 8px 30px -8px rgba(var(--accent-primary-rgb), 0.35);
 
   /* ── Glass blur (Apple influence — overlays only) ── */
   --blur-glass: blur(22px) saturate(160%);
@@ -118,8 +126,8 @@ body {
      signature touch. Still fundamentally the same navy/midnight canvas,
      just with a whisper of depth instead of a flat fill. */
   background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(139, 92, 246, 0.08), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(99, 102, 241, 0.05), transparent 55%),
+    radial-gradient(1200px 600px at 50% -10%, rgba(var(--accent-primary-rgb), 0.08), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(var(--accent-secondary-rgb), 0.05), transparent 55%),
     var(--bg-base);
   background-attachment: fixed;
 }
@@ -131,4 +139,109 @@ body {
   background: var(--bg-base);
   color: var(--text-muted);
   font-family: var(--font-sans);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Accent theme palettes — the user's 9-swatch picker (Settings ›
+   Appearance) sets `data-theme` on <html>. Purple is the default and
+   lives in :root above; every other swatch only needs to redeclare
+   these 9 custom properties here, and the whole app re-colors — every
+   component derives its accent styling from the --accent- family of
+   custom properties rather than hardcoding a color, so nothing gets
+   left behind.
+   ───────────────────────────────────────────────────────────────── */
+[data-theme="blue"] {
+  --accent-primary: #38bdf8;
+  --accent-primary-rgb: 56, 189, 248;
+  --accent-primary-light: #7dd3fc;
+  --accent-primary-hover: #0ea5e9;
+  --accent-primary-active: #0284c7;
+  --accent-glow: #7dd3fc;
+  --accent-glow-rgb: 125, 211, 252;
+  --accent-secondary: #0ea5e9;
+  --accent-secondary-rgb: 14, 165, 233;
+}
+
+[data-theme="green"] {
+  --accent-primary: #34d399;
+  --accent-primary-rgb: 52, 211, 153;
+  --accent-primary-light: #6ee7b7;
+  --accent-primary-hover: #10b981;
+  --accent-primary-active: #059669;
+  --accent-glow: #6ee7b7;
+  --accent-glow-rgb: 110, 231, 183;
+  --accent-secondary: #10b981;
+  --accent-secondary-rgb: 16, 185, 129;
+}
+
+[data-theme="orange"] {
+  --accent-primary: #fb923c;
+  --accent-primary-rgb: 251, 146, 60;
+  --accent-primary-light: #fdba74;
+  --accent-primary-hover: #f97316;
+  --accent-primary-active: #ea580c;
+  --accent-glow: #fdba74;
+  --accent-glow-rgb: 253, 186, 116;
+  --accent-secondary: #f97316;
+  --accent-secondary-rgb: 249, 115, 22;
+}
+
+[data-theme="red"] {
+  --accent-primary: #f87171;
+  --accent-primary-rgb: 248, 113, 113;
+  --accent-primary-light: #fca5a5;
+  --accent-primary-hover: #ef4444;
+  --accent-primary-active: #dc2626;
+  --accent-glow: #fca5a5;
+  --accent-glow-rgb: 252, 165, 165;
+  --accent-secondary: #ef4444;
+  --accent-secondary-rgb: 239, 68, 68;
+}
+
+[data-theme="pink"] {
+  --accent-primary: #f472b6;
+  --accent-primary-rgb: 244, 114, 182;
+  --accent-primary-light: #f9a8d4;
+  --accent-primary-hover: #ec4899;
+  --accent-primary-active: #db2777;
+  --accent-glow: #f9a8d4;
+  --accent-glow-rgb: 249, 168, 212;
+  --accent-secondary: #ec4899;
+  --accent-secondary-rgb: 236, 72, 153;
+}
+
+[data-theme="teal"] {
+  --accent-primary: #2dd4bf;
+  --accent-primary-rgb: 45, 212, 191;
+  --accent-primary-light: #5eead4;
+  --accent-primary-hover: #14b8a6;
+  --accent-primary-active: #0d9488;
+  --accent-glow: #5eead4;
+  --accent-glow-rgb: 94, 234, 212;
+  --accent-secondary: #14b8a6;
+  --accent-secondary-rgb: 20, 184, 166;
+}
+
+[data-theme="yellow"] {
+  --accent-primary: #fbbf24;
+  --accent-primary-rgb: 251, 191, 36;
+  --accent-primary-light: #fcd34d;
+  --accent-primary-hover: #f59e0b;
+  --accent-primary-active: #d97706;
+  --accent-glow: #fcd34d;
+  --accent-glow-rgb: 252, 211, 77;
+  --accent-secondary: #f59e0b;
+  --accent-secondary-rgb: 245, 158, 11;
+}
+
+[data-theme="indigo"] {
+  --accent-primary: #818cf8;
+  --accent-primary-rgb: 129, 140, 248;
+  --accent-primary-light: #a5b4fc;
+  --accent-primary-hover: #6366f1;
+  --accent-primary-active: #4f46e5;
+  --accent-glow: #a5b4fc;
+  --accent-glow-rgb: 165, 180, 252;
+  --accent-secondary: #6366f1;
+  --accent-secondary-rgb: 99, 102, 241;
 }

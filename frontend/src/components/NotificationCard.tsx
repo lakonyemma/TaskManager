@@ -1,24 +1,18 @@
-import { Bell, CheckCircle2, MessageSquare, RefreshCw, Trash2, UserPlus, Users } from 'lucide-react'
+import { AtSign, Bell, CheckCircle2, FolderKanban, Megaphone, MessageSquare, RefreshCw, Trash2, UserPlus, Users } from 'lucide-react'
 import type { ComponentType } from 'react'
-
-export type NotifItem = {
-  id: string
-  message: string
-  isRead: boolean
-  createdAt: string
-  taskId?: string | null
-  workspaceId?: string | null
-  type?: 'TASK_ASSIGNED' | 'TASK_COMMENTED' | 'TASK_UPDATED' | 'TASK_DELETED' | 'WORKSPACE_INVITED' | 'DUE_DATE_REMINDER'
-  task?: { id: string; title: string; status: string } | null
-}
+import type { NotifItem } from '../lib/notifications'
 
 const TYPE_META: Record<string, { icon: ComponentType<{ size?: number; strokeWidth?: number }>; label: string; kind: string }> = {
   TASK_ASSIGNED: { icon: UserPlus, label: 'Task assigned', kind: 'assigned' },
   TASK_COMMENTED: { icon: MessageSquare, label: 'New comment', kind: 'comment' },
   TASK_UPDATED: { icon: RefreshCw, label: 'Task updated', kind: 'updated' },
   TASK_DELETED: { icon: Trash2, label: 'Task deleted', kind: 'deleted' },
+  TASK_COMPLETED: { icon: CheckCircle2, label: 'Task completed', kind: 'completed' },
+  MENTION: { icon: AtSign, label: 'Mention', kind: 'mention' },
+  PROJECT_UPDATED: { icon: FolderKanban, label: 'Project update', kind: 'project' },
   WORKSPACE_INVITED: { icon: Users, label: 'Workspace invite', kind: 'invite' },
   DUE_DATE_REMINDER: { icon: Bell, label: 'Due date reminder', kind: 'reminder' },
+  SYSTEM_ANNOUNCEMENT: { icon: Megaphone, label: 'Announcement', kind: 'announcement' },
 }
 const DEFAULT_META = { icon: Bell, label: 'Notification', kind: 'default' }
 

@@ -16,6 +16,7 @@ export default function InvitationAcceptPage() {
   const [message, setMessage] = useState('')
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!token) { setStatus('invalid'); return }
     let cancelled = false
     fetch(`/api/invitations/preview/${token}`)
@@ -31,6 +32,7 @@ export default function InvitationAcceptPage() {
   useEffect(() => {
     if (!preview || authLoading || status === 'accepted' || status === 'accepting') return
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!user) { setStatus('needs-auth'); return }
 
     if (user.email !== preview.email) { setStatus('wrong-account'); return }

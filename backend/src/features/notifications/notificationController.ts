@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
+import { NotificationType } from "../../../generated/prisma/enums.js";
+
+const PAGE_SIZE = 30;
 
 export const listNotifications = async (req: Request, res: Response) => {
     try {
@@ -8,14 +11,31 @@ export const listNotifications = async (req: Request, res: Response) => {
             return res.status(401).json({ message: "Authentication required" });
         }
 
+        const { type, isRead, cursor } = req.query as { type?: string; isRead?: string; cursor?: string };
+
+        const where: Record<string, unknown> = { userId: authUser.id };
+        if (type && (Object.values(NotificationType) as string[]).includes(type)) {
+            where.type = type;
+        }
+        if (isRead === "true" || isRead === "false") {
+            where.isRead = isRead === "true";
+        }
+
         const notifications = await prisma.notification.findMany({
-            where: { userId: authUser.id },
+            where,
             include: { task: { select: { id: true, title: true, status: true } } },
             orderBy: { createdAt: "desc" },
-            take: 200,
+            take: PAGE_SIZE + 1,
+            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         });
 
-        return res.status(200).json({ notifications });
+        const hasMore = notifications.length > PAGE_SIZE;
+        const page = hasMore ? notifications.slice(0, PAGE_SIZE) : notifications;
+
+        return res.status(200).json({
+            notifications: page,
+            nextCursor: hasMore ? page[page.length - 1].id : null,
+        });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });

@@ -21,6 +21,12 @@ import achievementRoutes from "./features/achievements/achievementRoutes.js";
 import insightsRoutes from "./features/insights/insightsRoutes.js";
 import workloadRoutes from "./features/workload/workloadRoutes.js";
 import captureRoutes from "./features/capture/captureRoutes.js";
+import tagRoutes from "./features/tags/tagRoutes.js";
+import savedViewRoutes from "./features/savedViews/savedViewRoutes.js";
+import auditRoutes from "./features/audit/auditRoutes.js";
+import searchRoutes from "./features/search/searchRoutes.js";
+import focusRoutes from "./features/focus/focusRoutes.js";
+import adminRoutes from "./features/admin/adminRoutes.js";
 import { ensureAchievementsSeeded } from "./features/achievements/achievementService.js";
 import { errorHandler } from "./shared/errorHandler.js";
 
@@ -81,6 +87,12 @@ app.use("/api/achievements", achievementRoutes);
 app.use("/api/insights", insightsRoutes);
 app.use("/api/workload", workloadRoutes);
 app.use("/api/capture", captureRoutes);
+app.use("/api", tagRoutes);
+app.use("/api", savedViewRoutes);
+app.use("/api/audit-logs", auditRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/focus-sessions", focusRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use((_req, res) => {
     res.status(404).json({ message: "Route not found" });

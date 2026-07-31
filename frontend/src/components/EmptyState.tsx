@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from 'react'
 import {
-  Bell, CheckCircle2, FolderKanban, Inbox, ListChecks, Search, Sparkles, Trophy, Users,
+  Activity, Bell, CheckCircle2, FolderKanban, Inbox, ListChecks, Search, Sparkles, Trophy, Users,
 } from 'lucide-react'
 
 // One consistent illustration language reused across every empty state in
@@ -18,6 +18,7 @@ const KIND_ICON: Record<string, ComponentType<{ size?: number; strokeWidth?: num
   search: Search,
   generic: Inbox,
   sparkle: Sparkles,
+  activity: Activity,
 }
 
 export default function EmptyState({
