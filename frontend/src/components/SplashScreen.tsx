@@ -1,30 +1,11 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth'
 import heroImageJpg from '../assets/hero-taskly.jpg'
 import heroImageWebp from '../assets/hero-taskly.webp'
 import './SplashScreen.css'
 
-// Minimum time the splash screen stays up, regardless of how quickly the
-// auth check resolves — long enough to register as a deliberate brand
-// moment rather than a flicker.
-const SPLASH_MIN_DELAY_MS = 3000
-
+// Purely presentational — AppSplashGate decides when this is on screen,
+// both on first load and every time the app is brought back to the
+// foreground (mobile PWAs are usually resumed, not reloaded).
 export default function SplashScreen() {
-  const { user, loading } = useAuth()
-  const navigate = useNavigate()
-  const [minDelayDone, setMinDelayDone] = useState(false)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setMinDelayDone(true), SPLASH_MIN_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [])
-
-  useEffect(() => {
-    if (!minDelayDone || loading) return
-    navigate(user ? '/app' : '/login', { replace: true })
-  }, [minDelayDone, loading, user, navigate])
-
   return (
     <div className="splash-screen">
       <picture>
