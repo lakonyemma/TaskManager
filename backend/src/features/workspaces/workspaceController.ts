@@ -47,7 +47,7 @@ export const createWorkspace = async (req: Request, res: Response) => {
             include: { members: true },
         });
 
-        await createActivityLog({ userId: authUser.id, action: `Created workspace ${workspace.name}`, workspaceId: workspace.id });
+        await createActivityLog({ userId: authUser.id, action: `Created workspace ${workspace.name}`, workspaceId: workspace.id, entityType: "project_created", entityId: workspace.id });
 
         return res.status(201).json({ workspace });
     } catch (error) {
@@ -91,7 +91,7 @@ export const updateWorkspace = async (req: Request, res: Response) => {
             include: { members: true },
         });
 
-        await createActivityLog({ userId: authUser.id, action: `Updated workspace ${workspace.name}`, workspaceId });
+        await createActivityLog({ userId: authUser.id, action: `Updated workspace ${workspace.name}`, workspaceId, entityType: "project_updated", entityId: workspaceId });
 
         const otherMembers = workspace.members.filter((m) => m.userId !== authUser.id);
         await Promise.all(
@@ -191,6 +191,8 @@ export const updateMemberRole = async (req: Request, res: Response) => {
             userId: authUser.id,
             action: `Changed ${updated.user.firstname} ${updated.user.lastName}'s role to ${role}`,
             workspaceId,
+            entityType: "role_changed",
+            entityId: updated.id,
         });
 
         return res.status(200).json({ member: updated });
@@ -234,6 +236,8 @@ export const removeMember = async (req: Request, res: Response) => {
             userId: authUser.id,
             action: `Removed ${target.user.firstname} ${target.user.lastName} from the workspace`,
             workspaceId,
+            entityType: "member_removed",
+            entityId: memberId,
         });
 
         return res.status(200).json({ message: "Member removed" });

@@ -83,7 +83,10 @@ export const exportData = async (req: AuthedRequest, res: Response) => {
 
             const tasks = await prisma.task.findMany({
                 where: { workspaceId },
-                include: { assignedTo: { select: { firstname: true, lastName: true, email: true } } },
+                include: {
+                    assignedTo: { select: { firstname: true, lastName: true, email: true } },
+                    tags: { select: { name: true } },
+                },
                 orderBy: { createdAt: "desc" },
             });
 
@@ -95,7 +98,7 @@ export const exportData = async (req: AuthedRequest, res: Response) => {
                 assignedTo: t.assignedTo ? `${t.assignedTo.firstname} ${t.assignedTo.lastName}` : "",
                 dueDate: t.dueDate ? t.dueDate.toISOString() : "",
                 completedAt: t.completedAt ? t.completedAt.toISOString() : "",
-                labels: t.labels.join("; "),
+                tags: t.tags.map((tg) => tg.name).join("; "),
                 createdAt: t.createdAt.toISOString(),
             }));
 

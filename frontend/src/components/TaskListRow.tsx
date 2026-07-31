@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import type { RowComponentProps } from 'react-window'
 import { Maximize2, X } from 'lucide-react'
 import type { Task } from '../pages/DashboardApp'
+import TagBadge from './TagBadge'
 
 type RowHandlers = {
   statusColumns: string[]
@@ -25,6 +26,11 @@ function TaskRowContent({ tk, style, statusColumns, onSelect, onMove, onDelete, 
           {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
           {tk.dueDate && <span>Due: {new Date(tk.dueDate).toLocaleDateString()}</span>}
         </div>
+        {tk.tags && tk.tags.length > 0 && (
+          <div className="tag-row" style={{ marginTop: 6 }}>
+            {tk.tags.map(tag => <TagBadge key={tag.id} tag={tag} size="sm" />)}
+          </div>
+        )}
       </div>
       <div className="task-list-actions" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="mini-btn" title="Focus on this task" onClick={() => onFocus(tk)}><Maximize2 size={13} /></button>

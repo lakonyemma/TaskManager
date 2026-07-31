@@ -42,6 +42,7 @@ model User {
   notificationPreference NotificationPreference?
   reminderSchedules      ReminderSchedule[]
   userAchievements       UserAchievement[]
+  savedViews             SavedView[]
 }
 
 model Session {
@@ -72,6 +73,8 @@ model Workspace {
   activityLogs  ActivityLog[]
   notifications Notification[]
   files         File[]
+  tags          Tag[]
+  savedViews    SavedView[]
 }
 
 model WorkspaceMember {
@@ -109,7 +112,6 @@ model Task {
   clientId                   String?         @unique
   workspaceId                String
   assignedToId               String?
-  labels                     String[]        @default([])
   parentTaskId               String?
   isRecurring                Boolean         @default(false)
   recurrenceRule             RecurrenceRule?
@@ -135,6 +137,7 @@ model Task {
   comments          Comment[]
   files             File[]
   reminderSchedules ReminderSchedule[]
+  tags              Tag[]              @relation("TaskTags")
 
   parentTask Task?  @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
   subtasks   Task[] @relation("Subtasks")
@@ -149,6 +152,43 @@ model Task {
   @@index([assignedToId, status])
   @@index([completedById, status])
   @@index([workspaceId, dueDate])
+}
+
+// A workspace-scoped, reusable tag — replaces the earlier free-text
+// Task.labels string array (which had no UI, no reuse/autocomplete, and no
+// way to rename/delete a tag everywhere it was used at once).
+model Tag {
+  id          String   @id @default(uuid())
+  name        String
+  color       String   @default("#8b5cf6")
+  workspaceId String
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     Task[]    @relation("TaskTags")
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+// A user's personal saved task-list filter (e.g. "Due This Week", "High
+// Priority") — private to the user who created it, scoped to one workspace.
+// `filters` mirrors the frontend's task-filter shape ({kind, status?,
+// tagId?, priority?}) as opaque JSON rather than a fixed set of columns, so
+// new filter kinds don't need a migration to become saveable.
+model SavedView {
+  id          String   @id @default(uuid())
+  userId      String
+  workspaceId String
+  name        String
+  filters     Json
+  pinned      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, workspaceId])
 }
 
 model Comment {

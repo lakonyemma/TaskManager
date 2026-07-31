@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlarmClock, GitBranch, Paperclip, Repeat, Send, X } from 'lucide-react'
+import { AlarmClock, GitBranch, Paperclip, Repeat, Send, Tag as TagIcon, X } from 'lucide-react'
 import { authFetch, getStoredToken, jsonHeaders } from '../lib/api'
 import { REMINDER_OFFSETS, type ReminderSchedule } from '../lib/reminders'
 import type { RecurrenceConfig } from '../lib/recurrence'
 import DependencyPicker from './DependencyPicker'
 import RecurrencePicker from './RecurrencePicker'
+import TagBadge, { type TagRef } from './TagBadge'
 
 type DepTask = { id: string; title: string; status: string }
 
@@ -26,7 +27,7 @@ const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes
 
 export default function TaskDetailPanel({
   taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId,
-  dependsOn, blocks, workspaceTasks, recurrence, onTaskUpdated,
+  dependsOn, blocks, workspaceTasks, recurrence, onTaskUpdated, taskTags, workspaceTags,
 }: {
   taskId: string
   workspaceId: string
@@ -40,6 +41,8 @@ export default function TaskDetailPanel({
   workspaceTasks: DepTask[]
   recurrence: RecurrenceConfig
   onTaskUpdated: () => void
+  taskTags: TagRef[]
+  workspaceTags: TagRef[]
 }) {
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
@@ -115,6 +118,15 @@ export default function TaskDetailPanel({
       await loadReminders()
       onMessage('Reminder snoozed for 10 minutes', 'success')
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to snooze reminder', 'error') }
+  }
+
+  const toggleTag = async (tagId: string) => {
+    const current = taskTags.map(t => t.id)
+    const next = current.includes(tagId) ? current.filter(id => id !== tagId) : [...current, tagId]
+    try {
+      await authFetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ tagIds: next }) })
+      onTaskUpdated()
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to update tags', 'error') }
   }
 
   const updateDependsOn = async (ids: string[]) => {
@@ -236,6 +248,18 @@ export default function TaskDetailPanel({
             </div>
           )}
         </>
+      )}
+
+      <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><TagIcon size={14} strokeWidth={1.8} /> Tags</h3>
+      {workspaceTags.length === 0 ? (
+        <p className="empty-column">No tags in this workspace yet — create one from the Team page.</p>
+      ) : (
+        <div className="tag-row">
+          {taskTags.map(tag => <TagBadge key={tag.id} tag={tag} onRemove={() => toggleTag(tag.id)} />)}
+          {workspaceTags.filter(tg => !taskTags.some(t => t.id === tg.id)).map(tg => (
+            <button key={tg.id} type="button" className="tag-picker-chip" style={{ color: tg.color }} onClick={() => toggleTag(tg.id)}>+ {tg.name}</button>
+          ))}
+        </div>
       )}
 
       <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><GitBranch size={14} strokeWidth={1.8} /> Dependencies</h3>

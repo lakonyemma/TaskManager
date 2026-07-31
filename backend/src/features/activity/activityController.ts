@@ -13,6 +13,7 @@ export const listActivity = async (req: Request, res: Response) => {
         const page = Math.max(Number(req.query.page) || 1, 1);
         const search = (req.query.search as string | undefined)?.trim();
         const filterUserId = req.query.userId as string | undefined;
+        const entityType = req.query.type as string | undefined;
         const from = req.query.from ? new Date(req.query.from as string) : undefined;
         const to = req.query.to ? new Date(req.query.to as string) : undefined;
 
@@ -31,6 +32,7 @@ export const listActivity = async (req: Request, res: Response) => {
             : { OR: [{ userId: authUser.id }, { workspaceId: { in: userWorkspaceIds } }] };
         if (search) where.action = { contains: search, mode: "insensitive" };
         if (filterUserId) where.userId = filterUserId;
+        if (entityType) where.entityType = entityType;
         if (from || to) {
             where.createdAt = {
                 ...(from && !Number.isNaN(from.getTime()) ? { gte: from } : {}),

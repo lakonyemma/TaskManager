@@ -21,6 +21,7 @@ const TASK_INCLUDE = {
     subtasks: { select: { id: true, title: true, status: true } },
     dependsOn: { select: { id: true, title: true, status: true } },
     blocks: { select: { id: true, title: true, status: true } },
+    tags: { select: { id: true, name: true, color: true } },
     _count: { select: { comments: true, files: true } },
 } as const;
 
@@ -50,6 +51,39 @@ const handleCompletionSideEffects = async (
     return { nextOccurrence, newAchievements };
 };
 
+// Diffs old vs. new task state into distinct, typed activity-log entries —
+// a status change from IN_PROGRESS straight to COMPLETED with a bumped
+// priority in the same request should show up as two legible feed items
+// ("Completed…", "Changed priority…"), not one vague "Updated task".
+const describeTaskChanges = (
+    existingTask: { status: string; priority: string; dueDate: Date | null },
+    task: { title: string; status: string; priority: string; dueDate: Date | null },
+): { action: string; entityType: string }[] => {
+    const changes: { action: string; entityType: string }[] = [];
+    const becameCompleted = existingTask.status !== "COMPLETED" && task.status === "COMPLETED";
+    const becameReopened = existingTask.status === "COMPLETED" && task.status !== "COMPLETED";
+
+    if (becameCompleted) changes.push({ action: `Completed task ${task.title}`, entityType: "task_completed" });
+    else if (becameReopened) changes.push({ action: `Reopened task ${task.title}`, entityType: "task_reopened" });
+    else if (existingTask.status !== task.status) changes.push({ action: `Changed status of ${task.title} to ${task.status.replace("_", " ")}`, entityType: "status_changed" });
+
+    if (existingTask.priority !== task.priority) {
+        changes.push({ action: `Changed priority of ${task.title} to ${task.priority}`, entityType: "priority_changed" });
+    }
+
+    const oldDue = existingTask.dueDate ? existingTask.dueDate.getTime() : null;
+    const newDue = task.dueDate ? new Date(task.dueDate).getTime() : null;
+    if (oldDue !== newDue) {
+        changes.push({
+            action: task.dueDate ? `Changed due date of ${task.title} to ${new Date(task.dueDate).toLocaleDateString()}` : `Removed due date from ${task.title}`,
+            entityType: "due_date_changed",
+        });
+    }
+
+    if (changes.length === 0) changes.push({ action: `Updated task ${task.title}`, entityType: "task_updated" });
+    return changes;
+};
+
 export const listTasks = async (req: AuthedRequest, res: Response) => {
     try {
         const authUser = req.user;
@@ -59,7 +93,7 @@ export const listTasks = async (req: AuthedRequest, res: Response) => {
 
         const workspaceId = req.query.workspaceId as string | undefined;
         const assignedToId = req.query.assignedToId as string | undefined;
-        const label = req.query.label as string | undefined;
+        const tagId = req.query.tagId as string | undefined;
         const userWorkspaceMemberships = await prisma.workspaceMember.findMany({
             where: { userId: authUser.id },
             select: { workspaceId: true },
@@ -77,8 +111,8 @@ export const listTasks = async (req: AuthedRequest, res: Response) => {
         if (assignedToId) {
             where.assignedToId = assignedToId;
         }
-        if (label) {
-            where.labels = { has: label };
+        if (tagId) {
+            where.tags = { some: { id: tagId } };
         }
         const tasks = await prisma.task.findMany({
             where,
@@ -102,7 +136,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
 
         const {
             title, description, priority, status, workspaceId, assignedToId, dueDate,
-            labels, parentTaskId, isRecurring, recurrenceRule, dependsOn,
+            tagIds, parentTaskId, isRecurring, recurrenceRule, dependsOn,
             reminderOffsets, customReminderTimes,
             recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly, recurrenceEndDate, recurrenceCount,
             estimatedMinutes, clientId,
@@ -148,6 +182,14 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
             validDependsOn = refTasks.filter((t) => t.workspaceId === workspaceId).map((t) => t.id);
         }
 
+        // Tags must belong to the same workspace — same reasoning as
+        // dependsOn above, drop silently rather than leak/attach cross-tenant.
+        let validTagIds: string[] = [];
+        if (Array.isArray(tagIds) && tagIds.length > 0) {
+            const refTags = await prisma.tag.findMany({ where: { id: { in: tagIds } }, select: { id: true, workspaceId: true } });
+            validTagIds = refTags.filter((tg) => tg.workspaceId === workspaceId).map((tg) => tg.id);
+        }
+
         const task = await prisma.task.create({
             data: {
                 title,
@@ -168,7 +210,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
                 dueDate: dueDate ? new Date(dueDate) : null,
                 estimatedMinutes: estimatedMinutes ?? null,
                 clientId: clientId || null,
-                labels: labels || [],
+                ...(validTagIds.length ? { tags: { connect: validTagIds.map((tid) => ({ id: tid })) } } : {}),
                 parentTaskId: parentTaskId || null,
                 isRecurring: !!isRecurring,
                 recurrenceRule: isRecurring ? recurrenceRule : null,
@@ -182,7 +224,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
             include: TASK_INCLUDE,
         });
 
-        await createActivityLog({ userId: authUser.id, action: `Created task ${task.title}`, workspaceId, taskId: task.id });
+        await createActivityLog({ userId: authUser.id, action: `Created task ${task.title}`, workspaceId, taskId: task.id, entityType: "task_created", entityId: task.id });
 
         if (task.dueDate && task.assignedToId) {
             await syncTaskReminders(task, {
@@ -241,7 +283,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         }
 
         const {
-            title, description, priority, status, assignedToId, dueDate, labels, reminderOffsets, customReminderTimes,
+            title, description, priority, status, assignedToId, dueDate, tagIds, reminderOffsets, customReminderTimes,
             dependsOn, isRecurring, recurrenceRule, recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly,
             recurrenceEndDate, recurrenceCount, estimatedMinutes,
         } = req.body;
@@ -276,7 +318,9 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             if (status === "COMPLETED" && existingTask.status !== "COMPLETED") { guestData.completedAt = new Date(); guestData.completedById = authUser.id; }
             else if (status !== "COMPLETED" && existingTask.status === "COMPLETED") { guestData.completedAt = null; guestData.completedById = null; }
             const task = await prisma.task.update({ where: { id }, data: guestData, include: TASK_INCLUDE });
-            await createActivityLog({ userId: authUser.id, action: `Updated task ${task.title}`, workspaceId: task.workspaceId, taskId: task.id });
+            for (const change of describeTaskChanges(existingTask, task)) {
+                await createActivityLog({ userId: authUser.id, action: change.action, workspaceId: task.workspaceId, taskId: task.id, entityType: change.entityType, entityId: task.id });
+            }
 
             let nextOccurrence = null;
             let newAchievements: Awaited<ReturnType<typeof checkAndGrantAchievements>> = [];
@@ -320,7 +364,6 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         }
         if (assignedToId !== undefined) data.assignedToId = assignedToId || null;
         if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
-        if (labels !== undefined) data.labels = labels;
         if (estimatedMinutes !== undefined) data.estimatedMinutes = estimatedMinutes;
         if (isRecurring !== undefined) data.isRecurring = !!isRecurring;
         if (recurrenceRule !== undefined) data.recurrenceRule = recurrenceRule || null;
@@ -343,13 +386,21 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             data.dependsOn = { set: validIds.map((depId) => ({ id: depId })) };
         }
 
+        if (Array.isArray(tagIds)) {
+            const refTags = await prisma.tag.findMany({ where: { id: { in: tagIds } }, select: { id: true, workspaceId: true } });
+            const validTagIds = refTags.filter((tg) => tg.workspaceId === existingTask.workspaceId).map((tg) => tg.id);
+            data.tags = { set: validTagIds.map((tid) => ({ id: tid })) };
+        }
+
         const task = await prisma.task.update({
             where: { id },
             data,
             include: TASK_INCLUDE,
         });
 
-        await createActivityLog({ userId: authUser.id, action: `Updated task ${task.title}`, workspaceId: task.workspaceId, taskId: task.id });
+        for (const change of describeTaskChanges(existingTask, task)) {
+            await createActivityLog({ userId: authUser.id, action: change.action, workspaceId: task.workspaceId, taskId: task.id, entityType: change.entityType, entityId: task.id });
+        }
 
         const becameCompleted = existingTask.status !== "COMPLETED" && task.status === "COMPLETED";
         const becameReopened = existingTask.status === "COMPLETED" && task.status !== "COMPLETED";
@@ -414,7 +465,7 @@ export const deleteTask = async (req: AuthedRequest, res: Response) => {
 
         const task = await prisma.task.delete({ where: { id } });
 
-        await createActivityLog({ userId: authUser.id, action: `Deleted task ${task.title}`, workspaceId: task.workspaceId });
+        await createActivityLog({ userId: authUser.id, action: `Deleted task ${task.title}`, workspaceId: task.workspaceId, entityType: "task_deleted", entityId: task.id });
 
         if (task.assignedToId && task.assignedToId !== authUser.id) {
             await notifyAssignee({

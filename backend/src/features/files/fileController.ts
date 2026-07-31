@@ -53,6 +53,8 @@ export const uploadFile = async (req: UploadedRequest, res: Response) => {
             action: `Uploaded file ${record.filename}`,
             workspaceId,
             taskId: taskId || undefined,
+            entityType: "file_uploaded",
+            entityId: record.id,
         });
 
         return res.status(201).json({ file: record });

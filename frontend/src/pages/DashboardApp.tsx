@@ -25,6 +25,8 @@ import SmartDashboardHeader from '../components/SmartDashboardHeader'
 import AchievementsPanel from '../components/AchievementsPanel'
 import InstallPrompt from '../components/InstallPrompt'
 import NotificationCard, { NOTIF_TYPE_OPTIONS, type NotifItem, type NotifType } from '../components/NotificationCard'
+import TagBadge, { type TagRef } from '../components/TagBadge'
+import TagManager from '../components/TagManager'
 import EmptyState from '../components/EmptyState'
 import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
@@ -65,11 +67,30 @@ export type Task = {
   isRecurring?: boolean; recurrenceRule?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | null
   recurrenceInterval?: number | null; recurrenceDaysOfWeek?: number[]; recurrenceBusinessDaysOnly?: boolean
   recurrenceEndDate?: string | null; recurrenceCount?: number | null
+  tags?: TagRef[]
 }
 type Invitation = { id: string; email: string; workspaceId: string; token: string; status: string; expiresAt: string; role?: string; workspace?: { id: string; name: string } }
 type Member = { id: string; userId: string; role: string; user: { id: string; firstname: string; lastName: string; email: string; avatarUrl?: string | null } }
 type Session = { id: string; userAgent?: string | null; ipAddress?: string | null; createdAt: string; lastUsedAt: string; expiresAt: string; isCurrent: boolean }
-type ActivityEntry = { id: string; action: string; createdAt: string; user?: { firstname: string; lastName: string } | null; workspace?: { name: string } | null; task?: { title: string } | null }
+type ActivityEntry = { id: string; action: string; entityType?: string | null; createdAt: string; user?: { firstname: string; lastName: string } | null; workspace?: { name: string } | null; task?: { title: string } | null }
+
+const ACTIVITY_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'task_created', label: 'Task created' },
+  { value: 'task_updated', label: 'Task updated' },
+  { value: 'task_completed', label: 'Task completed' },
+  { value: 'task_reopened', label: 'Task reopened' },
+  { value: 'task_deleted', label: 'Task deleted' },
+  { value: 'comment_added', label: 'Comment added' },
+  { value: 'project_created', label: 'Project created' },
+  { value: 'project_updated', label: 'Project updated' },
+  { value: 'member_invited', label: 'Member invited' },
+  { value: 'member_removed', label: 'Member removed' },
+  { value: 'role_changed', label: 'Role changed' },
+  { value: 'due_date_changed', label: 'Due date changed' },
+  { value: 'priority_changed', label: 'Priority changed' },
+  { value: 'status_changed', label: 'Status changed' },
+  { value: 'file_uploaded', label: 'File uploaded' },
+]
 
 const taskToRecurrence = (tk?: Task | null): RecurrenceConfig => tk ? {
   isRecurring: !!tk.isRecurring,
@@ -182,15 +203,20 @@ export default function DashboardApp() {
   const [taskDueDate, setTaskDueDate] = useState('')
   const [taskTime, setTaskTime] = useState('')
   const [taskAssignedTo, setTaskAssignedTo] = useState('')
+  const [taskTagIds, setTaskTagIds] = useState<string[]>([])
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('MEMBER')
   const [myInvitations, setMyInvitations] = useState<Invitation[]>([])
   const [workspaceInvitations, setWorkspaceInvitations] = useState<Invitation[]>([])
   const [members, setMembers] = useState<Member[]>([])
+  const [tags, setTags] = useState<(TagRef & { _count?: { tasks: number } })[]>([])
   const [navPage, setNavPage] = useState<NavPage>('dashboard')
   const [boardAssigneeFilter, setBoardAssigneeFilter] = useState('')
   const [boardPriorityFilter, setBoardPriorityFilter] = useState('')
-  const [taskFilter, setTaskFilter] = useState<{ kind: 'status' | 'overdue' | 'mine'; status?: string; label: string } | null>(null)
+  const [boardTagFilter, setBoardTagFilter] = useState('')
+  type TaskFilter = { kind: 'status' | 'overdue' | 'mine' | 'tag' | 'priority' | 'dueToday' | 'dueWeek'; status?: string; tagId?: string; priority?: string; label: string }
+  const [taskFilter, setTaskFilter] = useState<TaskFilter | null>(null)
+  const [savedViews, setSavedViews] = useState<{ id: string; name: string; pinned: boolean; filters: TaskFilter }[]>([])
   const [notifCount, setNotifCount] = useState(0)
   const [notifList, setNotifList] = useState<NotifItem[]>([])
   const [notifNextCursor, setNotifNextCursor] = useState<string | null>(null)
@@ -221,6 +247,10 @@ export default function DashboardApp() {
   const [activitySearch, setActivitySearch] = useState('')
   const [activityFrom, setActivityFrom] = useState('')
   const [activityTo, setActivityTo] = useState('')
+  const [activityTypeFilter, setActivityTypeFilter] = useState('')
+  const [activityPage, setActivityPage] = useState(1)
+  const [activityHasMore, setActivityHasMore] = useState(false)
+  const [activityLoadingMore, setActivityLoadingMore] = useState(false)
   const [loadingDashboard, setLoadingDashboard] = useState(true)
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false)
   const [onboardingActive, setOnboardingActive] = useState(false)
@@ -302,6 +332,42 @@ export default function DashboardApp() {
     try { const d = await request(`/api/workspaces/${selectedWorkspaceId}/members`) as { members: Member[] }; setMembers(d.members || []) } catch { setMembers([]) }
   }, [request, selectedWorkspaceId])
 
+  const loadSavedViews = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    try { const d = await request(`/api/workspaces/${selectedWorkspaceId}/saved-views`) as { views: { id: string; name: string; pinned: boolean; filters: TaskFilter }[] }; setSavedViews(d.views || []) } catch { setSavedViews([]) }
+  }, [request, selectedWorkspaceId])
+
+  const loadTags = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    try { const d = await request(`/api/workspaces/${selectedWorkspaceId}/tags`) as { tags: (TagRef & { _count: { tasks: number } })[] }; setTags(d.tags || []) } catch { setTags([]) }
+  }, [request, selectedWorkspaceId])
+
+  const handleCreateTag = async (name: string, color: string) => {
+    if (!selectedWorkspaceId) return
+    try {
+      await request(`/api/workspaces/${selectedWorkspaceId}/tags`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name, color }) })
+      await loadTags()
+      showMessage('Tag created', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create tag', 'error') }
+  }
+
+  const handleUpdateTag = async (id: string, data: { name?: string; color?: string }) => {
+    try {
+      await request(`/api/tags/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(data) })
+      await loadTags()
+      await loadTasks()
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update tag', 'error') }
+  }
+
+  const handleDeleteTag = async (id: string) => {
+    try {
+      await request(`/api/tags/${id}`, { method: 'DELETE' })
+      await loadTags()
+      await loadTasks()
+      showMessage('Tag deleted', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to delete tag', 'error') }
+  }
+
   const loadNotifs = useCallback(async () => {
     try { const d = await request('/api/notifications/unread-count') as { count: number }; setNotifCount(d.count ?? 0) } catch { /* ignore */ }
   }, [request])
@@ -343,14 +409,37 @@ export default function DashboardApp() {
 
   const loadActivity = useCallback(async () => {
     try {
-      const params = new URLSearchParams()
+      const params = new URLSearchParams({ page: '1', limit: '30' })
       if (activitySearch.trim()) params.set('search', activitySearch.trim())
       if (activityFrom) params.set('from', new Date(activityFrom).toISOString())
       if (activityTo) params.set('to', new Date(activityTo).toISOString())
-      const d = await request(`/api/activity?${params.toString()}`) as { activity: ActivityEntry[] }
+      if (activityTypeFilter) params.set('type', activityTypeFilter)
+      const d = await request(`/api/activity?${params.toString()}`) as { activity: ActivityEntry[]; total: number }
       setActivityLog(d.activity || [])
-    } catch { setActivityLog([]) }
-  }, [request, activitySearch, activityFrom, activityTo])
+      setActivityPage(1)
+      setActivityHasMore((d.activity || []).length < d.total)
+    } catch { setActivityLog([]); setActivityHasMore(false) }
+  }, [request, activitySearch, activityFrom, activityTo, activityTypeFilter])
+
+  const loadMoreActivity = useCallback(async () => {
+    if (activityLoadingMore) return
+    setActivityLoadingMore(true)
+    try {
+      const nextPage = activityPage + 1
+      const params = new URLSearchParams({ page: String(nextPage), limit: '30' })
+      if (activitySearch.trim()) params.set('search', activitySearch.trim())
+      if (activityFrom) params.set('from', new Date(activityFrom).toISOString())
+      if (activityTo) params.set('to', new Date(activityTo).toISOString())
+      if (activityTypeFilter) params.set('type', activityTypeFilter)
+      const d = await request(`/api/activity?${params.toString()}`) as { activity: ActivityEntry[]; total: number }
+      setActivityLog(prev => {
+        const merged = [...prev, ...(d.activity || [])]
+        setActivityHasMore(merged.length < d.total)
+        return merged
+      })
+      setActivityPage(nextPage)
+    } catch { /* ignore */ } finally { setActivityLoadingMore(false) }
+  }, [request, activityPage, activityLoadingMore, activitySearch, activityFrom, activityTo, activityTypeFilter])
 
   const loadSessions = useCallback(async () => {
     try {
@@ -374,7 +463,7 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations() }, [loadTasks, loadMembers, loadWorkspaceInvitations])
+  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'reports') loadReports() }, [navPage, loadReports])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -490,6 +579,7 @@ export default function DashboardApp() {
         dueDate: dueDateTime, workspaceId: selectedWorkspaceId,
       }
       if (taskAssignedTo) body.assignedToId = taskAssignedTo
+      if (taskTagIds.length) body.tagIds = taskTagIds
       if (dueDateTime) {
         body.reminderOffsets = taskReminderOffsets
         if (taskCustomReminderAt) body.customReminderTimes = [new Date(taskCustomReminderAt).toISOString()]
@@ -504,7 +594,7 @@ export default function DashboardApp() {
         if (taskRecurrence.recurrenceCount) body.recurrenceCount = taskRecurrence.recurrenceCount
       }
       const resetForm = () => {
-        setTaskTitle(''); setTaskDescription(''); setTaskPriority('MEDIUM'); setTaskDueDate(''); setTaskTime(''); setTaskAssignedTo('')
+        setTaskTitle(''); setTaskDescription(''); setTaskPriority('MEDIUM'); setTaskDueDate(''); setTaskTime(''); setTaskAssignedTo(''); setTaskTagIds([])
         setTaskReminderOffsets(notifPrefs.defaultReminderMinutes.length ? notifPrefs.defaultReminderMinutes : [15]); setTaskCustomReminderAt('')
         setTaskRecurrence(DEFAULT_RECURRENCE)
       }
@@ -903,10 +993,48 @@ export default function DashboardApp() {
     ? { total: reportsSummary.total, completed: reportsSummary.completed, inProgress: reportsSummary.inProgress, todo: Math.max(reportsSummary.total - reportsSummary.completed - reportsSummary.inProgress, 0), overdue: reportsSummary.overdue }
     : statusCounts
 
+  const dueTodayTasks = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate).toDateString() === new Date().toDateString())
+  const dueThisWeekTasks = tasks.filter(tk => {
+    if (!tk.dueDate || tk.status === 'COMPLETED') return false
+    const due = new Date(tk.dueDate); const now = new Date(); const in7 = new Date(); in7.setDate(in7.getDate() + 7)
+    return due >= now && due <= in7
+  })
+
   const filteredTasks = !taskFilter ? tasks
     : taskFilter.kind === 'overdue' ? overdueTasks
     : taskFilter.kind === 'mine' ? myTasks
+    : taskFilter.kind === 'tag' ? tasks.filter(tk => tk.tags?.some(tg => tg.id === taskFilter.tagId))
+    : taskFilter.kind === 'priority' ? tasks.filter(tk => tk.priority === taskFilter.priority)
+    : taskFilter.kind === 'dueToday' ? dueTodayTasks
+    : taskFilter.kind === 'dueWeek' ? dueThisWeekTasks
     : tasks.filter(tk => tk.status === taskFilter.status)
+
+  const QUICK_FILTERS: TaskFilter[] = [
+    { kind: 'mine', label: 'My Tasks' },
+    { kind: 'dueToday', label: 'Due Today' },
+    { kind: 'dueWeek', label: 'Due This Week' },
+    { kind: 'overdue', label: 'Overdue' },
+    { kind: 'priority', priority: 'HIGH', label: 'High Priority' },
+  ]
+
+  const handleSaveCurrentView = async () => {
+    if (!taskFilter || !selectedWorkspaceId) return
+    const name = window.prompt('Name this saved view', taskFilter.label)
+    if (!name?.trim()) return
+    try {
+      await request(`/api/workspaces/${selectedWorkspaceId}/saved-views`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name: name.trim(), filters: taskFilter }) })
+      await loadSavedViews()
+      showMessage('View saved', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save view', 'error') }
+  }
+
+  const handleTogglePinView = async (id: string, pinned: boolean) => {
+    try { await request(`/api/saved-views/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ pinned: !pinned }) }); await loadSavedViews() } catch { /* ignore */ }
+  }
+
+  const handleDeleteSavedView = async (id: string) => {
+    try { await request(`/api/saved-views/${id}`, { method: 'DELETE' }); await loadSavedViews() } catch { /* ignore */ }
+  }
 
   const handleStatCardClick = (key: StatCardKey) => {
     if (key === 'teamMembers' || key === 'projects') { setNavPage('team'); return }
@@ -1197,7 +1325,44 @@ export default function DashboardApp() {
                     <button type="button" onClick={() => setTaskFilter(null)} aria-label="Clear filter" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, display: 'inline-flex' }}><X size={12} /></button>
                   </span>
                 )}
+                {tags.length > 0 && (
+                  <select
+                    className="notif-filter-select"
+                    value={taskFilter?.kind === 'tag' ? taskFilter.tagId : ''}
+                    onChange={e => {
+                      const tagId = e.target.value
+                      const tag = tags.find(tg => tg.id === tagId)
+                      setTaskFilter(tag ? { kind: 'tag', tagId, label: tag.name } : null)
+                    }}
+                    aria-label="Filter by tag"
+                  >
+                    <option value="">Filter by tag…</option>
+                    {tags.map(tg => <option key={tg.id} value={tg.id}>{tg.name}</option>)}
+                  </select>
+                )}
               </h2>
+              <div className="notif-filter-bar">
+                {QUICK_FILTERS.map(f => (
+                  <button
+                    key={f.label}
+                    type="button"
+                    className={`notif-filter-chip ${taskFilter?.label === f.label ? 'active' : ''}`}
+                    onClick={() => setTaskFilter(taskFilter?.label === f.label ? null : f)}
+                  >{f.label}</button>
+                ))}
+                {savedViews.map(v => (
+                  <span key={v.id} className={`notif-filter-chip ${taskFilter?.label === v.name ? 'active' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <button type="button" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, font: 'inherit' }} onClick={() => setTaskFilter({ ...v.filters, label: v.name })}>
+                      {v.pinned && '📌 '}{v.name}
+                    </button>
+                    <button type="button" title={v.pinned ? 'Unpin' : 'Pin'} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, opacity: 0.7 }} onClick={() => handleTogglePinView(v.id, v.pinned)}>{v.pinned ? '📌' : '📍'}</button>
+                    <button type="button" aria-label={`Delete view ${v.name}`} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, opacity: 0.7 }} onClick={() => handleDeleteSavedView(v.id)}><X size={11} /></button>
+                  </span>
+                ))}
+                {taskFilter && !savedViews.some(v => v.name === taskFilter.label) && (
+                  <button type="button" className="mini-btn" onClick={handleSaveCurrentView}>Save as view</button>
+                )}
+              </div>
               <div className="stack-form stack-form-row" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                 <input value={taskTitle} onChange={e => setTaskTitle(e.target.value)} placeholder="New task title" />
                 <select value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
@@ -1214,6 +1379,19 @@ export default function DashboardApp() {
                 </select>
                 <button className="primary-btn" onClick={() => handleCreateTask({ preventDefault: () => {} } as FormEvent<HTMLFormElement>)}>Add</button>
               </div>
+              {tags.length > 0 && (
+                <div className="tag-picker-list">
+                  {tags.map(tg => (
+                    <button
+                      key={tg.id}
+                      type="button"
+                      className={`tag-picker-chip ${taskTagIds.includes(tg.id) ? 'active' : ''}`}
+                      style={{ color: taskTagIds.includes(tg.id) ? tg.color : undefined }}
+                      onClick={() => setTaskTagIds(prev => prev.includes(tg.id) ? prev.filter(id => id !== tg.id) : [...prev, tg.id])}
+                    >{tg.name}</button>
+                  ))}
+                </div>
+              )}
               {taskDueDate && (
                 <div className="reminder-picker" style={{ marginBottom: 16 }}>
                   <span className="reminder-picker-label">Remind me</span>
@@ -1280,8 +1458,17 @@ export default function DashboardApp() {
                       <option value="HIGH">High</option><option value="CRITICAL">Critical</option>
                     </select>
                   </label>
-                  {(boardAssigneeFilter || boardPriorityFilter) && (
-                    <button type="button" className="mini-btn" onClick={() => { setBoardAssigneeFilter(''); setBoardPriorityFilter('') }}>Clear filters</button>
+                  {tags.length > 0 && (
+                    <label className="field-label-inline">
+                      <span>Tag</span>
+                      <select value={boardTagFilter} onChange={e => setBoardTagFilter(e.target.value)}>
+                        <option value="">Any tag</option>
+                        {tags.map(tg => <option key={tg.id} value={tg.id}>{tg.name}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  {(boardAssigneeFilter || boardPriorityFilter || boardTagFilter) && (
+                    <button type="button" className="mini-btn" onClick={() => { setBoardAssigneeFilter(''); setBoardPriorityFilter(''); setBoardTagFilter('') }}>Clear filters</button>
                   )}
                 </div>
               </div>
@@ -1289,7 +1476,8 @@ export default function DashboardApp() {
                 {statusColumns.map(status => {
                   const columnTasks = tasks.filter(tk => tk.status === status
                     && (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter))
-                    && (!boardPriorityFilter || tk.priority === boardPriorityFilter))
+                    && (!boardPriorityFilter || tk.priority === boardPriorityFilter)
+                    && (!boardTagFilter || tk.tags?.some(tg => tg.id === boardTagFilter)))
                   return (
                   <div key={status} className="kanban-column">
                     <h3>{status.replace('_', ' ')}</h3>
@@ -1303,6 +1491,11 @@ export default function DashboardApp() {
                             {tk.description && <p>{tk.description}</p>}
                             <p className="task-meta">Priority: {tk.priority}</p>
                             {tk.dueDate && <p className="task-meta">Due: {new Date(tk.dueDate).toLocaleDateString()}</p>}
+                            {tk.tags && tk.tags.length > 0 && (
+                              <div className="tag-row" style={{ marginBottom: 4 }}>
+                                {tk.tags.map(tag => <TagBadge key={tag.id} tag={tag} size="sm" />)}
+                              </div>
+                            )}
                             {(blocked || tk.isRecurring) && (
                               <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
                                 {blocked && <span className="status-badge blocked">Blocked</span>}
@@ -1379,6 +1572,18 @@ export default function DashboardApp() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <div className="panel">
+                <h2>Tags</h2>
+                <TagManager
+                  tags={tags}
+                  canManage={myMembership?.role !== 'GUEST'}
+                  canDelete={!!canManageMembers || myMembership?.role === 'MANAGER'}
+                  onCreate={handleCreateTag}
+                  onUpdate={handleUpdateTag}
+                  onDelete={handleDeleteTag}
+                />
               </div>
 
               <div className="panel">
@@ -1509,26 +1714,39 @@ export default function DashboardApp() {
                 </label>
                 <input type="date" value={activityFrom} onChange={e => setActivityFrom(e.target.value)} aria-label="From date" />
                 <input type="date" value={activityTo} onChange={e => setActivityTo(e.target.value)} aria-label="To date" />
-                {(activitySearch || activityFrom || activityTo) && (
-                  <button type="button" className="mini-btn" onClick={() => { setActivitySearch(''); setActivityFrom(''); setActivityTo('') }}>Clear</button>
+                <select className="notif-filter-select" value={activityTypeFilter} onChange={e => setActivityTypeFilter(e.target.value)} aria-label="Filter by event type">
+                  <option value="">All event types</option>
+                  {ACTIVITY_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                {(activitySearch || activityFrom || activityTo || activityTypeFilter) && (
+                  <button type="button" className="mini-btn" onClick={() => { setActivitySearch(''); setActivityFrom(''); setActivityTo(''); setActivityTypeFilter('') }}>Clear</button>
                 )}
               </div>
-              {activityLog.length === 0 ? <p className="empty-column">No activity yet</p> : (
-                <div className="task-list">
-                  {activityLog.map(entry => (
-                    <div key={entry.id} className="task-list-item">
-                      <div className="task-list-info">
-                        <strong>{entry.action}</strong>
-                        <span>
-                          {entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}
-                          {entry.workspace ? ` · ${entry.workspace.name}` : ''}
-                          {entry.task ? ` · ${entry.task.title}` : ''}
-                        </span>
+              {activityLog.length === 0 ? (
+                <EmptyState kind="activity" compact title="No activity yet" description={activitySearch || activityFrom || activityTo || activityTypeFilter ? 'Nothing matches this filter.' : 'Actions your team takes will show up here.'} />
+              ) : (
+                <>
+                  <div className="task-list">
+                    {activityLog.map(entry => (
+                      <div key={entry.id} className="task-list-item">
+                        <div className="task-list-info">
+                          <strong>{entry.action}</strong>
+                          <span>
+                            {entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}
+                            {entry.workspace ? ` · ${entry.workspace.name}` : ''}
+                            {entry.task ? ` · ${entry.task.title}` : ''}
+                          </span>
+                        </div>
+                        <span className="bar-label">{new Date(entry.createdAt).toLocaleString()}</span>
                       </div>
-                      <span className="bar-label">{new Date(entry.createdAt).toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                  {activityHasMore && (
+                    <button type="button" className="notif-load-more" disabled={activityLoadingMore} onClick={loadMoreActivity}>
+                      {activityLoadingMore ? 'Loading…' : 'Load more'}
+                    </button>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -1801,6 +2019,8 @@ export default function DashboardApp() {
             workspaceTasks={tasks.map(tk => ({ id: tk.id, title: tk.title, status: tk.status }))}
             recurrence={taskToRecurrence(selectedTask)}
             onTaskUpdated={() => { loadTasks(); }}
+            taskTags={selectedTask.tags || []}
+            workspaceTags={tags}
           />
         </Modal>
       )}

@@ -79,6 +79,8 @@ export const createComment = async (req: AuthedRequest, res: Response) => {
             action: `Commented on task ${task.title}`,
             workspaceId: task.workspaceId,
             taskId: task.id,
+            entityType: "comment_added",
+            entityId: comment.id,
         });
 
         const notifiedAlready = new Set<string>();
