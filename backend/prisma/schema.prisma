@@ -17,6 +17,10 @@ model User {
   avatarUrl                  String?
   bio                        String?
   isActive                   Boolean   @default(true)
+  // Platform-wide role, orthogonal to per-workspace WorkspaceRole — a
+  // super admin manages the platform itself (users, workspaces, system
+  // health) and isn't necessarily a member of any given workspace.
+  isSuperAdmin               Boolean   @default(false)
   language                   String    @default("en")
   fontStyle                  String    @default("default")
   colorTheme                 String    @default("purple")
@@ -26,6 +30,15 @@ model User {
   emailVerifiedAt            DateTime?
   verificationToken          String?   @unique
   verificationTokenExpiresAt DateTime?
+  // App Lock — a local re-authentication gate distinct from the account
+  // password (see settings/appLockController.ts). appLockPinHash is a
+  // bcrypt hash, never the raw PIN. Biometric ("Fingerprint"/"Face")
+  // unlock is out of scope for now — a browser can only expose that via
+  // WebAuthn, which authenticates the device's platform authenticator, not
+  // a value Taskly could store/compare like a PIN.
+  appLockEnabled             Boolean   @default(false)
+  appLockPinHash             String?
+  appLockTimeoutMinutes      Int       @default(5)
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 
@@ -44,6 +57,7 @@ model User {
   userAchievements       UserAchievement[]
   savedViews             SavedView[]
   focusSessions          FocusSession[]
+  sentAnnouncements      PlatformAnnouncement[]
 }
 
 model Session {
@@ -65,6 +79,10 @@ model Workspace {
   name        String
   description String?
   type        WorkspaceType @default(PERSONAL)
+  // Platform admin kill switch — a disabled workspace's members keep their
+  // membership rows (nothing is deleted) but every workspace-scoped action
+  // is blocked (see utils/membership.ts).
+  isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -409,6 +427,22 @@ enum InvitationStatus {
   ACCEPTED
   EXPIRED
   CANCELLED
+}
+
+// A platform-wide broadcast sent by a super admin. Fans out to a
+// SYSTEM_ANNOUNCEMENT Notification per user at send time (see
+// features/admin/adminController.ts) — this row is the durable record for
+// the admin dashboard's "sent announcements" history, not itself the
+// delivery mechanism.
+model PlatformAnnouncement {
+  id         String   @id @default(uuid())
+  title      String
+  message    String
+  sentById   String
+  recipients Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  sentBy User @relation(fields: [sentById], references: [id], onDelete: Cascade)
 }
 
 enum WorkspaceRole {

@@ -1,8 +1,12 @@
 import express from "express";
-import { changePassword, getNotificationPreferences, getSettings, updateNotificationPreferences, updateProfile } from "./settingsController.js";
+import {
+    changeAppLockPin, changePassword, disableAppLock, enableAppLock, getNotificationPreferences, getSettings,
+    setAppLockTimeout, updateNotificationPreferences, updateProfile, verifyAppLockPin,
+} from "./settingsController.js";
 import { deleteAvatar, serveAvatar, uploadAvatar } from "./avatarController.js";
 import { authenticate } from "../../middleware/authMiddleware.js";
 import { upload } from "../files/storage.js";
+import { pinVerifyRateLimiter } from "../../middleware/rateLimit.js";
 
 const router = express.Router();
 
@@ -14,5 +18,10 @@ router.patch("/notification-preferences", authenticate, updateNotificationPrefer
 router.post("/avatar", authenticate, upload.single("avatar"), uploadAvatar);
 router.delete("/avatar", authenticate, deleteAvatar);
 router.get("/avatar/:filename", serveAvatar);
+router.post("/app-lock", authenticate, enableAppLock);
+router.delete("/app-lock", authenticate, disableAppLock);
+router.patch("/app-lock/pin", authenticate, changeAppLockPin);
+router.patch("/app-lock/timeout", authenticate, setAppLockTimeout);
+router.post("/app-lock/verify", authenticate, pinVerifyRateLimiter, verifyAppLockPin);
 
 export default router;
