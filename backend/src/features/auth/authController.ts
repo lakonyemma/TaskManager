@@ -21,6 +21,8 @@ const PROFILE_SELECT = {
     colorTheme: true,
     taskNotificationsEnabled: true,
     emailNotificationsEnabled: true,
+    appLockEnabled: true,
+    appLockTimeoutMinutes: true,
     createdAt: true,
     updatedAt: true,
 } as const;
@@ -125,8 +127,8 @@ export const login = async (req: Request, res: Response) => {
 
         await createActivityLog({ userId: user.id, action: "Logged in", entityType: "login", ipAddress: req.ip || null });
 
-        const { password: _password, verificationToken: _verificationToken, verificationTokenExpiresAt: _verificationTokenExpiresAt, ...safeUser } = user;
-        void _password; void _verificationToken; void _verificationTokenExpiresAt;
+        const { password: _password, verificationToken: _verificationToken, verificationTokenExpiresAt: _verificationTokenExpiresAt, appLockPinHash: _appLockPinHash, ...safeUser } = user;
+        void _password; void _verificationToken; void _verificationTokenExpiresAt; void _appLockPinHash;
 
         return res.status(200).json({
             message: "Login successful",

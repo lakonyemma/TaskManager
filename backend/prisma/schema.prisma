@@ -26,6 +26,15 @@ model User {
   emailVerifiedAt            DateTime?
   verificationToken          String?   @unique
   verificationTokenExpiresAt DateTime?
+  // App Lock — a local re-authentication gate distinct from the account
+  // password (see settings/appLockController.ts). appLockPinHash is a
+  // bcrypt hash, never the raw PIN. Biometric ("Fingerprint"/"Face")
+  // unlock is out of scope for now — a browser can only expose that via
+  // WebAuthn, which authenticates the device's platform authenticator, not
+  // a value Taskly could store/compare like a PIN.
+  appLockEnabled             Boolean   @default(false)
+  appLockPinHash             String?
+  appLockTimeoutMinutes      Int       @default(5)
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
 

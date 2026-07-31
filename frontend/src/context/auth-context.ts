@@ -12,6 +12,8 @@ export type UserSession = {
   colorTheme?: string
   taskNotificationsEnabled?: boolean
   emailNotificationsEnabled?: boolean
+  appLockEnabled?: boolean
+  appLockTimeoutMinutes?: number
 }
 
 export type AuthContextValue = {
