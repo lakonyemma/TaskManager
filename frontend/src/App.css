@@ -25,9 +25,18 @@
 .dashboard-shell {
   display: flex;
   min-height: 100vh;
-  background: transparent;
   color: var(--text-secondary);
   font-family: var(--font-sans);
+  /* Same branded photo as the splash screen, kept low-key with a heavy
+     dark wash so it reads as texture behind the floating panels rather
+     than competing with them for attention. */
+  background-image:
+    linear-gradient(180deg, rgba(6, 11, 35, 0.94), rgba(6, 11, 35, 0.97)),
+    radial-gradient(1200px 600px at 50% -10%, rgba(var(--accent-primary-rgb), 0.1), transparent 60%),
+    url('./assets/hero-taskly.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* Sidebar — a floating, self-contained panel (Linear/Arc influence) rather
