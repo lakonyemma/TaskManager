@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
   Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
-  User as UserIcon, Upload, Trash2,
+  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -24,10 +24,13 @@ import FocusMode, { type FocusTask } from '../components/FocusMode'
 import SmartDashboardHeader from '../components/SmartDashboardHeader'
 import AchievementsPanel from '../components/AchievementsPanel'
 import InstallPrompt from '../components/InstallPrompt'
-import NotificationCard, { NOTIF_TYPE_OPTIONS, type NotifItem, type NotifType } from '../components/NotificationCard'
+import NotificationCard from '../components/NotificationCard'
+import { NOTIF_TYPE_OPTIONS, type NotifItem, type NotifType } from '../lib/notifications'
 import TagBadge, { type TagRef } from '../components/TagBadge'
 import TagManager from '../components/TagManager'
 import GlobalSearch from '../components/GlobalSearch'
+import AppLockGate from '../components/AppLockGate'
+import CameraCapture from '../components/CameraCapture'
 import EmptyState from '../components/EmptyState'
 import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
@@ -62,7 +65,7 @@ type Toast = { id: string; title: string; body: string; taskId?: string | null }
 type Workspace = { id: string; name: string; description?: string | null }
 type DepRef = { id: string; title: string; status: string }
 export type Task = {
-  id: string; title: string; description?: string | null; status: string; priority: string; workspaceId: string
+  id: string; title: string; description?: string | null; notes?: string | null; status: string; priority: string; workspaceId: string
   dueDate?: string | null; assignedToId?: string | null; completedAt?: string | null; updatedAt?: string
   dependsOn?: DepRef[]; blocks?: DepRef[]; subtasks?: DepRef[]; relatedTo?: DepRef[]; estimatedMinutes?: number | null
   isRecurring?: boolean; recurrenceRule?: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY' | null
@@ -254,6 +257,9 @@ export default function DashboardApp() {
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'info' | 'success' | 'error'>('info')
   const [reportsSummary, setReportsSummary] = useState<{ total: number; completed: number; inProgress: number; overdue: number } | null>(null)
+  const [byWorkspace, setByWorkspace] = useState<{ workspaceId: string; workspaceName: string; total: number; completed: number }[]>([])
+  const [focusSessions, setFocusSessions] = useState<{ id: string; durationSeconds: number; pomodoroCount: number; endedAt: string; task: { id: string; title: string } }[]>([])
+  const [totalFocusSeconds, setTotalFocusSeconds] = useState(0)
   const [activityLog, setActivityLog] = useState<ActivityEntry[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([])
@@ -262,6 +268,14 @@ export default function DashboardApp() {
   const [auditTo, setAuditTo] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false)
+  const [passwordConfirmPin, setPasswordConfirmPin] = useState('')
+  const [appLockSetupPin, setAppLockSetupPin] = useState('')
+  const [appLockSetupPinConfirm, setAppLockSetupPinConfirm] = useState('')
+  const [appLockSetupPassword, setAppLockSetupPassword] = useState('')
+  const [appLockDisablePin, setAppLockDisablePin] = useState('')
+  const [appLockCurrentPin, setAppLockCurrentPin] = useState('')
+  const [appLockNewPin, setAppLockNewPin] = useState('')
   const [taskRecurrence, setTaskRecurrence] = useState<RecurrenceConfig>(DEFAULT_RECURRENCE)
   const [focusTask, setFocusTask] = useState<FocusTask | null>(null)
   const [reportFrom, setReportFrom] = useState('')
@@ -284,6 +298,7 @@ export default function DashboardApp() {
   const [settingsName, setSettingsName] = useState(() => user?.firstname || '')
   const [settingsLast, setSettingsLast] = useState(() => user?.lastName || '')
   const [avatarUploading, setAvatarUploading] = useState(false)
+  const [showAvatarCamera, setShowAvatarCamera] = useState(false)
   const avatarFileInputRef = useRef<HTMLInputElement>(null)
   const [settingsLang, setSettingsLang] = useState(() => user?.language || 'en')
   const [settingsFont, setSettingsFont] = useState(() => user?.fontStyle || 'default')
@@ -426,7 +441,19 @@ export default function DashboardApp() {
   }, [request])
 
   const loadReports = useCallback(async () => {
-    try { const d = await request('/api/reports') as { summary: typeof reportsSummary }; setReportsSummary(d.summary) } catch { setReportsSummary(null) }
+    try {
+      const d = await request('/api/reports') as { summary: typeof reportsSummary; byWorkspace: typeof byWorkspace }
+      setReportsSummary(d.summary)
+      setByWorkspace(d.byWorkspace || [])
+    } catch { setReportsSummary(null); setByWorkspace([]) }
+  }, [request])
+
+  const loadFocusSessions = useCallback(async () => {
+    try {
+      const d = await request('/api/focus-sessions?limit=8') as { sessions: typeof focusSessions; totalFocusSeconds: number }
+      setFocusSessions(d.sessions || [])
+      setTotalFocusSeconds(d.totalFocusSeconds || 0)
+    } catch { setFocusSessions([]); setTotalFocusSeconds(0) }
   }, [request])
 
   const loadActivity = useCallback(async () => {
@@ -518,7 +545,7 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (navPage === 'reports') loadReports() }, [navPage, loadReports])
+  useEffect(() => { if (navPage === 'reports') { loadReports(); loadFocusSessions() } }, [navPage, loadReports, loadFocusSessions])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'activity') loadActivity() }, [navPage, loadActivity])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -718,8 +745,18 @@ export default function DashboardApp() {
   }
 
   const openFocusMode = (task: Task) => {
-    setFocusTask({ id: task.id, title: task.title, description: task.description, status: task.status, subtasks: task.subtasks || [] })
+    setFocusTask({ id: task.id, title: task.title, description: task.description, notes: task.notes, status: task.status, subtasks: task.subtasks || [] })
     setSelectedTask(null)
+  }
+
+  const handleSaveFocusNotes = async (notes: string) => {
+    if (!focusTask) return
+    try { await request(`/api/tasks/${focusTask.id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ notes }) }); await loadTasks() } catch { /* ignore — non-critical autosave */ }
+  }
+
+  const handleLogFocusSession = async (durationSeconds: number, pomodoroCount: number, startedAt: string) => {
+    if (!focusTask) return
+    try { await request('/api/focus-sessions', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ taskId: focusTask.id, durationSeconds, pomodoroCount, startedAt }) }) } catch { /* ignore — non-critical */ }
   }
 
   const handleDeleteTask = async (taskId: string) => {
@@ -794,10 +831,7 @@ export default function DashboardApp() {
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save', 'error') }
   }
 
-  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
+  const uploadAvatarFile = async (file: File) => {
     setAvatarUploading(true)
     try {
       const form = new FormData()
@@ -813,6 +847,13 @@ export default function DashboardApp() {
     } finally {
       setAvatarUploading(false)
     }
+  }
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await uploadAvatarFile(file)
   }
 
   const handleAvatarRemove = async () => {
@@ -841,17 +882,78 @@ export default function DashboardApp() {
     }
   }
 
-  const handleChangePassword = async (e: FormEvent<HTMLFormElement>) => {
+  // Password changes require an explicit confirmation step before hitting
+  // the API — see the confirm dialog in the Settings render. If App Lock
+  // is set up, that confirmation is the PIN itself rather than a plain
+  // "Yes" click.
+  const handleChangePassword = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    if (!currentPassword || !newPassword) return
+    setPasswordConfirmPin('')
+    setShowPasswordConfirm(true)
+  }
+
+  const executePasswordChange = async () => {
+    if (!user) return
+    if (user.appLockEnabled) {
+      if (passwordConfirmPin.length !== 4) { showMessage('Enter your 4-digit PIN to confirm', 'error'); return }
+      try {
+        await request('/api/settings/app-lock/verify', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ pin: passwordConfirmPin }) })
+      } catch (err) {
+        showMessage(err instanceof Error ? err.message : 'Incorrect PIN', 'error')
+        return
+      }
+    }
     try {
       const d = await request('/api/settings/password', {
         method: 'PATCH', headers: jsonHeaders,
         body: JSON.stringify({ currentPassword, newPassword }),
       }) as { message: string }
-      setCurrentPassword(''); setNewPassword('')
+      setCurrentPassword(''); setNewPassword(''); setPasswordConfirmPin(''); setShowPasswordConfirm(false)
       showMessage(d.message || 'Password changed', 'success')
       await loadSessions()
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to change password', 'error') }
+  }
+
+  const handleEnableAppLock = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!user) return
+    if (appLockSetupPin.length !== 4 || !/^\d{4}$/.test(appLockSetupPin)) { showMessage('PIN must be exactly 4 digits', 'error'); return }
+    if (appLockSetupPin !== appLockSetupPinConfirm) { showMessage('PINs do not match', 'error'); return }
+    try {
+      await request('/api/settings/app-lock', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ pin: appLockSetupPin, password: appLockSetupPassword }) })
+      setAppLockSetupPin(''); setAppLockSetupPinConfirm(''); setAppLockSetupPassword('')
+      setUser({ ...user, appLockEnabled: true })
+      showMessage('App Lock enabled', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to enable App Lock', 'error') }
+  }
+
+  const handleDisableAppLock = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!user) return
+    try {
+      await request('/api/settings/app-lock', { method: 'DELETE', headers: jsonHeaders, body: JSON.stringify({ pin: appLockDisablePin }) })
+      setAppLockDisablePin('')
+      setUser({ ...user, appLockEnabled: false })
+      showMessage('App Lock disabled', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to disable App Lock', 'error') }
+  }
+
+  const handleChangeAppLockPin = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    try {
+      await request('/api/settings/app-lock/pin', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ currentPin: appLockCurrentPin, newPin: appLockNewPin }) })
+      setAppLockCurrentPin(''); setAppLockNewPin('')
+      showMessage('PIN updated', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to change PIN', 'error') }
+  }
+
+  const handleChangeAppLockTimeout = async (minutes: number) => {
+    if (!user) return
+    try {
+      await request('/api/settings/app-lock/timeout', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ timeoutMinutes: minutes }) })
+      setUser({ ...user, appLockTimeoutMinutes: minutes })
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update timeout', 'error') }
   }
 
   const handleRevokeSession = async (id: string) => {
@@ -958,6 +1060,7 @@ export default function DashboardApp() {
   useEffect(() => {
     if (!pendingOpenTaskId) return
     const found = tasks.find(tk => tk.id === pendingOpenTaskId)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (found) { setSelectedTask(found); setPendingOpenTaskId(null) }
   }, [tasks, pendingOpenTaskId])
 
@@ -1114,6 +1217,7 @@ export default function DashboardApp() {
   }
 
   return (
+    <AppLockGate enabled={!!user.appLockEnabled} timeoutMinutes={user.appLockTimeoutMinutes ?? 5} userId={user.id}>
     <main className="dashboard-shell">
       {toasts.length > 0 && (
         <div className="toast-stack" role="region" aria-label="Notifications" aria-live="polite">
@@ -1147,6 +1251,8 @@ export default function DashboardApp() {
           onClose={() => setFocusTask(null)}
           onComplete={handleFocusComplete}
           onSubtaskToggle={handleSubtaskToggle}
+          onSaveNotes={handleSaveFocusNotes}
+          onLogSession={handleLogFocusSession}
           onMessage={showMessage}
         />
       )}
@@ -1164,6 +1270,12 @@ export default function DashboardApp() {
               <span className="nav-label">{t(page === 'tasks' ? 'myTasks' : page, settingsLang)}</span>
             </button>
           ))}
+          {user.isSuperAdmin && (
+            <button className="nav-item" onClick={() => navigate('/admin')} title={sidebarCollapsed ? 'Super Admin' : undefined}>
+              <span className="nav-icon"><ShieldCheck size={17} strokeWidth={1.8} /></span>
+              <span className="nav-label">Super Admin</span>
+            </button>
+          )}
         </nav>
         <div className="sidebar-footer">
           <div className="sidebar-user">
@@ -1758,6 +1870,52 @@ export default function DashboardApp() {
                 <Suspense fallback={<SkeletonChart />}><CompletionTrendChart data={trendData} /></Suspense>
               </div>
 
+              <div className="panel">
+                <h2>Project progress</h2>
+                {byWorkspace.length === 0 ? (
+                  <EmptyState kind="workspace" compact title="No projects yet" description="Create a workspace to see progress here." />
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {byWorkspace.map(w => {
+                      const pct = w.total > 0 ? Math.round((w.completed / w.total) * 100) : 0
+                      return (
+                        <div key={w.workspaceId}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: 4 }}>
+                            <span>{w.workspaceName}</span>
+                            <span className="bar-label">{w.completed}/{w.total} · {pct}%</span>
+                          </div>
+                          <div className="focus-mode-progress" style={{ margin: 0 }}>
+                            <div className="focus-mode-progress-bar" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="panel">
+                <h2>Focus history</h2>
+                <p style={{ color: '#94a3b8', fontSize: '0.78rem', marginTop: 0 }}>
+                  Total focused time: <strong style={{ color: 'var(--text-primary)' }}>{Math.round(totalFocusSeconds / 60)} min</strong>
+                </p>
+                {focusSessions.length === 0 ? (
+                  <EmptyState kind="generic" compact title="No focus sessions yet" description="Time spent in Focus Mode will show up here." />
+                ) : (
+                  <div className="task-list">
+                    {focusSessions.map(s => (
+                      <div key={s.id} className="task-list-item">
+                        <div className="task-list-info">
+                          <strong>{s.task.title}</strong>
+                          <span>{Math.round(s.durationSeconds / 60)} min{s.pomodoroCount > 0 ? ` · ${s.pomodoroCount} pomodoro${s.pomodoroCount === 1 ? '' : 's'}` : ''}</span>
+                        </div>
+                        <span className="bar-label">{new Date(s.endedAt).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="panel full-width">
                 <h2>Advanced reporting</h2>
                 <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 0 }}>
@@ -1921,6 +2079,9 @@ export default function DashboardApp() {
                         <button type="button" className="mini-btn secondary-btn" onClick={() => avatarFileInputRef.current?.click()} disabled={avatarUploading}>
                           <Upload size={13} /> {avatarUploading ? 'Uploading…' : 'Upload photo'}
                         </button>
+                        <button type="button" className="mini-btn secondary-btn" onClick={() => setShowAvatarCamera(true)} disabled={avatarUploading}>
+                          <Camera size={13} /> Take photo
+                        </button>
                         {user.avatarUrl && (
                           <button type="button" className="mini-btn danger-btn" onClick={handleAvatarRemove}><Trash2 size={13} /> Remove</button>
                         )}
@@ -2035,6 +2196,51 @@ export default function DashboardApp() {
                 </form>
               </div>
 
+              <div className="panel">
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={16} strokeWidth={1.8} /> App Lock</h2>
+                {!user.appLockEnabled ? (
+                  <>
+                    <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 0 }}>
+                      Require a 4-digit PIN to reopen Taskly after it's been idle — protects workspace data if your device is left unattended.
+                    </p>
+                    <form className="stack-form" onSubmit={handleEnableAppLock}>
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="Choose a 4-digit PIN" value={appLockSetupPin} onChange={e => setAppLockSetupPin(e.target.value.replace(/\D/g, ''))} />
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="Confirm PIN" value={appLockSetupPinConfirm} onChange={e => setAppLockSetupPinConfirm(e.target.value.replace(/\D/g, ''))} />
+                      <input type="password" required placeholder="Your account password" value={appLockSetupPassword} onChange={e => setAppLockSetupPassword(e.target.value)} />
+                      <button type="submit">Enable App Lock</button>
+                    </form>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ color: 'var(--success)', fontSize: '0.8rem', marginTop: 0 }}>App Lock is enabled.</p>
+                    <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: 16 }}>
+                      Lock after
+                      <select
+                        value={user.appLockTimeoutMinutes ?? 5}
+                        onChange={e => handleChangeAppLockTimeout(Number(e.target.value))}
+                        style={{ marginLeft: 8 }}
+                      >
+                        <option value={0}>Immediately</option>
+                        <option value={1}>1 minute</option>
+                        <option value={5}>5 minutes</option>
+                        <option value={15}>15 minutes</option>
+                        <option value={30}>30 minutes</option>
+                        <option value={60}>1 hour</option>
+                      </select>
+                    </label>
+                    <form className="stack-form" onSubmit={handleChangeAppLockPin} style={{ marginBottom: 16 }}>
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="Current PIN" value={appLockCurrentPin} onChange={e => setAppLockCurrentPin(e.target.value.replace(/\D/g, ''))} />
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="New PIN" value={appLockNewPin} onChange={e => setAppLockNewPin(e.target.value.replace(/\D/g, ''))} />
+                      <button type="submit" className="mini-btn">Change PIN</button>
+                    </form>
+                    <form className="stack-form" onSubmit={handleDisableAppLock}>
+                      <input type="password" inputMode="numeric" maxLength={4} required placeholder="Enter PIN to disable" value={appLockDisablePin} onChange={e => setAppLockDisablePin(e.target.value.replace(/\D/g, ''))} />
+                      <button type="submit" className="mini-btn danger-btn">Disable App Lock</button>
+                    </form>
+                  </>
+                )}
+              </div>
+
               <div className="panel full-width">
                 <h2>Active sessions</h2>
                 <div className="task-list">
@@ -2136,6 +2342,42 @@ export default function DashboardApp() {
           />
         </Modal>
       )}
+
+      {showAvatarCamera && (
+        <CameraCapture
+          onClose={() => setShowAvatarCamera(false)}
+          onCapture={async (file) => { setShowAvatarCamera(false); await uploadAvatarFile(file) }}
+        />
+      )}
+
+      {showPasswordConfirm && (
+        <Modal title="Confirm password change" onClose={() => setShowPasswordConfirm(false)}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            Are you sure you want to change your password? You may be required to log in again on other devices.
+          </p>
+          {user.appLockEnabled ? (
+            <div className="stack-form">
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Enter your PIN to confirm</label>
+              <input
+                type="password" inputMode="numeric" maxLength={4} autoFocus
+                value={passwordConfirmPin}
+                onChange={e => setPasswordConfirmPin(e.target.value.replace(/\D/g, ''))}
+                onKeyDown={e => { if (e.key === 'Enter' && passwordConfirmPin.length === 4) executePasswordChange() }}
+              />
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" className="mini-btn secondary-btn" onClick={() => setShowPasswordConfirm(false)}>Cancel</button>
+                <button type="button" className="mini-btn" disabled={passwordConfirmPin.length !== 4} onClick={executePasswordChange}>Confirm</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button type="button" className="mini-btn secondary-btn" onClick={() => setShowPasswordConfirm(false)}>Cancel</button>
+              <button type="button" className="mini-btn" onClick={executePasswordChange}>Yes, change my password</button>
+            </div>
+          )}
+        </Modal>
+      )}
     </main>
+    </AppLockGate>
   )
 }

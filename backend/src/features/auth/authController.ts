@@ -16,11 +16,14 @@ const PROFILE_SELECT = {
     avatarUrl: true,
     bio: true,
     isActive: true,
+    isSuperAdmin: true,
     language: true,
     fontStyle: true,
     colorTheme: true,
     taskNotificationsEnabled: true,
     emailNotificationsEnabled: true,
+    appLockEnabled: true,
+    appLockTimeoutMinutes: true,
     createdAt: true,
     updatedAt: true,
 } as const;
@@ -121,12 +124,16 @@ export const login = async (req: Request, res: Response) => {
             });
         }
 
+        if (!user.isActive) {
+            return res.status(403).json({ message: "This account has been suspended. Contact your administrator for help." });
+        }
+
         const { accessToken, refreshToken } = await issueSession(user, req);
 
         await createActivityLog({ userId: user.id, action: "Logged in", entityType: "login", ipAddress: req.ip || null });
 
-        const { password: _password, verificationToken: _verificationToken, verificationTokenExpiresAt: _verificationTokenExpiresAt, ...safeUser } = user;
-        void _password; void _verificationToken; void _verificationTokenExpiresAt;
+        const { password: _password, verificationToken: _verificationToken, verificationTokenExpiresAt: _verificationTokenExpiresAt, appLockPinHash: _appLockPinHash, ...safeUser } = user;
+        void _password; void _verificationToken; void _verificationTokenExpiresAt; void _appLockPinHash;
 
         return res.status(200).json({
             message: "Login successful",
@@ -159,10 +166,13 @@ export const refresh = async (req: Request, res: Response) => {
 
         const user = await prisma.user.findUnique({
             where: { id: payload.id },
-            select: { id: true, email: true },
+            select: { id: true, email: true, isActive: true },
         });
         if (!user) {
             return res.status(404).json({ message: "User not found" });
+        }
+        if (!user.isActive) {
+            return res.status(403).json({ message: "This account has been suspended." });
         }
 
         await prisma.session.update({ where: { id: session.id }, data: { lastUsedAt: new Date() } });

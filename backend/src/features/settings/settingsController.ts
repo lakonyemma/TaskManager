@@ -15,7 +15,11 @@ const SETTINGS_SELECT = {
     colorTheme: true,
     taskNotificationsEnabled: true,
     emailNotificationsEnabled: true,
+    appLockEnabled: true,
+    appLockTimeoutMinutes: true,
 } as const;
+
+const PIN_REGEX = /^\d{4}$/;
 
 export const getSettings = async (req: Request, res: Response) => {
     try {
@@ -177,6 +181,152 @@ export const updateNotificationPreferences = async (req: Request, res: Response)
         });
 
         return res.status(200).json({ message: "Notification preferences saved", preferences });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+// Enables App Lock for the first time (or re-enables after a disable) by
+// setting the initial PIN. Requires the account password as proof of
+// identity — a 4-digit PIN alone is too weak a gate to let someone set
+// without re-proving who they are.
+export const enableAppLock = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const { pin, password } = req.body as { pin?: string; password?: string };
+        if (!pin || !PIN_REGEX.test(pin)) {
+            return res.status(400).json({ message: "PIN must be exactly 4 digits" });
+        }
+        if (!password) {
+            return res.status(400).json({ message: "Your account password is required to enable App Lock" });
+        }
+
+        const user = await prisma.user.findUnique({ where: { id: authUser.id } });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        const isValid = await bcrypt.compare(password, user.password);
+        if (!isValid) return res.status(401).json({ message: "Incorrect password" });
+
+        const pinHash = await bcrypt.hash(pin, 10);
+        await prisma.user.update({ where: { id: authUser.id }, data: { appLockEnabled: true, appLockPinHash: pinHash } });
+
+        await createActivityLog({ userId: authUser.id, action: "Enabled App Lock", entityType: "account_changed", ipAddress: req.ip || null });
+
+        return res.status(200).json({ message: "App Lock enabled" });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+export const disableAppLock = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const { pin } = req.body as { pin?: string };
+        const user = await prisma.user.findUnique({ where: { id: authUser.id } });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        if (user.appLockEnabled && user.appLockPinHash) {
+            if (!pin || !(await bcrypt.compare(pin, user.appLockPinHash))) {
+                return res.status(401).json({ message: "Incorrect PIN" });
+            }
+        }
+
+        await prisma.user.update({ where: { id: authUser.id }, data: { appLockEnabled: false, appLockPinHash: null } });
+
+        await createActivityLog({ userId: authUser.id, action: "Disabled App Lock", entityType: "account_changed", ipAddress: req.ip || null });
+
+        return res.status(200).json({ message: "App Lock disabled" });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+export const changeAppLockPin = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const { currentPin, newPin } = req.body as { currentPin?: string; newPin?: string };
+        if (!newPin || !PIN_REGEX.test(newPin)) {
+            return res.status(400).json({ message: "New PIN must be exactly 4 digits" });
+        }
+
+        const user = await prisma.user.findUnique({ where: { id: authUser.id } });
+        if (!user || !user.appLockEnabled || !user.appLockPinHash) {
+            return res.status(400).json({ message: "App Lock is not enabled" });
+        }
+
+        if (!currentPin || !(await bcrypt.compare(currentPin, user.appLockPinHash))) {
+            return res.status(401).json({ message: "Incorrect current PIN" });
+        }
+
+        const pinHash = await bcrypt.hash(newPin, 10);
+        await prisma.user.update({ where: { id: authUser.id }, data: { appLockPinHash: pinHash } });
+
+        await createActivityLog({ userId: authUser.id, action: "Changed App Lock PIN", entityType: "account_changed", ipAddress: req.ip || null });
+
+        return res.status(200).json({ message: "PIN updated" });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+export const setAppLockTimeout = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const { timeoutMinutes } = req.body as { timeoutMinutes?: number };
+        if (typeof timeoutMinutes !== "number" || timeoutMinutes < 0 || timeoutMinutes > 120) {
+            return res.status(400).json({ message: "timeoutMinutes must be between 0 and 120" });
+        }
+
+        await prisma.user.update({ where: { id: authUser.id }, data: { appLockTimeoutMinutes: Math.round(timeoutMinutes) } });
+
+        return res.status(200).json({ message: "Timeout updated" });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+// Verifies a PIN attempt against the stored hash — used by the lock-screen
+// overlay to unlock the app. Rate-limited at the route level (see
+// rateLimit.ts pinVerifyRateLimiter) since a 4-digit PIN is brute-forceable
+// without one.
+export const verifyAppLockPin = async (req: Request, res: Response) => {
+    try {
+        const authUser = (req as Request & { user?: { id: string; email: string } }).user;
+        if (!authUser) {
+            return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const { pin } = req.body as { pin?: string };
+        const user = await prisma.user.findUnique({ where: { id: authUser.id } });
+        if (!user || !user.appLockEnabled || !user.appLockPinHash) {
+            return res.status(400).json({ message: "App Lock is not enabled" });
+        }
+
+        const valid = !!pin && (await bcrypt.compare(pin, user.appLockPinHash));
+        if (!valid) return res.status(401).json({ message: "Incorrect PIN", valid: false });
+
+        return res.status(200).json({ valid: true });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });
