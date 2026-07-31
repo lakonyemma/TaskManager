@@ -3,7 +3,7 @@ import { Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import SuperAdminRoute from './components/SuperAdminRoute'
-import LandingPage from './pages/LandingPage'
+import SplashScreen from './pages/SplashScreen'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
@@ -20,7 +20,7 @@ function App() {
   return (
     <AuthProvider>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<SplashScreen />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -46,7 +46,7 @@ function App() {
             </SuperAdminRoute>
           }
         />
-        <Route path="*" element={<LandingPage />} />
+        <Route path="*" element={<SplashScreen />} />
       </Routes>
     </AuthProvider>
   )

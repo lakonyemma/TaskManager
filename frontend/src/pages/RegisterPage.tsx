@@ -79,7 +79,7 @@ export default function RegisterPage() {
   if (registered) {
     return (
       <div className="auth-bg">
-        <Link to="/" className="back-to-landing">&larr; Back to Taskly</Link>
+        <Link to="/login" className="back-to-landing">&larr; Back to Sign In</Link>
         <div className="glass-card">
           <p className="glass-logo">Taskly</p>
           <h1>Check your email</h1>
@@ -99,7 +99,7 @@ export default function RegisterPage() {
 
   return (
     <div className="auth-bg">
-      <Link to="/" className="back-to-landing">&larr; Back to Taskly</Link>
+      <Link to="/login" className="back-to-landing">&larr; Back to Sign In</Link>
       <div className="glass-card">
         <p className="glass-logo">Taskly</p>
         <h1>Create your account</h1>

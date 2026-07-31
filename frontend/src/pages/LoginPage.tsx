@@ -47,7 +47,6 @@ export default function LoginPage() {
 
   return (
     <div className="auth-bg">
-      <Link to="/" className="back-to-landing">&larr; Back to Taskly</Link>
       <div className="glass-card">
         <p className="glass-logo">Taskly</p>
         <h1>Welcome back</h1>
