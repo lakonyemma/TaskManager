@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
   Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
-  User as UserIcon, Upload, Trash2, Lock,
+  User as UserIcon, Upload, Trash2, Lock, ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -1263,6 +1263,12 @@ export default function DashboardApp() {
               <span className="nav-label">{t(page === 'tasks' ? 'myTasks' : page, settingsLang)}</span>
             </button>
           ))}
+          {user.isSuperAdmin && (
+            <button className="nav-item" onClick={() => navigate('/admin')} title={sidebarCollapsed ? 'Super Admin' : undefined}>
+              <span className="nav-icon"><ShieldCheck size={17} strokeWidth={1.8} /></span>
+              <span className="nav-label">Super Admin</span>
+            </button>
+          )}
         </nav>
         <div className="sidebar-footer">
           <div className="sidebar-user">
