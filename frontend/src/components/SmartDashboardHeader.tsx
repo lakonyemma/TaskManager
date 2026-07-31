@@ -1,4 +1,5 @@
 import { AlertTriangle, CalendarClock, CalendarRange, CheckCircle2, TrendingDown, TrendingUp } from 'lucide-react'
+import AnalogClock from './AnalogClock'
 
 const greetingFor = (hour: number, lang: Record<string, string>) => hour < 12 ? lang.morning : hour < 18 ? lang.afternoon : lang.evening
 
@@ -24,28 +25,31 @@ export default function SmartDashboardHeader({
   return (
     <div className="smart-header">
       <div className="smart-header-glow" aria-hidden="true" />
-      <p className="smart-header-eyebrow">{greeting}</p>
-      <h1>{firstname} <span className="smart-header-wave">🫠</span></h1>
-      {completedYesterdayCount > 0 && (
-        <p className="smart-header-yesterday">
-          <CheckCircle2 size={13} strokeWidth={1.8} /> You completed {completedYesterdayCount} task{completedYesterdayCount !== 1 ? 's' : ''} yesterday.
-        </p>
-      )}
-      {hasAnyStat ? (
-        <div className="smart-header-stats">
-          {overdueCount > 0 && <span className="smart-stat overdue"><AlertTriangle size={13} strokeWidth={1.8} /> {overdueCount} overdue</span>}
-          {dueTodayCount > 0 && <span className="smart-stat"><CalendarClock size={13} strokeWidth={1.8} /> {dueTodayCount} due today</span>}
-          {upcomingCount > 0 && <span className="smart-stat"><CalendarRange size={13} strokeWidth={1.8} /> {upcomingCount} upcoming this week</span>}
-        </div>
-      ) : (
-        <p className="smart-header-empty">Nothing urgent on your plate right now — stay focused.</p>
-      )}
-      {productivityDeltaPercent !== null && (
-        <p className={`smart-header-delta ${productivityDeltaPercent >= 0 ? 'up' : 'down'}`}>
-          {productivityDeltaPercent >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-          Your productivity is {Math.abs(productivityDeltaPercent)}% {productivityDeltaPercent >= 0 ? 'higher' : 'lower'} than last week.
-        </p>
-      )}
+      <div className="smart-header-main">
+        <p className="smart-header-eyebrow">{greeting}</p>
+        <h1>{firstname} <span className="smart-header-wave">🫠</span></h1>
+        {completedYesterdayCount > 0 && (
+          <p className="smart-header-yesterday">
+            <CheckCircle2 size={13} strokeWidth={1.8} /> You completed {completedYesterdayCount} task{completedYesterdayCount !== 1 ? 's' : ''} yesterday.
+          </p>
+        )}
+        {hasAnyStat ? (
+          <div className="smart-header-stats">
+            {overdueCount > 0 && <span className="smart-stat overdue"><AlertTriangle size={13} strokeWidth={1.8} /> {overdueCount} overdue</span>}
+            {dueTodayCount > 0 && <span className="smart-stat"><CalendarClock size={13} strokeWidth={1.8} /> {dueTodayCount} due today</span>}
+            {upcomingCount > 0 && <span className="smart-stat"><CalendarRange size={13} strokeWidth={1.8} /> {upcomingCount} upcoming this week</span>}
+          </div>
+        ) : (
+          <p className="smart-header-empty">Nothing urgent on your plate right now — stay focused.</p>
+        )}
+        {productivityDeltaPercent !== null && (
+          <p className={`smart-header-delta ${productivityDeltaPercent >= 0 ? 'up' : 'down'}`}>
+            {productivityDeltaPercent >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+            Your productivity is {Math.abs(productivityDeltaPercent)}% {productivityDeltaPercent >= 0 ? 'higher' : 'lower'} than last week.
+          </p>
+        )}
+      </div>
+      <AnalogClock />
     </div>
   )
 }

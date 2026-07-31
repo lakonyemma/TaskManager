@@ -2146,6 +2146,10 @@ textarea:focus { border-color: var(--accent-primary-light); }
 /* ─── Smart dashboard header — the "executive workspace" hero panel ─── */
 .smart-header {
   position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
   margin-bottom: var(--space-5);
   padding: 26px 28px;
   border-radius: var(--radius-xl);
@@ -2153,6 +2157,12 @@ textarea:focus { border-color: var(--accent-primary-light); }
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+}
+
+.smart-header-main {
+  position: relative;
+  min-width: 0;
+  flex: 1;
 }
 
 .smart-header-glow {
@@ -2336,6 +2346,8 @@ textarea:focus-visible, [tabindex]:focus-visible {
   .workload-controls { flex-direction: column; align-items: flex-start; }
   .achievements-grid { grid-template-columns: 1fr; }
   .smart-header h1 { font-size: 1.25rem; }
+  .smart-header { gap: 12px; }
+  .analog-clock { width: 42px; height: 42px; }
   .dependency-suggestions { max-height: 140px; }
 }
 
