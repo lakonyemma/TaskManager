@@ -11,8 +11,8 @@ const STORE_NAME = 'kv';
 const TOKEN_KEY = 'accessToken';
 
 // Bump these to invalidate old caches on the next deploy.
-const STATIC_CACHE = 'taskly-static-v1';
-const API_CACHE = 'taskly-api-v1';
+const STATIC_CACHE = 'taskly-static-v2';
+const API_CACHE = 'taskly-api-v2';
 const CACHE_ALLOWLIST = [STATIC_CACHE, API_CACHE];
 
 function openDb() {
@@ -94,7 +94,13 @@ self.addEventListener('activate', (event) => {
 });
 
 const isNavigationRequest = (request) => request.mode === 'navigate';
-const isStaticAsset = (url) => url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/') || url.pathname === '/manifest.json' || url.pathname === '/favicon.svg';
+// manifest.json has a fixed URL and its content can legitimately change
+// between deploys (unlike Vite's hashed /assets/* files) — caching it
+// cache-first meant a phone that had ever cached an old manifest would keep
+// showing its stale name/icons forever, no matter how many times the real
+// file was updated on the server.
+const isRevalidatedStatic = (url) => url.pathname === '/manifest.json';
+const isStaticAsset = (url) => url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/') || url.pathname === '/favicon.svg';
 const isApiGet = (request, url) => request.method === 'GET' && url.pathname.startsWith('/api/');
 
 // Network-first: try the network, cache a copy of anything that succeeds,
@@ -133,6 +139,10 @@ self.addEventListener('fetch', (event) => {
 
   if (isNavigationRequest(request)) {
     event.respondWith(networkFirst(request, STATIC_CACHE).catch(() => caches.match('/')));
+    return;
+  }
+  if (isRevalidatedStatic(url)) {
+    event.respondWith(networkFirst(request, STATIC_CACHE));
     return;
   }
   if (isStaticAsset(url)) {
