@@ -1054,6 +1054,7 @@ export default function DashboardApp() {
   useEffect(() => {
     if (!pendingOpenTaskId) return
     const found = tasks.find(tk => tk.id === pendingOpenTaskId)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (found) { setSelectedTask(found); setPendingOpenTaskId(null) }
   }, [tasks, pendingOpenTaskId])
 
