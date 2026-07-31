@@ -1,4 +1,4 @@
-import { lazy, Suspense, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { List } from 'react-window'
 import {
@@ -15,7 +15,10 @@ import { REMINDER_OFFSETS } from '../lib/reminders'
 import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
 import { cacheTasks, getCachedTasks, getOutboxCount, isOnline, queueMutation, syncOutbox, upsertCachedTask } from '../lib/offline'
 import { StatSummaryCards, type StatCardKey } from '../components/StatSummaryCards'
-import type { StatusCounts, TrendPoint } from '../components/TaskCharts'
+import { StatusDoughnutChart, StatusBarChart, CompletionTrendChart, type StatusCounts, type TrendPoint } from '../components/TaskCharts'
+import WorkloadCharts from '../components/WorkloadCharts'
+import InsightsPanel from '../components/InsightsPanel'
+import TaskCalendar from '../components/TaskCalendar'
 import Modal from '../components/Modal'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 import RecurrencePicker from '../components/RecurrencePicker'
@@ -36,25 +39,13 @@ import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
 import { SkeletonChart, SkeletonList, SkeletonStatCards } from '../components/Skeleton'
 
-// FullCalendar (TaskCalendar) is sizeable and only needed on its own tab —
-// code-split out of the main DashboardApp chunk (itself already
-// lazy-loaded from App.tsx) so visiting Tasks/Boards/Dashboard doesn't pay
-// for it.
-const TaskCalendar = lazy(() => import('../components/TaskCalendar'))
-
-// recharts alone is ~356KB — the single largest dependency in the app — and
-// was previously loaded eagerly just by DashboardApp importing TaskCharts
-// and InsightsPanel/WorkloadCharts, meaning it blocked the very first
-// screen after login (the Dashboard tab renders two of these charts
-// immediately). Splitting each chart out as its own lazy() still resolves
-// to one shared TaskCharts chunk (Vite dedupes repeated dynamic imports of
-// the same module), loaded once, only when a page that actually renders a
-// chart is visited.
-const StatusDoughnutChart = lazy(() => import('../components/TaskCharts').then(m => ({ default: m.StatusDoughnutChart })))
-const StatusBarChart = lazy(() => import('../components/TaskCharts').then(m => ({ default: m.StatusBarChart })))
-const CompletionTrendChart = lazy(() => import('../components/TaskCharts').then(m => ({ default: m.CompletionTrendChart })))
-const WorkloadCharts = lazy(() => import('../components/WorkloadCharts'))
-const InsightsPanel = lazy(() => import('../components/InsightsPanel'))
+// TaskCalendar/charts (recharts + FullCalendar) used to be split out of
+// this chunk via lazy() so the very first screen after login wasn't stuck
+// behind ~600KB of chart/calendar code. Now that the whole app opens
+// behind a fixed ~3s branded splash (AppSplashGate), that download happens
+// invisibly during the splash instead — so bundling them here trades a
+// slightly heavier one-time load (already hidden) for zero lazy-chunk
+// delay every time a different tab is opened afterward.
 import '../App.css'
 
 type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'workload'
@@ -699,9 +690,13 @@ export default function DashboardApp() {
       }
 
       try {
-        await request('/api/tasks', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) })
+        const d = await request('/api/tasks', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) }) as { task: Task }
         resetForm()
-        await loadTasks(); showMessage('Task added', 'success')
+        // Show the new task straight away instead of waiting on a full
+        // list refetch — the create response already carries every
+        // relation (tags, assignee, etc.) the list view needs.
+        setTasks(prev => [d.task, ...prev])
+        showMessage('Task added', 'success')
       } catch (err) {
         if (!(err instanceof TypeError)) throw err
         // Offline: queue the create and show it locally right away — synced
@@ -722,39 +717,59 @@ export default function DashboardApp() {
   }
 
   const handleMoveTask = async (taskId: string, nextStatus: string) => {
+    // Apply the move locally right away — the card/row shouldn't wait on a
+    // round trip to reflect a status change the user just made.
+    const previous = tasks
+    setTasks(prev => prev.map(tk => tk.id === taskId
+      ? { ...tk, status: nextStatus, completedAt: nextStatus === 'COMPLETED' ? new Date().toISOString() : null }
+      : tk))
     try {
       const d = await request(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ status: nextStatus }) }) as {
+        task: Task
         nextOccurrence?: { dueDate: string } | null
         newAchievements?: { name: string }[]
       }
-      await loadTasks()
+      setTasks(prev => prev.map(tk => tk.id === taskId ? d.task : tk))
       if (d.newAchievements && d.newAchievements.length > 0) {
         showMessage(`Achievement unlocked: ${d.newAchievements.map(a => a.name).join(', ')}`, 'success')
       } else if (d.nextOccurrence) {
         showMessage(`Task completed — next occurrence scheduled for ${new Date(d.nextOccurrence.dueDate).toLocaleDateString()}`, 'success')
+        // The next recurring occurrence lives server-side only — pick it up
+        // in the background without blocking the feedback above on it.
+        void loadTasks()
       }
     } catch (err) {
       if (!(err instanceof TypeError)) {
+        setTasks(previous)
         showMessage(err instanceof Error ? err.message : 'Unable to update task', 'error')
         return
       }
-      // Offline: queue the status change and reflect it immediately.
+      // Offline: queue the status change — local state already reflects it.
       await queueMutation({ type: 'update', taskId, payload: { status: nextStatus } })
-      const updated = tasks.map(tk => tk.id === taskId ? { ...tk, status: nextStatus, completedAt: nextStatus === 'COMPLETED' ? new Date().toISOString() : null } : tk)
-      setTasks(updated)
-      const changed = updated.find(tk => tk.id === taskId)
-      if (changed) await upsertCachedTask(changed as unknown as Record<string, unknown> & { id: string; workspaceId: string })
+      const changed = tasks.find(tk => tk.id === taskId)
+      if (changed) await upsertCachedTask({ ...changed, status: nextStatus } as unknown as Record<string, unknown> & { id: string; workspaceId: string })
       setPendingSyncCount(await getOutboxCount())
       showMessage("You're offline — change saved locally and will sync automatically", 'info')
     }
   }
 
   const handleSubtaskToggle = async (subtaskId: string, completed: boolean) => {
+    const nextStatus = completed ? 'COMPLETED' : 'TODO'
+    const previousTasks = tasks
+    const previousFocusTask = focusTask
+    setTasks(prev => prev.map(tk => tk.id === subtaskId
+      ? { ...tk, status: nextStatus, completedAt: completed ? new Date().toISOString() : null }
+      : tk.subtasks?.some(s => s.id === subtaskId)
+        ? { ...tk, subtasks: tk.subtasks!.map(s => s.id === subtaskId ? { ...s, status: nextStatus } : s) }
+        : tk))
+    setFocusTask(prev => prev ? { ...prev, subtasks: prev.subtasks.map(s => s.id === subtaskId ? { ...s, status: nextStatus } : s) } : prev)
     try {
-      await request(`/api/tasks/${subtaskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ status: completed ? 'COMPLETED' : 'TODO' }) })
-      await loadTasks()
-      setFocusTask(prev => prev ? { ...prev, subtasks: prev.subtasks.map(s => s.id === subtaskId ? { ...s, status: completed ? 'COMPLETED' : 'TODO' } : s) } : prev)
-    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update subtask', 'error') }
+      await request(`/api/tasks/${subtaskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ status: nextStatus }) })
+    } catch (err) {
+      setTasks(previousTasks)
+      setFocusTask(previousFocusTask)
+      showMessage(err instanceof Error ? err.message : 'Unable to update subtask', 'error')
+    }
   }
 
   const handleFocusComplete = async () => {
@@ -780,10 +795,15 @@ export default function DashboardApp() {
 
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm('Delete this task?')) return
+    const previous = tasks
+    setTasks(prev => prev.filter(tk => tk.id !== taskId))
     try {
       await request(`/api/tasks/${taskId}`, { method: 'DELETE' })
-      await loadTasks(); showMessage('Task deleted', 'info')
-    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to delete task', 'error') }
+      showMessage('Task deleted', 'info')
+    } catch (err) {
+      setTasks(previous)
+      showMessage(err instanceof Error ? err.message : 'Unable to delete task', 'error')
+    }
   }
 
   const handleInviteMember = async (e: FormEvent<HTMLFormElement>) => {
@@ -1148,54 +1168,74 @@ export default function DashboardApp() {
     }))
   }, [tasks])
 
+  // Every value below is derived purely from tasks/workspaces/members/
+  // reportsSummary/taskFilter, but was previously recomputed (15+ full
+  // array scans) on *every* render of this component — including renders
+  // triggered by unrelated state elsewhere in the file (a toast timer, a
+  // keystroke in a form). Memoizing keeps page switches and typing snappy
+  // on larger task lists. Runs before the `if (!user) return null` guard
+  // below (Hooks can't follow a conditional return), so it tolerates a
+  // null user rather than relying on that guard to narrow the type.
+  const {
+    selectedWs, myTasks, overdueTasks, upcomingDeadlines, dueTodayCount, upcomingWeekCount,
+    completedYesterdayCount, productivityDeltaPercent, myMembership, canManageMembers,
+    reviewTasks, statusCounts, reportStatusCounts, filteredTasks,
+  } = useMemo(() => {
+    const selectedWs = workspaces.find(w => w.id === selectedWorkspaceId)
+    const myTasks = tasks.filter(tk => tk.assignedToId === user?.id)
+    const overdueTasks = tasks.filter(tk => tk.dueDate && new Date(tk.dueDate) < new Date() && tk.status !== 'COMPLETED')
+    const upcomingDeadlines = tasks.filter(tk => tk.dueDate).sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()).slice(0, 5)
+
+    const todayStr = new Date().toDateString()
+    const dueTodayCount = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate).toDateString() === todayStr).length
+    const in7Days = new Date(); in7Days.setDate(in7Days.getDate() + 7)
+    const upcomingWeekCount = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate) > new Date() && new Date(tk.dueDate) <= in7Days).length
+    const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString() })()
+    const completedYesterdayCount = tasks.filter(tk => tk.completedAt && new Date(tk.completedAt).toDateString() === yesterdayStr).length
+    const productivityDeltaPercent = (() => {
+      const now = new Date().getTime(); const oneWeekMs = 7 * 24 * 60 * 60 * 1000
+      const thisWeek = tasks.filter(tk => tk.completedAt && (now - new Date(tk.completedAt).getTime()) < oneWeekMs).length
+      const lastWeek = tasks.filter(tk => tk.completedAt && (now - new Date(tk.completedAt).getTime()) >= oneWeekMs && (now - new Date(tk.completedAt).getTime()) < 2 * oneWeekMs).length
+      if (lastWeek === 0) return null
+      return Math.round(((thisWeek - lastWeek) / lastWeek) * 100)
+    })()
+    const myMembership = members.find(m => m.userId === user?.id)
+    const canManageMembers = myMembership && (myMembership.role === 'OWNER' || myMembership.role === 'ADMIN')
+
+    const totalTasks = tasks.length
+    const completedTasks = tasks.filter(tk => tk.status === 'COMPLETED').length
+    const inProgressTasks = tasks.filter(tk => tk.status === 'IN_PROGRESS').length
+    const todoTasks = tasks.filter(tk => tk.status === 'TODO').length
+    const reviewTasks = tasks.filter(tk => tk.status === 'REVIEW').length
+    const statusCounts: StatusCounts = { total: totalTasks, completed: completedTasks, inProgress: inProgressTasks, todo: todoTasks, overdue: overdueTasks.length, review: reviewTasks }
+    const reportStatusCounts: StatusCounts = reportsSummary
+      ? { total: reportsSummary.total, completed: reportsSummary.completed, inProgress: reportsSummary.inProgress, todo: Math.max(reportsSummary.total - reportsSummary.completed - reportsSummary.inProgress, 0), overdue: reportsSummary.overdue }
+      : statusCounts
+
+    const dueTodayTasks = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate).toDateString() === new Date().toDateString())
+    const dueThisWeekTasks = tasks.filter(tk => {
+      if (!tk.dueDate || tk.status === 'COMPLETED') return false
+      const due = new Date(tk.dueDate); const now = new Date(); const in7 = new Date(); in7.setDate(in7.getDate() + 7)
+      return due >= now && due <= in7
+    })
+
+    const filteredTasks = !taskFilter ? tasks
+      : taskFilter.kind === 'overdue' ? overdueTasks
+      : taskFilter.kind === 'mine' ? myTasks
+      : taskFilter.kind === 'tag' ? tasks.filter(tk => tk.tags?.some(tg => tg.id === taskFilter.tagId))
+      : taskFilter.kind === 'priority' ? tasks.filter(tk => tk.priority === taskFilter.priority)
+      : taskFilter.kind === 'dueToday' ? dueTodayTasks
+      : taskFilter.kind === 'dueWeek' ? dueThisWeekTasks
+      : tasks.filter(tk => tk.status === taskFilter.status)
+
+    return {
+      selectedWs, myTasks, overdueTasks, upcomingDeadlines, dueTodayCount, upcomingWeekCount,
+      completedYesterdayCount, productivityDeltaPercent, myMembership, canManageMembers,
+      reviewTasks, statusCounts, reportStatusCounts, filteredTasks,
+    }
+  }, [tasks, user?.id, workspaces, selectedWorkspaceId, members, reportsSummary, taskFilter])
+
   if (!user) return null
-
-  const selectedWs = workspaces.find(w => w.id === selectedWorkspaceId)
-  const myTasks = tasks.filter(tk => tk.assignedToId === user.id)
-  const overdueTasks = tasks.filter(tk => tk.dueDate && new Date(tk.dueDate) < new Date() && tk.status !== 'COMPLETED')
-  const upcomingDeadlines = tasks.filter(tk => tk.dueDate).sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime()).slice(0, 5)
-
-  const todayStr = new Date().toDateString()
-  const dueTodayCount = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate).toDateString() === todayStr).length
-  const in7Days = new Date(); in7Days.setDate(in7Days.getDate() + 7)
-  const upcomingWeekCount = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate) > new Date() && new Date(tk.dueDate) <= in7Days).length
-  const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toDateString() })()
-  const completedYesterdayCount = tasks.filter(tk => tk.completedAt && new Date(tk.completedAt).toDateString() === yesterdayStr).length
-  const productivityDeltaPercent = (() => {
-    const now = new Date().getTime(); const oneWeekMs = 7 * 24 * 60 * 60 * 1000
-    const thisWeek = tasks.filter(tk => tk.completedAt && (now - new Date(tk.completedAt).getTime()) < oneWeekMs).length
-    const lastWeek = tasks.filter(tk => tk.completedAt && (now - new Date(tk.completedAt).getTime()) >= oneWeekMs && (now - new Date(tk.completedAt).getTime()) < 2 * oneWeekMs).length
-    if (lastWeek === 0) return null
-    return Math.round(((thisWeek - lastWeek) / lastWeek) * 100)
-  })()
-  const myMembership = members.find(m => m.userId === user.id)
-  const canManageMembers = myMembership && (myMembership.role === 'OWNER' || myMembership.role === 'ADMIN')
-
-  const totalTasks = tasks.length
-  const completedTasks = tasks.filter(tk => tk.status === 'COMPLETED').length
-  const inProgressTasks = tasks.filter(tk => tk.status === 'IN_PROGRESS').length
-  const todoTasks = tasks.filter(tk => tk.status === 'TODO').length
-  const reviewTasks = tasks.filter(tk => tk.status === 'REVIEW').length
-  const statusCounts: StatusCounts = { total: totalTasks, completed: completedTasks, inProgress: inProgressTasks, todo: todoTasks, overdue: overdueTasks.length, review: reviewTasks }
-  const reportStatusCounts: StatusCounts = reportsSummary
-    ? { total: reportsSummary.total, completed: reportsSummary.completed, inProgress: reportsSummary.inProgress, todo: Math.max(reportsSummary.total - reportsSummary.completed - reportsSummary.inProgress, 0), overdue: reportsSummary.overdue }
-    : statusCounts
-
-  const dueTodayTasks = tasks.filter(tk => tk.dueDate && tk.status !== 'COMPLETED' && new Date(tk.dueDate).toDateString() === new Date().toDateString())
-  const dueThisWeekTasks = tasks.filter(tk => {
-    if (!tk.dueDate || tk.status === 'COMPLETED') return false
-    const due = new Date(tk.dueDate); const now = new Date(); const in7 = new Date(); in7.setDate(in7.getDate() + 7)
-    return due >= now && due <= in7
-  })
-
-  const filteredTasks = !taskFilter ? tasks
-    : taskFilter.kind === 'overdue' ? overdueTasks
-    : taskFilter.kind === 'mine' ? myTasks
-    : taskFilter.kind === 'tag' ? tasks.filter(tk => tk.tags?.some(tg => tg.id === taskFilter.tagId))
-    : taskFilter.kind === 'priority' ? tasks.filter(tk => tk.priority === taskFilter.priority)
-    : taskFilter.kind === 'dueToday' ? dueTodayTasks
-    : taskFilter.kind === 'dueWeek' ? dueThisWeekTasks
-    : tasks.filter(tk => tk.status === taskFilter.status)
 
   const QUICK_FILTERS: TaskFilter[] = [
     { kind: 'mine', label: 'My Tasks' },
