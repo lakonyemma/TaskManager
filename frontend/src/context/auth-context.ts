@@ -14,6 +14,7 @@ export type UserSession = {
   emailNotificationsEnabled?: boolean
   appLockEnabled?: boolean
   appLockTimeoutMinutes?: number
+  isSuperAdmin?: boolean
 }
 
 export type AuthContextValue = {

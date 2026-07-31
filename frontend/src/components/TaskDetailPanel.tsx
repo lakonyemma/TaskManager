@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlarmClock, GitBranch, Paperclip, Repeat, Send, Tag as TagIcon, X } from 'lucide-react'
+import { AlarmClock, Camera as CameraIcon, GitBranch, Paperclip, Repeat, Send, Tag as TagIcon, X } from 'lucide-react'
 import { authFetch, getStoredToken, jsonHeaders } from '../lib/api'
 import { REMINDER_OFFSETS, type ReminderSchedule } from '../lib/reminders'
 import type { RecurrenceConfig } from '../lib/recurrence'
 import DependencyPicker from './DependencyPicker'
 import RecurrencePicker from './RecurrencePicker'
 import TagBadge, { type TagRef } from './TagBadge'
+import CameraCapture from './CameraCapture'
 
 type DepTask = { id: string; title: string; status: string }
 
@@ -49,6 +50,7 @@ export default function TaskDetailPanel({
   const [newComment, setNewComment] = useState('')
   const [files, setFiles] = useState<FileAttachment[]>([])
   const [uploading, setUploading] = useState(false)
+  const [showCamera, setShowCamera] = useState(false)
   const [reminders, setReminders] = useState<ReminderSchedule[]>([])
   const [customReminderAt, setCustomReminderAt] = useState('')
   const [recurrenceDraft, setRecurrenceDraft] = useState<RecurrenceConfig>(recurrence)
@@ -182,10 +184,7 @@ export default function TaskDetailPanel({
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to delete comment', 'error') }
   }
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
+  const uploadFile = async (file: File) => {
     setUploading(true)
     try {
       const form = new FormData()
@@ -200,6 +199,13 @@ export default function TaskDetailPanel({
       onMessage('File uploaded', 'success')
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to upload file', 'error') }
     finally { setUploading(false) }
+  }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await uploadFile(file)
   }
 
   const handleDownload = async (file: FileAttachment) => {
@@ -294,10 +300,18 @@ export default function TaskDetailPanel({
         ))}
         {files.length === 0 && <p className="empty-column">No files attached</p>}
       </div>
-      <label className="secondary-btn upload-label">
-        {uploading ? 'Uploading…' : 'Attach a file'}
-        <input type="file" onChange={handleUpload} disabled={uploading} style={{ display: 'none' }} />
-      </label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <label className="secondary-btn upload-label">
+          {uploading ? 'Uploading…' : 'Attach a file'}
+          <input type="file" onChange={handleUpload} disabled={uploading} style={{ display: 'none' }} />
+        </label>
+        <button type="button" className="mini-btn secondary-btn" onClick={() => setShowCamera(true)} disabled={uploading}>
+          <CameraIcon size={13} /> Take photo
+        </button>
+      </div>
+      {showCamera && (
+        <CameraCapture onClose={() => setShowCamera(false)} onCapture={async (file) => { setShowCamera(false); await uploadFile(file) }} />
+      )}
 
       <h3 style={{ marginTop: 20 }}>Comments</h3>
       <div className="comment-list">

@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
   Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
-  User as UserIcon, Upload, Trash2, Lock,
+  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -30,6 +30,7 @@ import TagBadge, { type TagRef } from '../components/TagBadge'
 import TagManager from '../components/TagManager'
 import GlobalSearch from '../components/GlobalSearch'
 import AppLockGate from '../components/AppLockGate'
+import CameraCapture from '../components/CameraCapture'
 import EmptyState from '../components/EmptyState'
 import OnboardingWizard from '../components/OnboardingWizard'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
@@ -297,6 +298,7 @@ export default function DashboardApp() {
   const [settingsName, setSettingsName] = useState(() => user?.firstname || '')
   const [settingsLast, setSettingsLast] = useState(() => user?.lastName || '')
   const [avatarUploading, setAvatarUploading] = useState(false)
+  const [showAvatarCamera, setShowAvatarCamera] = useState(false)
   const avatarFileInputRef = useRef<HTMLInputElement>(null)
   const [settingsLang, setSettingsLang] = useState(() => user?.language || 'en')
   const [settingsFont, setSettingsFont] = useState(() => user?.fontStyle || 'default')
@@ -829,10 +831,7 @@ export default function DashboardApp() {
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to save', 'error') }
   }
 
-  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
+  const uploadAvatarFile = async (file: File) => {
     setAvatarUploading(true)
     try {
       const form = new FormData()
@@ -848,6 +847,13 @@ export default function DashboardApp() {
     } finally {
       setAvatarUploading(false)
     }
+  }
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await uploadAvatarFile(file)
   }
 
   const handleAvatarRemove = async () => {
@@ -1054,6 +1060,7 @@ export default function DashboardApp() {
   useEffect(() => {
     if (!pendingOpenTaskId) return
     const found = tasks.find(tk => tk.id === pendingOpenTaskId)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (found) { setSelectedTask(found); setPendingOpenTaskId(null) }
   }, [tasks, pendingOpenTaskId])
 
@@ -1263,6 +1270,12 @@ export default function DashboardApp() {
               <span className="nav-label">{t(page === 'tasks' ? 'myTasks' : page, settingsLang)}</span>
             </button>
           ))}
+          {user.isSuperAdmin && (
+            <button className="nav-item" onClick={() => navigate('/admin')} title={sidebarCollapsed ? 'Super Admin' : undefined}>
+              <span className="nav-icon"><ShieldCheck size={17} strokeWidth={1.8} /></span>
+              <span className="nav-label">Super Admin</span>
+            </button>
+          )}
         </nav>
         <div className="sidebar-footer">
           <div className="sidebar-user">
@@ -2066,6 +2079,9 @@ export default function DashboardApp() {
                         <button type="button" className="mini-btn secondary-btn" onClick={() => avatarFileInputRef.current?.click()} disabled={avatarUploading}>
                           <Upload size={13} /> {avatarUploading ? 'Uploading…' : 'Upload photo'}
                         </button>
+                        <button type="button" className="mini-btn secondary-btn" onClick={() => setShowAvatarCamera(true)} disabled={avatarUploading}>
+                          <Camera size={13} /> Take photo
+                        </button>
                         {user.avatarUrl && (
                           <button type="button" className="mini-btn danger-btn" onClick={handleAvatarRemove}><Trash2 size={13} /> Remove</button>
                         )}
@@ -2325,6 +2341,13 @@ export default function DashboardApp() {
             workspaceTags={tags}
           />
         </Modal>
+      )}
+
+      {showAvatarCamera && (
+        <CameraCapture
+          onClose={() => setShowAvatarCamera(false)}
+          onCapture={async (file) => { setShowAvatarCamera(false); await uploadAvatarFile(file) }}
+        />
       )}
 
       {showPasswordConfirm && (
