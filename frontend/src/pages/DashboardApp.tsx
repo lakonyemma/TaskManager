@@ -300,6 +300,7 @@ export default function DashboardApp() {
   const [avatarUploading, setAvatarUploading] = useState(false)
   const [showAvatarCamera, setShowAvatarCamera] = useState(false)
   const avatarFileInputRef = useRef<HTMLInputElement>(null)
+  const notifBellRef = useRef<HTMLDivElement>(null)
   const [settingsLang, setSettingsLang] = useState(() => user?.language || 'en')
   const [settingsFont, setSettingsFont] = useState(() => user?.fontStyle || 'default')
   const [settingsColor, setSettingsColor] = useState(() => user?.colorTheme || 'purple')
@@ -552,6 +553,17 @@ export default function DashboardApp() {
   useEffect(() => { if (navPage === 'notifications') loadNotifList() }, [navPage, loadNotifList])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'settings') { loadSessions(); loadAuditLogs() } }, [navPage, loadSessions, loadAuditLogs])
+
+  // Closes the notification dropdown on an outside click — same pattern as
+  // GlobalSearch's own click-outside handling.
+  useEffect(() => {
+    if (!showNotifs) return
+    const onClickOutside = (e: MouseEvent) => {
+      if (notifBellRef.current && !notifBellRef.current.contains(e.target as Node)) setShowNotifs(false)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [showNotifs])
 
   useEffect(() => {
     const interval = setInterval(loadNotifs, 30000)
@@ -1312,16 +1324,18 @@ export default function DashboardApp() {
               onSwitchWorkspace={setSelectedWorkspaceId}
               onGoToMember={() => setNavPage('team')}
             />
-            <div className="workspace-selector">
-              {workspaces.map(ws => (
-                <button key={ws.id} type="button"
-                  className={`workspace-chip ${selectedWorkspaceId === ws.id ? 'active' : ''}`}
-                  onClick={() => setSelectedWorkspaceId(ws.id)}>
-                  {ws.name}
-                </button>
-              ))}
-            </div>
-            <div className="notif-bell">
+            {workspaces.length > 1 && (
+              <div className="workspace-selector">
+                {workspaces.map(ws => (
+                  <button key={ws.id} type="button"
+                    className={`workspace-chip ${selectedWorkspaceId === ws.id ? 'active' : ''}`}
+                    onClick={() => setSelectedWorkspaceId(ws.id)}>
+                    {ws.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="notif-bell" ref={notifBellRef}>
               <button
                 type="button" className="notif-bell-btn"
                 onClick={() => { setShowNotifs(!showNotifs); if (!showNotifs) loadNotifList() }}
