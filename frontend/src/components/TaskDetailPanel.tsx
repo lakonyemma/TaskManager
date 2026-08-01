@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlarmClock, Camera as CameraIcon, GitBranch, Paperclip, Repeat, Send, Tag as TagIcon, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { AlarmClock, Camera as CameraIcon, Clock, GitBranch, Paperclip, Play, Repeat, Send, Square, Tag as TagIcon, Trash2, X } from 'lucide-react'
 import { authFetch, getStoredToken, jsonHeaders } from '../lib/api'
 import { REMINDER_OFFSETS, type ReminderSchedule } from '../lib/reminders'
 import type { RecurrenceConfig } from '../lib/recurrence'
@@ -22,6 +22,22 @@ type FileAttachment = {
   sizeBytes: number
   createdAt: string
   uploadedBy: { id: string; firstname: string; lastName: string }
+}
+
+type TimeEntryItem = {
+  id: string
+  minutes: number
+  note?: string | null
+  loggedAt: string
+  user: { id: string; firstname: string; lastName: string }
+}
+
+const ACTIVE_TIMER_KEY = 'taskly.activeTimer'
+const formatMinutes = (mins: number) => mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`
+const formatElapsed = (seconds: number) => {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0')
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0')
+  return `${m}:${s}`
 }
 
 const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`)
@@ -55,6 +71,15 @@ export default function TaskDetailPanel({
   const [customReminderAt, setCustomReminderAt] = useState('')
   const [recurrenceDraft, setRecurrenceDraft] = useState<RecurrenceConfig>(recurrence)
   const [savingRecurrence, setSavingRecurrence] = useState(false)
+  const [timeEntries, setTimeEntries] = useState<TimeEntryItem[]>([])
+  const [totalMinutes, setTotalMinutes] = useState(0)
+  const [manualMinutes, setManualMinutes] = useState('')
+  const [manualNote, setManualNote] = useState('')
+  const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [timerNote, setTimerNote] = useState('')
+  const [stoppingTimer, setStoppingTimer] = useState(false)
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setRecurrenceDraft(recurrence) }, [recurrence])
@@ -80,8 +105,38 @@ export default function TaskDetailPanel({
     } catch { setReminders([]) }
   }, [taskId])
 
+  const loadTimeEntries = useCallback(async () => {
+    try {
+      const d = await authFetch(`/api/tasks/${taskId}/time-entries`) as { entries: TimeEntryItem[]; totalMinutes: number }
+      setTimeEntries(d.entries || [])
+      setTotalMinutes(d.totalMinutes || 0)
+    } catch { setTimeEntries([]); setTotalMinutes(0) }
+  }, [taskId])
+
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadComments(); loadFiles(); loadReminders() }, [loadComments, loadFiles, loadReminders])
+  useEffect(() => { loadComments(); loadFiles(); loadReminders(); loadTimeEntries() }, [loadComments, loadFiles, loadReminders, loadTimeEntries])
+
+  // Resume an in-progress timer if this is the task it was started against
+  // (e.g. the task detail modal was closed and reopened while it ran).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ACTIVE_TIMER_KEY)
+      const active = raw ? JSON.parse(raw) as { taskId: string; startedAt: number } : null
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (active && active.taskId === taskId) setTimerStartedAt(active.startedAt)
+    } catch { /* ignore malformed localStorage value */ }
+  }, [taskId])
+
+  useEffect(() => {
+    if (timerStartedAt === null) {
+      if (tickRef.current) clearInterval(tickRef.current)
+      return
+    }
+    const tick = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - timerStartedAt) / 1000)))
+    tick()
+    tickRef.current = setInterval(tick, 1000)
+    return () => { if (tickRef.current) clearInterval(tickRef.current) }
+  }, [timerStartedAt])
 
   const activeOffsets = reminders.filter(r => r.offsetMinutes != null && r.status === 'PENDING').map(r => r.offsetMinutes as number)
   const canScheduleReminders = !!dueDate && !!assignedToId
@@ -165,6 +220,58 @@ export default function TaskDetailPanel({
       onTaskUpdated()
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to update recurrence', 'error') }
     finally { setSavingRecurrence(false) }
+  }
+
+  const startTimer = () => {
+    try {
+      const raw = localStorage.getItem(ACTIVE_TIMER_KEY)
+      const active = raw ? JSON.parse(raw) as { taskId: string; startedAt: number } : null
+      if (active && active.taskId !== taskId) {
+        onMessage('A timer is already running on another task — stop it first', 'error')
+        return
+      }
+    } catch { /* malformed stored value — fine to overwrite */ }
+    const startedAt = Date.now()
+    localStorage.setItem(ACTIVE_TIMER_KEY, JSON.stringify({ taskId, startedAt }))
+    setTimerStartedAt(startedAt)
+  }
+
+  const stopTimer = async () => {
+    if (timerStartedAt === null) return
+    const minutes = Math.max(1, Math.round((Date.now() - timerStartedAt) / 60000))
+    setStoppingTimer(true)
+    try {
+      await authFetch(`/api/tasks/${taskId}/time-entries`, {
+        method: 'POST', headers: jsonHeaders,
+        body: JSON.stringify({ minutes, note: timerNote.trim() || undefined, loggedAt: new Date(timerStartedAt).toISOString() }),
+      })
+      localStorage.removeItem(ACTIVE_TIMER_KEY)
+      setTimerStartedAt(null)
+      setElapsedSeconds(0)
+      setTimerNote('')
+      await loadTimeEntries()
+      onMessage(`Logged ${formatMinutes(minutes)}`, 'success')
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to log time', 'error') }
+    finally { setStoppingTimer(false) }
+  }
+
+  const handleLogTime = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const minutes = Math.round(Number(manualMinutes))
+    if (!minutes || minutes < 1) return
+    try {
+      await authFetch(`/api/tasks/${taskId}/time-entries`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ minutes, note: manualNote.trim() || undefined }) })
+      setManualMinutes(''); setManualNote('')
+      await loadTimeEntries()
+      onMessage(`Logged ${formatMinutes(minutes)}`, 'success')
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to log time', 'error') }
+  }
+
+  const handleDeleteTimeEntry = async (id: string) => {
+    try {
+      await authFetch(`/api/time-entries/${id}`, { method: 'DELETE' })
+      await loadTimeEntries()
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to delete time entry', 'error') }
   }
 
   const handleAddComment = async (e: FormEvent<HTMLFormElement>) => {
@@ -284,6 +391,55 @@ export default function TaskDetailPanel({
       <button type="button" className="mini-btn" style={{ marginTop: 8 }} onClick={saveRecurrence} disabled={savingRecurrence}>
         {savingRecurrence ? 'Saving…' : 'Save recurrence'}
       </button>
+
+      <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Clock size={14} strokeWidth={1.8} /> Time Tracking</h3>
+      <p className="time-tracking-total">Total logged: <strong>{formatMinutes(totalMinutes)}</strong></p>
+
+      <div className="time-tracking-timer">
+        {timerStartedAt === null ? (
+          <button type="button" className="mini-btn" onClick={startTimer}><Play size={13} /> Start timer</button>
+        ) : (
+          <>
+            <span className="time-tracking-elapsed">{formatElapsed(elapsedSeconds)}</span>
+            <input
+              value={timerNote}
+              onChange={e => setTimerNote(e.target.value)}
+              placeholder="What did you work on? (optional)"
+              style={{ flex: 1 }}
+            />
+            <button type="button" className="mini-btn danger-btn" onClick={stopTimer} disabled={stoppingTimer}>
+              <Square size={13} /> {stoppingTimer ? 'Logging…' : 'Stop & log'}
+            </button>
+          </>
+        )}
+      </div>
+
+      <form className="time-tracking-manual-form" onSubmit={handleLogTime}>
+        <input
+          type="number" min={1} step={1} inputMode="numeric"
+          value={manualMinutes} onChange={e => setManualMinutes(e.target.value)}
+          placeholder="Minutes"
+        />
+        <input value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Note (optional)" style={{ flex: 1 }} />
+        <button type="submit" className="mini-btn secondary-btn" disabled={!manualMinutes}>Log time</button>
+      </form>
+
+      {timeEntries.length > 0 && (
+        <div className="time-entry-list">
+          {timeEntries.map(entry => (
+            <div key={entry.id} className="time-entry-item">
+              <span className="time-entry-minutes">{formatMinutes(entry.minutes)}</span>
+              <span className="time-entry-meta">
+                {entry.user.firstname} {entry.user.lastName} · {new Date(entry.loggedAt).toLocaleDateString()}
+                {entry.note ? ` · ${entry.note}` : ''}
+              </span>
+              {(entry.user.id === currentUserId || canModerate) && (
+                <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTimeEntry(entry.id)} aria-label="Delete time entry"><Trash2 size={12} /></button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <h3 style={{ marginTop: 20 }}>Attachments</h3>
       <div className="attachment-list">

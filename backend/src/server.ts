@@ -26,6 +26,7 @@ import savedViewRoutes from "./features/savedViews/savedViewRoutes.js";
 import auditRoutes from "./features/audit/auditRoutes.js";
 import searchRoutes from "./features/search/searchRoutes.js";
 import focusRoutes from "./features/focus/focusRoutes.js";
+import timeEntryRoutes from "./features/timeEntries/timeEntryRoutes.js";
 import adminRoutes from "./features/admin/adminRoutes.js";
 import assistantRoutes from "./features/assistant/assistantRoutes.js";
 import { ensureAchievementsSeeded } from "./features/achievements/achievementService.js";
@@ -93,6 +94,7 @@ app.use("/api", savedViewRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/focus-sessions", focusRoutes);
+app.use("/api", timeEntryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/assistant", assistantRoutes);
 
