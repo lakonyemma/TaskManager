@@ -5,6 +5,7 @@ import { deleteObject } from "../files/storage.js";
 import { getMembership } from "../../utils/membership.js";
 import { findWorkspaceTemplate, WORKSPACE_TEMPLATES } from "./templates.js";
 import { syncTaskReminders } from "../reminders/reminderService.js";
+import { seedDefaultColumns } from "../boardColumns/defaultColumns.js";
 
 export const listWorkspaceTemplates = (_req: Request, res: Response) => {
     return res.status(200).json({
@@ -59,6 +60,9 @@ export const createWorkspace = async (req: Request, res: Response) => {
 
         await createActivityLog({ userId: authUser.id, action: `Created workspace ${workspace.name}`, workspaceId: workspace.id, entityType: "project_created", entityId: workspace.id });
 
+        const defaultColumns = await seedDefaultColumns(workspace.id);
+        const todoColumnId = defaultColumns.find((c) => c.mapsToStatus === "TODO")?.id;
+
         // Seed a handful of relevant tags + a short starter task list so the
         // workspace doesn't open to a completely blank slate.
         if (template) {
@@ -79,6 +83,7 @@ export const createWorkspace = async (req: Request, res: Response) => {
                         priority: taskDef.priority,
                         workspaceId: workspace.id,
                         assignedToId: authUser.id,
+                        columnId: todoColumnId,
                         dueDate,
                         ...(tagIds.length ? { tags: { connect: tagIds.map((id) => ({ id })) } } : {}),
                     },
