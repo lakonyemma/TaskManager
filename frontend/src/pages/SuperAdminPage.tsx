@@ -6,6 +6,7 @@ import {
 import { authFetch, jsonHeaders } from '../lib/api'
 import EmptyState from '../components/EmptyState'
 import { useAuth } from '../hooks/useAuth'
+import { useDialog } from '../hooks/useDialog'
 
 type Tab = 'overview' | 'users' | 'workspaces' | 'announcements' | 'audit'
 
@@ -30,6 +31,7 @@ const formatUptime = (seconds: number) => {
 export default function SuperAdminPage() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const { confirm } = useDialog()
   const [tab, setTab] = useState<Tab>('overview')
   const [message, setMessage] = useState('')
 
@@ -109,7 +111,7 @@ export default function SuperAdminPage() {
   useEffect(() => { if (tab === 'audit') loadAuditLogs() }, [tab, loadAuditLogs])
 
   const handleSuspend = async (id: string) => {
-    if (!confirm('Suspend this user? They will be signed out everywhere immediately.')) return
+    if (!(await confirm('Suspend this user? They will be signed out everywhere immediately.', { danger: true, confirmLabel: 'Suspend' }))) return
     try {
       await authFetch(`/api/admin/users/${id}/suspend`, { method: 'PATCH' })
       showMessage('User suspended')
@@ -126,7 +128,7 @@ export default function SuperAdminPage() {
   }
 
   const handleDisableWorkspace = async (id: string) => {
-    if (!confirm('Disable this workspace? Every member loses access until it is re-enabled.')) return
+    if (!(await confirm('Disable this workspace? Every member loses access until it is re-enabled.', { danger: true, confirmLabel: 'Disable' }))) return
     try {
       await authFetch(`/api/admin/workspaces/${id}/disable`, { method: 'PATCH' })
       showMessage('Workspace disabled')
@@ -145,7 +147,7 @@ export default function SuperAdminPage() {
   const handleSendAnnouncement = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!announceTitle.trim() || !announceMessage.trim()) return
-    if (!confirm('Send this announcement to every active user on the platform?')) return
+    if (!(await confirm('Send this announcement to every active user on the platform?', { confirmLabel: 'Send announcement' }))) return
     try {
       await authFetch('/api/admin/announcements', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ title: announceTitle, message: announceMessage }) })
       setAnnounceTitle(''); setAnnounceMessage('')
