@@ -94,6 +94,7 @@ model Workspace {
   files         File[]
   tags          Tag[]
   savedViews    SavedView[]
+  boardColumns  BoardColumn[]
 }
 
 model WorkspaceMember {
@@ -128,6 +129,12 @@ model Task {
   // the work of finishing it.
   completedById              String?
   estimatedMinutes           Int?
+  // Which custom board column this task currently sits in (Kanban display
+  // position only) — kept independent of `status` (see BoardColumn.
+  // mapsToStatus), so completion/reporting/achievement logic elsewhere
+  // keeps reading `status` unchanged regardless of how a workspace has
+  // customized its columns.
+  columnId                   String?
   // Client-generated idempotency key for offline-created tasks — lets the
   // sync layer safely retry a "create" mutation (e.g. after a dropped
   // response) without producing a duplicate task.
@@ -154,6 +161,7 @@ model Task {
   workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedTo        User?              @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
   completedBy       User?              @relation("CompletedTasks", fields: [completedById], references: [id], onDelete: SetNull)
+  column            BoardColumn?       @relation(fields: [columnId], references: [id], onDelete: SetNull)
   activityLogs      ActivityLog[]
   notifications     Notification[]
   comments          Comment[]
@@ -182,6 +190,29 @@ model Task {
   @@index([assignedToId, status])
   @@index([completedById, status])
   @@index([workspaceId, dueDate])
+  @@index([columnId])
+}
+
+// A workspace-scoped Kanban column. Tasks display in whichever column
+// `Task.columnId` points to; `mapsToStatus` is what that column actually
+// means for every status-based system elsewhere (achievements, reports,
+// insights, reminders, dependency-completion checks) — moving a task
+// between columns updates both `columnId` and `status` together (see
+// taskController.updateTask), so none of that logic needed to change to
+// support arbitrary custom columns.
+model BoardColumn {
+  id           String     @id @default(uuid())
+  workspaceId  String
+  name         String
+  color        String     @default("#8b5cf6")
+  order        Int
+  mapsToStatus TaskStatus @default(TODO)
+  createdAt    DateTime   @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  @@index([workspaceId])
 }
 
 // A workspace-scoped, reusable tag — replaces the earlier free-text

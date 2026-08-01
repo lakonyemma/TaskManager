@@ -58,6 +58,9 @@ type Toast = { id: string; title: string; body: string; taskId?: string | null }
 type Workspace = { id: string; name: string; description?: string | null }
 export type WorkspaceTemplateSummary = { id: string; name: string; description: string; taskCount: number }
 type DepRef = { id: string; title: string; status: string }
+type BoardColumnRef = { id: string; name: string; color: string; mapsToStatus: string }
+export type BoardColumn = BoardColumnRef & { workspaceId: string; order: number }
+
 export type Task = {
   id: string; title: string; description?: string | null; notes?: string | null; status: string; priority: string; workspaceId: string
   dueDate?: string | null; assignedToId?: string | null; completedAt?: string | null; updatedAt?: string
@@ -66,6 +69,7 @@ export type Task = {
   recurrenceInterval?: number | null; recurrenceDaysOfWeek?: number[]; recurrenceBusinessDaysOnly?: boolean
   recurrenceEndDate?: string | null; recurrenceCount?: number | null
   tags?: TagRef[]
+  columnId?: string | null; column?: BoardColumnRef | null
 }
 type Invitation = { id: string; email: string; workspaceId: string; token: string; status: string; expiresAt: string; role?: string; workspace?: { id: string; name: string } }
 type Member = { id: string; userId: string; role: string; user: { id: string; firstname: string; lastName: string; email: string; avatarUrl?: string | null } }
@@ -211,6 +215,7 @@ export default function DashboardApp() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
+  const [boardColumns, setBoardColumns] = useState<BoardColumn[]>([])
   const [workspaceName, setWorkspaceName] = useState('')
   const [workspaceDescription, setWorkspaceDescription] = useState('')
   const [workspaceTemplateId, setWorkspaceTemplateId] = useState('')
@@ -234,6 +239,9 @@ export default function DashboardApp() {
   const [boardAssigneeFilter, setBoardAssigneeFilter] = useState('')
   const [boardPriorityFilter, setBoardPriorityFilter] = useState('')
   const [boardTagFilter, setBoardTagFilter] = useState('')
+  const [manageColumns, setManageColumns] = useState(false)
+  const [newColumnName, setNewColumnName] = useState('')
+  const [newColumnStatus, setNewColumnStatus] = useState('TODO')
   type TaskFilter = { kind: 'status' | 'overdue' | 'mine' | 'tag' | 'priority' | 'dueToday' | 'dueWeek'; status?: string; tagId?: string; priority?: string; label: string }
   const [taskFilter, setTaskFilter] = useState<TaskFilter | null>(null)
   const [savedViews, setSavedViews] = useState<{ id: string; name: string; pinned: boolean; filters: TaskFilter }[]>([])
@@ -362,6 +370,14 @@ export default function DashboardApp() {
     } finally {
       setLoadingDashboard(false)
     }
+  }, [request, selectedWorkspaceId])
+
+  const loadBoardColumns = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    try {
+      const d = await request(`/api/workspaces/${selectedWorkspaceId}/board-columns`) as { columns: BoardColumn[] }
+      setBoardColumns(d.columns || [])
+    } catch { setBoardColumns([]) }
   }, [request, selectedWorkspaceId])
 
   const loadMyInvitations = useCallback(async () => {
@@ -552,7 +568,7 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews])
+  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews(); loadBoardColumns() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews, loadBoardColumns])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'reports') { loadReports(); loadFocusSessions() } }, [navPage, loadReports, loadFocusSessions])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -769,6 +785,51 @@ export default function DashboardApp() {
     }
   }
 
+  // Board drags move a task between *columns*, not directly between
+  // statuses — the server derives status from the column's mapsToStatus
+  // (see taskController.resolveColumnAndStatus) so every status-based
+  // system (achievements, reports, reminders, dependency checks) keeps
+  // working the same regardless of how a workspace has customized its
+  // columns.
+  const handleMoveTaskToColumn = async (taskId: string, columnId: string) => {
+    const targetColumn = boardColumns.find(c => c.id === columnId)
+    const previous = tasks
+    setTasks(prev => prev.map(tk => tk.id === taskId
+      ? {
+        ...tk,
+        columnId,
+        column: targetColumn ? { id: targetColumn.id, name: targetColumn.name, color: targetColumn.color, mapsToStatus: targetColumn.mapsToStatus } : tk.column,
+        status: targetColumn?.mapsToStatus || tk.status,
+        completedAt: targetColumn?.mapsToStatus === 'COMPLETED' ? new Date().toISOString() : tk.completedAt,
+      }
+      : tk))
+    try {
+      const d = await request(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ columnId }) }) as {
+        task: Task
+        nextOccurrence?: { dueDate: string } | null
+        newAchievements?: { name: string }[]
+      }
+      setTasks(prev => prev.map(tk => tk.id === taskId ? d.task : tk))
+      if (d.newAchievements && d.newAchievements.length > 0) {
+        showMessage(`Achievement unlocked: ${d.newAchievements.map(a => a.name).join(', ')}`, 'success')
+      } else if (d.nextOccurrence) {
+        showMessage(`Task completed — next occurrence scheduled for ${new Date(d.nextOccurrence.dueDate).toLocaleDateString()}`, 'success')
+        void loadTasks()
+      }
+    } catch (err) {
+      if (!(err instanceof TypeError)) {
+        setTasks(previous)
+        showMessage(err instanceof Error ? err.message : 'Unable to move task', 'error')
+        return
+      }
+      await queueMutation({ type: 'update', taskId, payload: { columnId } })
+      const changed = tasks.find(tk => tk.id === taskId)
+      if (changed) await upsertCachedTask({ ...changed, columnId } as unknown as Record<string, unknown> & { id: string; workspaceId: string })
+      setPendingSyncCount(await getOutboxCount())
+      showMessage("You're offline — change saved locally and will sync automatically", 'info')
+    }
+  }
+
   const handleSubtaskToggle = async (subtaskId: string, completed: boolean) => {
     const nextStatus = completed ? 'COMPLETED' : 'TODO'
     const previousTasks = tasks
@@ -820,6 +881,54 @@ export default function DashboardApp() {
       setTasks(previous)
       showMessage(err instanceof Error ? err.message : 'Unable to delete task', 'error')
     }
+  }
+
+  const handleCreateColumn = async (name: string, mapsToStatus: string) => {
+    if (!name.trim()) return
+    try {
+      await request(`/api/workspaces/${selectedWorkspaceId}/board-columns`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name: name.trim(), mapsToStatus }) })
+      await loadBoardColumns()
+      showMessage('Column added', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to add column', 'error') }
+  }
+
+  const handleRenameColumn = async (id: string, name: string) => {
+    if (!name.trim()) return
+    setBoardColumns(prev => prev.map(c => c.id === id ? { ...c, name: name.trim() } : c))
+    try {
+      await request(`/api/board-columns/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ name: name.trim() }) })
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to rename column', 'error'); await loadBoardColumns() }
+  }
+
+  const handleRecolorColumn = async (id: string, color: string) => {
+    setBoardColumns(prev => prev.map(c => c.id === id ? { ...c, color } : c))
+    try {
+      await request(`/api/board-columns/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ color }) })
+    } catch { /* non-critical cosmetic change — silently keep the optimistic value */ }
+  }
+
+  const handleReorderColumn = async (id: string, direction: -1 | 1) => {
+    const sorted = [...boardColumns].sort((a, b) => a.order - b.order)
+    const idx = sorted.findIndex(c => c.id === id)
+    const swapIdx = idx + direction
+    if (idx === -1 || swapIdx < 0 || swapIdx >= sorted.length) return
+    const a = sorted[idx], b = sorted[swapIdx]
+    setBoardColumns(prev => prev.map(c => c.id === a.id ? { ...c, order: b.order } : c.id === b.id ? { ...c, order: a.order } : c))
+    try {
+      await Promise.all([
+        request(`/api/board-columns/${a.id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ order: b.order }) }),
+        request(`/api/board-columns/${b.id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ order: a.order }) }),
+      ])
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to reorder columns', 'error'); await loadBoardColumns() }
+  }
+
+  const handleDeleteColumn = async (id: string) => {
+    if (!(await confirm('Delete this column? Any tasks in it move to another column with the same status, if one exists.', { danger: true, confirmLabel: 'Delete column' }))) return
+    try {
+      await request(`/api/board-columns/${id}`, { method: 'DELETE' })
+      await Promise.all([loadBoardColumns(), loadTasks()])
+      showMessage('Column deleted', 'info')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to delete column', 'error') }
   }
 
   const handleInviteMember = async (e: FormEvent<HTMLFormElement>) => {
@@ -1733,55 +1842,106 @@ export default function DashboardApp() {
                   {(boardAssigneeFilter || boardPriorityFilter || boardTagFilter) && (
                     <button type="button" className="mini-btn" onClick={() => { setBoardAssigneeFilter(''); setBoardPriorityFilter(''); setBoardTagFilter('') }}>Clear filters</button>
                   )}
+                  <button type="button" className={`mini-btn secondary-btn ${manageColumns ? 'active' : ''}`} style={{ marginLeft: 'auto' }} onClick={() => setManageColumns(m => !m)}>
+                    {manageColumns ? 'Done customizing' : 'Customize columns'}
+                  </button>
                 </div>
               </div>
-              <div className="kanban-board">
-                {statusColumns.map(status => {
-                  const columnTasks = tasks.filter(tk => tk.status === status
-                    && (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter))
-                    && (!boardPriorityFilter || tk.priority === boardPriorityFilter)
-                    && (!boardTagFilter || tk.tags?.some(tg => tg.id === boardTagFilter)))
-                  return (
-                  <div key={status} className="kanban-column">
-                    <h3>{status.replace('_', ' ')}</h3>
-                    {columnTasks.length === 0
-                      ? <p className="empty-column">{boardAssigneeFilter || boardPriorityFilter ? 'No matching tasks' : 'Nothing here yet'}</p>
-                      : columnTasks.map(tk => {
-                        const blocked = tk.dependsOn?.some(d => d.status !== 'COMPLETED')
-                        return (
-                          <div key={tk.id} className="task-card" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
-                            <strong>{tk.title}</strong>
-                            {tk.description && <p>{tk.description}</p>}
-                            <p className="task-meta">Priority: {tk.priority}</p>
-                            {tk.dueDate && <p className="task-meta">Due: {new Date(tk.dueDate).toLocaleDateString()}</p>}
-                            {tk.tags && tk.tags.length > 0 && (
-                              <div className="tag-row" style={{ marginBottom: 4 }}>
-                                {tk.tags.map(tag => <TagBadge key={tag.id} tag={tag} size="sm" />)}
-                              </div>
-                            )}
-                            {(blocked || tk.isRecurring || !!tk.blocks?.length || !!tk.relatedTo?.length) && (
-                              <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                                {blocked && <span className="status-badge blocked">Blocked</span>}
-                                {!!tk.blocks?.length && <span className="status-badge blocks">Blocks {tk.blocks.length}</span>}
-                                {!!tk.relatedTo?.length && <span className="status-badge related">Related {tk.relatedTo.length}</span>}
-                                {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
-                              </div>
-                            )}
-                            <div className="task-actions" onClick={e => e.stopPropagation()}>
-                              <button type="button" className="mini-btn" title="Focus on this task" onClick={() => openFocusMode(tk)}><Maximize2 size={13} /></button>
-                              {statusColumns.filter(c => c !== status).map(ns => (
-                                <button key={ns} type="button" className="mini-btn" style={{ background: '#1c1f30', color: '#94a3b8' }}
-                                  disabled={ns === 'COMPLETED' && blocked}
-                                  onClick={() => handleMoveTask(tk.id, ns)}>{ns.replace('_', ' ')}</button>
-                              ))}
+              {(() => {
+                const sortedColumns = [...boardColumns].sort((a, b) => a.order - b.order)
+                // Tasks created before a workspace had custom columns (or
+                // whose column was deleted with no same-status sibling to
+                // fall back to) have columnId === null — group those by
+                // matching status into the first column that means it.
+                const firstColumnIdForStatus = new Map<string, string>()
+                for (const col of sortedColumns) if (!firstColumnIdForStatus.has(col.mapsToStatus)) firstColumnIdForStatus.set(col.mapsToStatus, col.id)
+
+                return (
+                  <div className="kanban-board">
+                    {sortedColumns.map(col => {
+                      const columnTasks = tasks.filter(tk => (tk.columnId ? tk.columnId === col.id : firstColumnIdForStatus.get(tk.status) === col.id)
+                        && (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter))
+                        && (!boardPriorityFilter || tk.priority === boardPriorityFilter)
+                        && (!boardTagFilter || tk.tags?.some(tg => tg.id === boardTagFilter)))
+                      return (
+                        <div key={col.id} className="kanban-column">
+                          {manageColumns ? (
+                            <div className="kanban-column-manage-header">
+                              <input type="color" value={col.color} onChange={e => handleRecolorColumn(col.id, e.target.value)} title="Column color" />
+                              <input
+                                className="kanban-column-name-input"
+                                defaultValue={col.name}
+                                onBlur={e => { if (e.target.value.trim() && e.target.value.trim() !== col.name) handleRenameColumn(col.id, e.target.value) }}
+                                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                              />
+                              <button type="button" className="mini-btn secondary-btn" disabled={col.order === 0} onClick={() => handleReorderColumn(col.id, -1)} aria-label="Move column left">←</button>
+                              <button type="button" className="mini-btn secondary-btn" disabled={col.order === sortedColumns.length - 1} onClick={() => handleReorderColumn(col.id, 1)} aria-label="Move column right">→</button>
+                              <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteColumn(col.id)} aria-label={`Delete ${col.name} column`}><Trash2 size={12} /></button>
                             </div>
-                          </div>
-                        )
-                      })}
+                          ) : (
+                            <h3><span className="kanban-column-dot" style={{ background: col.color }} /> {col.name}</h3>
+                          )}
+                          {columnTasks.length === 0
+                            ? <p className="empty-column">{boardAssigneeFilter || boardPriorityFilter ? 'No matching tasks' : 'Nothing here yet'}</p>
+                            : columnTasks.map(tk => {
+                              const blocked = tk.dependsOn?.some(d => d.status !== 'COMPLETED')
+                              return (
+                                <div key={tk.id} className="task-card" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
+                                  <strong>{tk.title}</strong>
+                                  {tk.description && <p>{tk.description}</p>}
+                                  <p className="task-meta">Priority: {tk.priority}</p>
+                                  {tk.dueDate && <p className="task-meta">Due: {new Date(tk.dueDate).toLocaleDateString()}</p>}
+                                  {tk.tags && tk.tags.length > 0 && (
+                                    <div className="tag-row" style={{ marginBottom: 4 }}>
+                                      {tk.tags.map(tag => <TagBadge key={tag.id} tag={tag} size="sm" />)}
+                                    </div>
+                                  )}
+                                  {(blocked || tk.isRecurring || !!tk.blocks?.length || !!tk.relatedTo?.length) && (
+                                    <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                                      {blocked && <span className="status-badge blocked">Blocked</span>}
+                                      {!!tk.blocks?.length && <span className="status-badge blocks">Blocks {tk.blocks.length}</span>}
+                                      {!!tk.relatedTo?.length && <span className="status-badge related">Related {tk.relatedTo.length}</span>}
+                                      {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
+                                    </div>
+                                  )}
+                                  <div className="task-actions" onClick={e => e.stopPropagation()}>
+                                    <button type="button" className="mini-btn" title="Focus on this task" onClick={() => openFocusMode(tk)}><Maximize2 size={13} /></button>
+                                    <select
+                                      value=""
+                                      disabled={blocked && col.mapsToStatus !== 'COMPLETED'}
+                                      onChange={e => { if (e.target.value) handleMoveTaskToColumn(tk.id, e.target.value) }}
+                                    >
+                                      <option value="">Move to…</option>
+                                      {sortedColumns.filter(c => c.id !== col.id).map(c => (
+                                        <option key={c.id} value={c.id} disabled={c.mapsToStatus === 'COMPLETED' && blocked}>{c.name}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                        </div>
+                      )
+                    })}
+                    {manageColumns && (
+                      <div className="kanban-column kanban-column-add">
+                        <h3>Add column</h3>
+                        <input value={newColumnName} onChange={e => setNewColumnName(e.target.value)} placeholder="Column name" />
+                        <select value={newColumnStatus} onChange={e => setNewColumnStatus(e.target.value)}>
+                          <option value="TODO">Behaves like: To Do</option>
+                          <option value="IN_PROGRESS">Behaves like: In Progress</option>
+                          <option value="REVIEW">Behaves like: Review</option>
+                          <option value="COMPLETED">Behaves like: Done</option>
+                        </select>
+                        <button
+                          type="button" className="mini-btn" disabled={!newColumnName.trim()}
+                          onClick={async () => { await handleCreateColumn(newColumnName, newColumnStatus); setNewColumnName('') }}
+                        >Add column</button>
+                      </div>
+                    )}
                   </div>
-                  )
-                })}
-              </div>
+                )
+              })()}
             </>
           )}
 

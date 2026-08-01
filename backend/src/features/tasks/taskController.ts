@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import type { TaskStatus } from "../../../generated/prisma/client.js";
 import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
 import { getMembership } from "../../utils/membership.js";
@@ -15,9 +16,41 @@ const notifyAssignee = async (data: { userId: string; workspaceId: string; taskI
     await prisma.notification.create({ data });
 };
 
+// A board drag sends `columnId` (the more specific, intentional action);
+// the task detail dropdown and every other status-only caller sends
+// `status` directly. Either one drives the other, so every status-based
+// system elsewhere (achievements, reports, insights, reminders,
+// dependency-completion checks) keeps working unchanged no matter which UI
+// made the change — it only ever sees `status`, never the column.
+const resolveColumnAndStatus = async (
+    workspaceId: string,
+    input: { columnId?: string | null; status?: string; currentColumnId?: string | null },
+): Promise<{ columnId?: string | null; status?: TaskStatus }> => {
+    if (input.columnId !== undefined) {
+        if (input.columnId === null) return { columnId: null };
+        const column = await prisma.boardColumn.findUnique({ where: { id: input.columnId } });
+        if (column && column.workspaceId === workspaceId) return { columnId: column.id, status: column.mapsToStatus };
+        return {};
+    }
+    if (input.status !== undefined) {
+        // Keep the task in its current column if that column already means
+        // the new status — a workspace can have more than one column
+        // mapped to the same status (e.g. "In Progress" and "Blocked" both
+        // meaning IN_PROGRESS), and a non-board status change shouldn't
+        // silently move the task off a more specific column.
+        const current = input.currentColumnId ? await prisma.boardColumn.findUnique({ where: { id: input.currentColumnId } }) : null;
+        const column = current && current.workspaceId === workspaceId && current.mapsToStatus === input.status
+            ? current
+            : await prisma.boardColumn.findFirst({ where: { workspaceId, mapsToStatus: input.status as TaskStatus } });
+        return { columnId: column?.id ?? null, status: input.status as TaskStatus };
+    }
+    return {};
+};
+
 const TASK_INCLUDE = {
     assignedTo: { select: { id: true, firstname: true, lastName: true, email: true } },
     workspace: true,
+    column: { select: { id: true, name: true, color: true, mapsToStatus: true } },
     subtasks: { select: { id: true, title: true, status: true } },
     dependsOn: { select: { id: true, title: true, status: true } },
     blocks: { select: { id: true, title: true, status: true } },
@@ -153,7 +186,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
             tagIds, parentTaskId, isRecurring, recurrenceRule, dependsOn, relatedTaskIds,
             reminderOffsets, customReminderTimes,
             recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly, recurrenceEndDate, recurrenceCount,
-            estimatedMinutes, clientId,
+            estimatedMinutes, clientId, columnId,
         } = req.body;
         if (!title || !workspaceId) {
             return res.status(400).json({ message: "Title and workspaceId are required" });
@@ -212,14 +245,22 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
             validRelatedIds = refRelated.filter((t) => t.workspaceId === workspaceId).map((t) => t.id);
         }
 
+        const initialStatus = (status as TaskStatus) || "TODO";
+        const columnResolution = await resolveColumnAndStatus(workspaceId, { columnId, status: initialStatus });
+        const finalStatus = columnResolution.status || initialStatus;
+        const finalColumnId = columnResolution.columnId !== undefined
+            ? columnResolution.columnId
+            : (await resolveColumnAndStatus(workspaceId, { status: finalStatus })).columnId ?? null;
+
         const task = await prisma.task.create({
             data: {
                 title,
                 description,
                 priority: priority || "MEDIUM",
-                status: status || "TODO",
-                completedAt: status === "COMPLETED" ? new Date() : null,
-                completedById: status === "COMPLETED" ? authUser.id : null,
+                status: finalStatus,
+                columnId: finalColumnId,
+                completedAt: finalStatus === "COMPLETED" ? new Date() : null,
+                completedById: finalStatus === "COMPLETED" ? authUser.id : null,
                 workspaceId,
                 // Default to the creator when no assignee is picked — the UI's
                 // "assign to" dropdown intentionally excludes yourself (see the
@@ -308,15 +349,24 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         const {
             title, description, notes, priority, status, assignedToId, dueDate, tagIds, relatedTaskIds, reminderOffsets, customReminderTimes,
             dependsOn, isRecurring, recurrenceRule, recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly,
-            recurrenceEndDate, recurrenceCount, estimatedMinutes,
+            recurrenceEndDate, recurrenceCount, estimatedMinutes, columnId,
         } = req.body;
+
+        // Either `columnId` (a board drag) or `status` (everything else,
+        // e.g. the task detail dropdown) drives the other — see
+        // resolveColumnAndStatus. Resolved once up front so both the guest
+        // and general update paths below apply the same final values.
+        const columnResolution = (columnId !== undefined || status !== undefined)
+            ? await resolveColumnAndStatus(existingTask.workspaceId, { columnId, status, currentColumnId: existingTask.columnId })
+            : {};
+        const resolvedStatus = columnResolution.status ?? status;
 
         // A task can't be completed while it still has incomplete
         // dependencies. When `dependsOn` is part of this same request, check
         // against the newly-requested set rather than what's stored — the
         // two should agree, but the request is the more current intent.
         const checkDependencyBlock = async (): Promise<{ id: string; title: string; status: string }[]> => {
-            if (status !== "COMPLETED" || existingTask.status === "COMPLETED") return [];
+            if (resolvedStatus !== "COMPLETED" || existingTask.status === "COMPLETED") return [];
             const depIds: string[] = Array.isArray(dependsOn)
                 ? dependsOn
                 : (await prisma.task.findUnique({ where: { id }, select: { dependsOn: { select: { id: true } } } }))?.dependsOn.map((d) => d.id) ?? [];
@@ -337,9 +387,10 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
                 return res.status(409).json({ message: `Cannot complete this task — it depends on ${blockedBy.length} incomplete task(s): ${blockedBy.map((d) => d.title).join(", ")}`, blockedBy });
             }
 
-            const guestData: Record<string, unknown> = { status };
-            if (status === "COMPLETED" && existingTask.status !== "COMPLETED") { guestData.completedAt = new Date(); guestData.completedById = authUser.id; }
-            else if (status !== "COMPLETED" && existingTask.status === "COMPLETED") { guestData.completedAt = null; guestData.completedById = null; }
+            const guestData: Record<string, unknown> = { status: resolvedStatus };
+            if (columnResolution.columnId !== undefined) guestData.columnId = columnResolution.columnId;
+            if (resolvedStatus === "COMPLETED" && existingTask.status !== "COMPLETED") { guestData.completedAt = new Date(); guestData.completedById = authUser.id; }
+            else if (resolvedStatus !== "COMPLETED" && existingTask.status === "COMPLETED") { guestData.completedAt = null; guestData.completedById = null; }
             const task = await prisma.task.update({ where: { id }, data: guestData, include: TASK_INCLUDE });
             for (const change of describeTaskChanges(existingTask, task)) {
                 await createActivityLog({ userId: authUser.id, action: change.action, workspaceId: task.workspaceId, taskId: task.id, entityType: change.entityType, entityId: task.id, previousValue: change.previousValue, newValue: change.newValue });
@@ -381,11 +432,12 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         if (description !== undefined) data.description = description;
         if (notes !== undefined) data.notes = notes;
         if (priority !== undefined) data.priority = priority;
-        if (status !== undefined) {
-            data.status = status;
-            if (status === "COMPLETED" && existingTask.status !== "COMPLETED") { data.completedAt = new Date(); data.completedById = authUser.id; }
-            else if (status !== "COMPLETED" && existingTask.status === "COMPLETED") { data.completedAt = null; data.completedById = null; }
+        if (resolvedStatus !== undefined) {
+            data.status = resolvedStatus;
+            if (resolvedStatus === "COMPLETED" && existingTask.status !== "COMPLETED") { data.completedAt = new Date(); data.completedById = authUser.id; }
+            else if (resolvedStatus !== "COMPLETED" && existingTask.status === "COMPLETED") { data.completedAt = null; data.completedById = null; }
         }
+        if (columnResolution.columnId !== undefined) data.columnId = columnResolution.columnId;
         if (assignedToId !== undefined) data.assignedToId = assignedToId || null;
         if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
         if (estimatedMinutes !== undefined) data.estimatedMinutes = estimatedMinutes;
