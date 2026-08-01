@@ -17,6 +17,7 @@ import exportRoutes from "./features/export/exportRoutes.js";
 import pushRoutes from "./features/push/pushRoutes.js";
 import reminderRoutes from "./features/reminders/reminderRoutes.js";
 import { startReminderWorker } from "./features/reminders/reminderWorker.js";
+import { startDigestWorker } from "./features/digest/digestWorker.js";
 import achievementRoutes from "./features/achievements/achievementRoutes.js";
 import insightsRoutes from "./features/insights/insightsRoutes.js";
 import workloadRoutes from "./features/workload/workloadRoutes.js";
@@ -108,5 +109,6 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startReminderWorker();
+    startDigestWorker();
     ensureAchievementsSeeded().catch((error) => console.error("[achievements] Failed to seed catalog:", error));
 });

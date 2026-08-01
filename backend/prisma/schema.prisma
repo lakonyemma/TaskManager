@@ -357,14 +357,20 @@ model PushSubscription {
 }
 
 model NotificationPreference {
-  id                     String   @id @default(uuid())
-  userId                 String   @unique
-  pushEnabled            Boolean  @default(true)
-  soundEnabled           Boolean  @default(true)
-  vibrationEnabled       Boolean  @default(true)
-  defaultReminderMinutes Int[]    @default([15])
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                     String           @id @default(uuid())
+  userId                 String           @unique
+  pushEnabled            Boolean          @default(true)
+  soundEnabled           Boolean          @default(true)
+  vibrationEnabled       Boolean          @default(true)
+  defaultReminderMinutes Int[]            @default([15])
+  // "Here's what's due" email — off by default so opting in is a deliberate
+  // choice, not something everyone gets by default. digestWorker.ts polls
+  // for who's due one and uses lastDigestSentAt to avoid re-sending within
+  // the same period (24h for DAILY, 7d for WEEKLY) if the worker restarts.
+  digestFrequency        DigestFrequency  @default(OFF)
+  lastDigestSentAt       DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -513,4 +519,10 @@ enum NotificationType {
   WORKSPACE_INVITED
   DUE_DATE_REMINDER
   SYSTEM_ANNOUNCEMENT
+}
+
+enum DigestFrequency {
+  OFF
+  DAILY
+  WEEKLY
 }
