@@ -2453,6 +2453,30 @@ textarea:focus-visible, [tabindex]:focus-visible {
   font-size: 0.85rem;
 }
 
+.onboarding-template-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.onboarding-template-card {
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-swift), color var(--duration-fast) var(--ease-swift), transform var(--duration-fast) var(--ease-swift);
+}
+.onboarding-template-card:hover { transform: translateY(-1px); border-color: var(--accent-primary-light); }
+.onboarding-template-card.active {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary-light);
+  background: var(--accent-primary-soft);
+}
+
 .onboarding-skip {
   display: flex;
   align-items: center;

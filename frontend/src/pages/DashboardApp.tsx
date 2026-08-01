@@ -55,6 +55,7 @@ type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vi
 type Toast = { id: string; title: string; body: string; taskId?: string | null }
 
 type Workspace = { id: string; name: string; description?: string | null }
+export type WorkspaceTemplateSummary = { id: string; name: string; description: string; taskCount: number }
 type DepRef = { id: string; title: string; status: string }
 export type Task = {
   id: string; title: string; description?: string | null; notes?: string | null; status: string; priority: string; workspaceId: string
@@ -209,6 +210,8 @@ export default function DashboardApp() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [workspaceName, setWorkspaceName] = useState('')
   const [workspaceDescription, setWorkspaceDescription] = useState('')
+  const [workspaceTemplateId, setWorkspaceTemplateId] = useState('')
+  const [workspaceTemplates, setWorkspaceTemplates] = useState<WorkspaceTemplateSummary[]>([])
   const [deleteWorkspaceConfirm, setDeleteWorkspaceConfirm] = useState('')
   const [deletingWorkspace, setDeletingWorkspace] = useState(false)
   const [taskTitle, setTaskTitle] = useState('')
@@ -326,6 +329,13 @@ export default function DashboardApp() {
       setSelectedWorkspaceId(prev => prev || d.workspaces?.[0]?.id || '')
     } catch { setWorkspaces([]) }
     finally { setWorkspacesLoaded(true) }
+  }, [request])
+
+  const loadWorkspaceTemplates = useCallback(async () => {
+    try {
+      const d = await request('/api/workspaces/templates') as { templates: WorkspaceTemplateSummary[] }
+      setWorkspaceTemplates(d.templates || [])
+    } catch { setWorkspaceTemplates([]) }
   }, [request])
 
   const loadTasks = useCallback(async () => {
@@ -529,7 +539,7 @@ export default function DashboardApp() {
   // setState calls happen after an await, not synchronously during the effect —
   // safe, but the lint rule can't distinguish that from a genuine sync setState.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadWorkspaces(); loadMyInvitations(); loadNotifs(); loadNotifPrefs() }, [loadWorkspaces, loadMyInvitations, loadNotifs, loadNotifPrefs])
+  useEffect(() => { loadWorkspaces(); loadWorkspaceTemplates(); loadMyInvitations(); loadNotifs(); loadNotifPrefs() }, [loadWorkspaces, loadWorkspaceTemplates, loadMyInvitations, loadNotifs, loadNotifPrefs])
   // Onboarding kicks in the first time we know for certain the account has
   // zero workspaces — once triggered it stays on its own state (not tied
   // directly to workspace count) so the wizard's later steps aren't yanked
@@ -631,10 +641,11 @@ export default function DashboardApp() {
     try {
       const d = await request('/api/workspaces', {
         method: 'POST', headers: jsonHeaders,
-        body: JSON.stringify({ name: workspaceName, description: workspaceDescription }),
-      }) as { workspace: Workspace }
-      setWorkspaceName(''); setWorkspaceDescription(''); setSelectedWorkspaceId(d.workspace.id)
-      await loadWorkspaces(); showMessage('Workspace created', 'success')
+        body: JSON.stringify({ name: workspaceName, description: workspaceDescription, templateId: workspaceTemplateId || undefined }),
+      }) as { workspace: Workspace; template: { id: string; name: string } | null }
+      setWorkspaceName(''); setWorkspaceDescription(''); setWorkspaceTemplateId(''); setSelectedWorkspaceId(d.workspace.id)
+      await loadWorkspaces()
+      showMessage(d.template ? `Workspace created from the ${d.template.name} template` : 'Workspace created', 'success')
       return true
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create workspace', 'error'); return false }
   }
@@ -1302,6 +1313,7 @@ export default function DashboardApp() {
           workspaces={workspaces} selectedWorkspaceId={selectedWorkspaceId} onCreated={loadTasks} onMessage={showMessage}
           workspaceName={workspaceName} setWorkspaceName={setWorkspaceName}
           workspaceDescription={workspaceDescription} setWorkspaceDescription={setWorkspaceDescription}
+          workspaceTemplates={workspaceTemplates} workspaceTemplateId={workspaceTemplateId} setWorkspaceTemplateId={setWorkspaceTemplateId}
           onCreateWorkspace={handleCreateWorkspace}
         />
       )}
@@ -1466,6 +1478,7 @@ export default function DashboardApp() {
                   firstname={user.firstname}
                   workspaceName={workspaceName} setWorkspaceName={setWorkspaceName}
                   workspaceDescription={workspaceDescription} setWorkspaceDescription={setWorkspaceDescription}
+                  workspaceTemplates={workspaceTemplates} workspaceTemplateId={workspaceTemplateId} setWorkspaceTemplateId={setWorkspaceTemplateId}
                   onCreateWorkspace={handleCreateWorkspace}
                   languages={LANGUAGES} settingsLang={settingsLang} onLanguageChange={handleLanguageChange}
                   settingsColor={settingsColor} onColorChange={c => { setSettingsColor(c); document.documentElement.setAttribute('data-theme', c) }}
@@ -1794,6 +1807,12 @@ export default function DashboardApp() {
                 <form className="stack-form" onSubmit={handleCreateWorkspace}>
                   <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder={t('workspaceName', settingsLang)} required />
                   <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder={t('taskDescription', settingsLang)} />
+                  <select value={workspaceTemplateId} onChange={e => setWorkspaceTemplateId(e.target.value)} aria-label="Workspace template">
+                    <option value="">Blank workspace</option>
+                    {workspaceTemplates.map(tpl => (
+                      <option key={tpl.id} value={tpl.id}>{tpl.name} ({tpl.taskCount} starter tasks)</option>
+                    ))}
+                  </select>
                   <button type="submit">{t('addWorkspace', settingsLang)}</button>
                 </form>
               </div>

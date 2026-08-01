@@ -1,10 +1,11 @@
 import express from "express";
-import { createWorkspace, deleteWorkspace, listMembers, listWorkspaces, removeMember, updateMemberRole, updateWorkspace } from "./workspaceController.js";
+import { createWorkspace, deleteWorkspace, listMembers, listWorkspaces, listWorkspaceTemplates, removeMember, updateMemberRole, updateWorkspace } from "./workspaceController.js";
 import { authenticate } from "../../middleware/authMiddleware.js";
 
 const router = express.Router();
 
 router.get("/", authenticate, listWorkspaces);
+router.get("/templates", authenticate, listWorkspaceTemplates);
 router.post("/", authenticate, createWorkspace);
 router.patch("/:workspaceId", authenticate, updateWorkspace);
 router.delete("/:workspaceId", authenticate, deleteWorkspace);

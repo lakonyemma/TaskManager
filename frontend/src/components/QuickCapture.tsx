@@ -26,7 +26,8 @@ const PRIORITIES: ParsedTask['priority'][] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL
 // replacement for that fast path.
 export default function QuickCapture({
   workspaces, selectedWorkspaceId, onCreated, onMessage,
-  workspaceName, setWorkspaceName, workspaceDescription, setWorkspaceDescription, onCreateWorkspace,
+  workspaceName, setWorkspaceName, workspaceDescription, setWorkspaceDescription,
+  workspaceTemplates, workspaceTemplateId, setWorkspaceTemplateId, onCreateWorkspace,
 }: {
   workspaces: { id: string; name: string }[]
   selectedWorkspaceId: string
@@ -36,6 +37,9 @@ export default function QuickCapture({
   setWorkspaceName: (v: string) => void
   workspaceDescription: string
   setWorkspaceDescription: (v: string) => void
+  workspaceTemplates: { id: string; name: string; description: string; taskCount: number }[]
+  workspaceTemplateId: string
+  setWorkspaceTemplateId: (v: string) => void
   onCreateWorkspace: (e: FormEvent<HTMLFormElement>) => void | Promise<void> | Promise<boolean>
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -251,6 +255,18 @@ export default function QuickCapture({
           <form className="stack-form" onSubmit={handleWorkspaceSubmit}>
             <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder="Workspace name" required autoFocus />
             <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder="Description (optional)" />
+            <label className="quick-capture-field" style={{ marginTop: 4 }}>
+              <span>Template</span>
+              <select value={workspaceTemplateId} onChange={e => setWorkspaceTemplateId(e.target.value)}>
+                <option value="">Blank workspace</option>
+                {workspaceTemplates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}
+              </select>
+            </label>
+            {workspaceTemplateId && (
+              <p style={{ color: '#94a3b8', fontSize: '0.78rem', margin: '-4px 0 0' }}>
+                {workspaceTemplates.find(tpl => tpl.id === workspaceTemplateId)?.description}
+              </p>
+            )}
             <button type="submit" className="primary-btn">Create workspace</button>
           </form>
         </Modal>
