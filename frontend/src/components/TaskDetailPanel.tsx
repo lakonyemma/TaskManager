@@ -10,12 +10,18 @@ import CameraCapture from './CameraCapture'
 
 type DepTask = { id: string; title: string; status: string }
 
+type WorkspaceMemberRef = { id: string; firstname: string; lastName: string }
+
 type Comment = {
   id: string
   body: string
   createdAt: string
+  mentions?: string[]
   user: { id: string; firstname: string; lastName: string; avatarUrl?: string | null }
 }
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const mentionNameOf = (m: WorkspaceMemberRef) => `${m.firstname} ${m.lastName}`
 type FileAttachment = {
   id: string
   filename: string
@@ -29,6 +35,7 @@ const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes
 export default function TaskDetailPanel({
   taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId,
   dependsOn, blocks, relatedTo, workspaceTasks, recurrence, onTaskUpdated, taskTags, workspaceTags,
+  workspaceMembers,
 }: {
   taskId: string
   workspaceId: string
@@ -45,9 +52,12 @@ export default function TaskDetailPanel({
   onTaskUpdated: () => void
   taskTags: TagRef[]
   workspaceTags: TagRef[]
+  workspaceMembers: WorkspaceMemberRef[]
 }) {
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionedIds, setMentionedIds] = useState<string[]>([])
   const [files, setFiles] = useState<FileAttachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [showCamera, setShowCamera] = useState(false)
@@ -167,14 +177,50 @@ export default function TaskDetailPanel({
     finally { setSavingRecurrence(false) }
   }
 
+  const handleCommentInputChange = (value: string) => {
+    setNewComment(value)
+    const match = value.match(/(?:^|\s)@([a-zA-Z]*)$/)
+    setMentionQuery(match ? match[1] : null)
+  }
+
+  const mentionMatches = mentionQuery === null ? [] : workspaceMembers
+    .filter(m => m.id !== currentUserId && mentionNameOf(m).toLowerCase().includes(mentionQuery.toLowerCase()))
+    .slice(0, 5)
+
+  const selectMention = (member: WorkspaceMemberRef) => {
+    setNewComment(prev => prev.replace(/(?:^|\s)@([a-zA-Z]*)$/, match => `${match.startsWith(' ') ? ' ' : ''}@${mentionNameOf(member)} `))
+    setMentionedIds(prev => prev.includes(member.id) ? prev : [...prev, member.id])
+    setMentionQuery(null)
+  }
+
   const handleAddComment = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!newComment.trim()) return
+    // Only send mentions whose "@Full Name" text is still actually present —
+    // guards against a stale id if the user deleted the @mention after
+    // picking it from the dropdown.
+    const activeMentions = mentionedIds.filter(id => {
+      const member = workspaceMembers.find(m => m.id === id)
+      return member && newComment.includes(`@${mentionNameOf(member)}`)
+    })
     try {
-      await authFetch(`/api/tasks/${taskId}/comments`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ body: newComment }) })
+      await authFetch(`/api/tasks/${taskId}/comments`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ body: newComment, mentions: activeMentions }) })
       setNewComment('')
+      setMentionedIds([])
+      setMentionQuery(null)
       await loadComments()
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to add comment', 'error') }
+  }
+
+  const renderCommentBody = (comment: Comment) => {
+    const mentioned = workspaceMembers.filter(m => comment.mentions?.includes(m.id))
+    if (!mentioned.length) return comment.body
+    const pattern = new RegExp(`(${mentioned.map(m => escapeRegExp(`@${mentionNameOf(m)}`)).join('|')})`, 'g')
+    return comment.body.split(pattern).map((part, i) =>
+      mentioned.some(m => `@${mentionNameOf(m)}` === part)
+        ? <span key={i} className="comment-mention">{part}</span>
+        : part,
+    )
   }
 
   const handleDeleteComment = async (id: string) => {
@@ -324,13 +370,27 @@ export default function TaskDetailPanel({
                 <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteComment(c.id)}><X size={12} /></button>
               )}
             </div>
-            <p>{c.body}</p>
+            <p>{renderCommentBody(c)}</p>
           </div>
         ))}
         {comments.length === 0 && <p className="empty-column">No comments yet</p>}
       </div>
-      <form className="comment-form" onSubmit={handleAddComment}>
-        <input value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Write a comment…" />
+      <form className="comment-form" onSubmit={handleAddComment} style={{ position: 'relative' }}>
+        {mentionMatches.length > 0 && (
+          <div className="mention-dropdown">
+            {mentionMatches.map(m => (
+              <button key={m.id} type="button" className="mention-dropdown-item" onClick={() => selectMention(m)}>
+                {mentionNameOf(m)}
+              </button>
+            ))}
+          </div>
+        )}
+        <input
+          value={newComment}
+          onChange={e => handleCommentInputChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') setMentionQuery(null) }}
+          placeholder="Write a comment… (@ to mention someone)"
+        />
         <button type="submit" className="mini-btn" aria-label="Send comment"><Send size={14} /></button>
       </form>
     </div>

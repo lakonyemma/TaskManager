@@ -2460,6 +2460,7 @@ export default function DashboardApp() {
             onTaskUpdated={() => { loadTasks(); }}
             taskTags={selectedTask.tags || []}
             workspaceTags={tags}
+            workspaceMembers={members.map(m => ({ id: m.userId, firstname: m.user.firstname, lastName: m.user.lastName }))}
           />
         </Modal>
       )}
