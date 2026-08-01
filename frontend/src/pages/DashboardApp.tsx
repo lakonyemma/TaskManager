@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
   Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
-  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera,
+  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera, Bot,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -37,6 +37,7 @@ import AppLockGate from '../components/AppLockGate'
 import CameraCapture from '../components/CameraCapture'
 import EmptyState from '../components/EmptyState'
 import OnboardingWizard from '../components/OnboardingWizard'
+import AiAssistantPanel from '../components/AiAssistantPanel'
 import { TaskListRow, TaskListRowStatic } from '../components/TaskListRow'
 import { SkeletonChart, SkeletonList, SkeletonStatCards } from '../components/Skeleton'
 
@@ -49,7 +50,7 @@ import { SkeletonChart, SkeletonList, SkeletonStatCards } from '../components/Sk
 // delay every time a different tab is opened afterward.
 import '../App.css'
 
-type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'workload'
+type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'workload' | 'assistant'
 
 type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vibrationEnabled: boolean; defaultReminderMinutes: number[] }
 type Toast = { id: string; title: string; body: string; taskId?: string | null }
@@ -130,6 +131,7 @@ const navItems: { page: NavPage; label: string; icon: LucideIcon }[] = [
   { page: 'reports', label: 'Reports', icon: ChartColumn },
   { page: 'activity', label: 'Activity', icon: ActivityIcon },
   { page: 'notifications', label: 'Notifications', icon: BellRing },
+  { page: 'assistant', label: 'AI Assistant', icon: Bot },
   { page: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
@@ -180,6 +182,7 @@ const translations: TranslationMap = {
   welcome: { en: 'Welcome back', sw: 'Karibu tena', fr: 'Bon retour', ko: '다시 오신 것을 환영합니다', es: 'Bienvenido de nuevo', zh: '欢迎回来', lg: 'Tunakwaniriza' },
   notifications: { en: 'Notifications', sw: 'Arifa', fr: 'Notifications', ko: '알림', es: 'Notificaciones', zh: '通知', lg: 'Okutegeeza' },
   workload: { en: 'Workload', sw: 'Mzigo wa kazi', fr: 'Charge de travail', ko: '업무량', es: 'Carga de trabajo', zh: '工作量', lg: 'Omugugu' },
+  assistant: { en: 'AI Assistant', sw: 'Msaidizi wa AI', fr: 'Assistant IA', ko: 'AI 어시스턴트', es: 'Asistente de IA', zh: 'AI 助手', lg: 'Omuyambi wa AI' },
 }
 
 function t(key: string, lang: string): string {
@@ -2141,6 +2144,24 @@ export default function DashboardApp() {
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {navPage === 'assistant' && (
+            <div className="panel full-width">
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={16} strokeWidth={1.8} /> {t('assistant', settingsLang)}</h2>
+              <AiAssistantPanel
+                workspaceId={selectedWorkspaceId}
+                tasks={tasks}
+                statusColumns={statusColumns}
+                onSelectTask={setSelectedTask}
+                onMoveTask={handleMoveTask}
+                onDeleteTask={handleDeleteTask}
+                onFocusTask={openFocusMode}
+                onTaskCreated={loadTasks}
+                request={request}
+                showMessage={showMessage}
+              />
             </div>
           )}
 
