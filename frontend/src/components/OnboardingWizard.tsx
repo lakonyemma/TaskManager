@@ -10,7 +10,8 @@ const COLORS = ['purple', 'blue', 'green', 'orange', 'red', 'pink', 'teal', 'yel
 // steps, since those aren't real features of the app yet) rather than
 // padding it out with steps that wouldn't do anything.
 export default function OnboardingWizard({
-  firstname, workspaceName, setWorkspaceName, workspaceDescription, setWorkspaceDescription, onCreateWorkspace,
+  firstname, workspaceName, setWorkspaceName, workspaceDescription, setWorkspaceDescription,
+  workspaceTemplates, workspaceTemplateId, setWorkspaceTemplateId, onCreateWorkspace,
   languages, settingsLang, onLanguageChange, settingsColor, onColorChange, onFinish,
 }: {
   firstname: string
@@ -18,6 +19,9 @@ export default function OnboardingWizard({
   setWorkspaceName: (v: string) => void
   workspaceDescription: string
   setWorkspaceDescription: (v: string) => void
+  workspaceTemplates: { id: string; name: string; description: string; taskCount: number }[]
+  workspaceTemplateId: string
+  setWorkspaceTemplateId: (v: string) => void
   onCreateWorkspace: (e: FormEvent<HTMLFormElement>) => Promise<boolean>
   languages: Record<string, string>
   settingsLang: string
@@ -56,6 +60,35 @@ export default function OnboardingWizard({
           <form className="stack-form" style={{ maxWidth: 380 }} onSubmit={handleWorkspaceSubmit}>
             <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder="Workspace name" required autoFocus />
             <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder="Description (optional)" />
+            {workspaceTemplates.length > 0 && (
+              <div className="onboarding-field">
+                <span>Start from a template (optional)</span>
+                <div className="onboarding-template-grid">
+                  <button
+                    type="button"
+                    className={`onboarding-template-card ${!workspaceTemplateId ? 'active' : ''}`}
+                    onClick={() => setWorkspaceTemplateId('')}
+                  >
+                    Blank workspace
+                  </button>
+                  {workspaceTemplates.map(tpl => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      className={`onboarding-template-card ${workspaceTemplateId === tpl.id ? 'active' : ''}`}
+                      onClick={() => setWorkspaceTemplateId(tpl.id)}
+                    >
+                      {tpl.name}
+                    </button>
+                  ))}
+                </div>
+                {workspaceTemplateId && (
+                  <p className="onboarding-hint" style={{ margin: '8px 0 0' }}>
+                    {workspaceTemplates.find(tpl => tpl.id === workspaceTemplateId)?.description}
+                  </p>
+                )}
+              </div>
+            )}
             <button type="submit" className="primary-btn">Continue <ArrowRight size={14} /></button>
           </form>
         </div>

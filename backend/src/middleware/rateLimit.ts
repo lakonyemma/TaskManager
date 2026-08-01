@@ -57,3 +57,14 @@ export const pinVerifyRateLimiter = rateLimit({
     keyGenerator: (req: Request) => (req as Request & { user?: { id: string } }).user?.id || ipKeyGenerator(req.ip || "unknown"),
     message: { message: "Too many PIN attempts. Please try again later." },
 });
+
+// Every call here is a live Gemini API request — bounded per user to keep
+// one person's usage from burning through a shared free-tier quota.
+export const assistantRateLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => (req as Request & { user?: { id: string } }).user?.id || ipKeyGenerator(req.ip || "unknown"),
+    message: { message: "You've reached the AI assistant's hourly limit. Please try again later." },
+});

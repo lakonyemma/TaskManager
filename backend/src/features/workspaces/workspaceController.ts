@@ -3,6 +3,14 @@ import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
 import { deleteObject } from "../files/storage.js";
 import { getMembership } from "../../utils/membership.js";
+import { findWorkspaceTemplate, WORKSPACE_TEMPLATES } from "./templates.js";
+import { syncTaskReminders } from "../reminders/reminderService.js";
+
+export const listWorkspaceTemplates = (_req: Request, res: Response) => {
+    return res.status(200).json({
+        templates: WORKSPACE_TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, taskCount: t.tasks.length })),
+    });
+};
 
 export const listWorkspaces = async (req: Request, res: Response) => {
     try {
@@ -30,11 +38,12 @@ export const createWorkspace = async (req: Request, res: Response) => {
             return res.status(401).json({ message: "Authentication required" });
         }
 
-        const { name, description, type } = req.body;
+        const { name, description, type, templateId } = req.body;
         if (!name) {
             return res.status(400).json({ message: "Workspace name is required" });
         }
         const workspaceType = type === "TEAM" ? "TEAM" : "PERSONAL";
+        const template = findWorkspaceTemplate(templateId);
 
         const workspace = await prisma.workspace.create({
             data: {
@@ -50,7 +59,35 @@ export const createWorkspace = async (req: Request, res: Response) => {
 
         await createActivityLog({ userId: authUser.id, action: `Created workspace ${workspace.name}`, workspaceId: workspace.id, entityType: "project_created", entityId: workspace.id });
 
-        return res.status(201).json({ workspace });
+        // Seed a handful of relevant tags + a short starter task list so the
+        // workspace doesn't open to a completely blank slate.
+        if (template) {
+            const tagsByName = new Map<string, string>();
+            for (const tagDef of template.tags) {
+                const tag = await prisma.tag.create({ data: { name: tagDef.name, color: tagDef.color, workspaceId: workspace.id } });
+                tagsByName.set(tag.name, tag.id);
+            }
+
+            const now = Date.now();
+            for (const taskDef of template.tasks) {
+                const tagIds = (taskDef.tagNames || []).map((n) => tagsByName.get(n)).filter((id): id is string => !!id);
+                const dueDate = taskDef.dueInDays ? new Date(now + taskDef.dueInDays * 24 * 60 * 60 * 1000) : null;
+                const task = await prisma.task.create({
+                    data: {
+                        title: taskDef.title,
+                        description: taskDef.description,
+                        priority: taskDef.priority,
+                        workspaceId: workspace.id,
+                        assignedToId: authUser.id,
+                        dueDate,
+                        ...(tagIds.length ? { tags: { connect: tagIds.map((id) => ({ id })) } } : {}),
+                    },
+                });
+                if (task.dueDate) await syncTaskReminders(task);
+            }
+        }
+
+        return res.status(201).json({ workspace, template: template ? { id: template.id, name: template.name } : null });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });
