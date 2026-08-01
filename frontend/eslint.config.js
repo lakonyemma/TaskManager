@@ -18,5 +18,23 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Native browser dialogs block the whole tab (not just the app), can't
+      // be styled, and look out of place next to everything else being an
+      // in-app surface (toasts, modals, the PIN gate). Use useDialog()
+      // (confirm/prompt) or showMessage() instead.
+      'no-restricted-globals': [
+        'error',
+        { name: 'confirm', message: "Use useDialog()'s confirm() instead of the native browser confirm()." },
+        { name: 'alert', message: 'Use showMessage()/an in-app toast instead of the native browser alert().' },
+        { name: 'prompt', message: "Use useDialog()'s prompt() instead of the native browser prompt()." },
+      ],
+      'no-restricted-properties': [
+        'error',
+        { object: 'window', property: 'confirm', message: "Use useDialog()'s confirm() instead of the native browser confirm()." },
+        { object: 'window', property: 'alert', message: 'Use showMessage()/an in-app toast instead of the native browser alert().' },
+        { object: 'window', property: 'prompt', message: "Use useDialog()'s prompt() instead of the native browser prompt()." },
+      ],
+    },
   },
 ])

@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { useDialog } from '../hooks/useDialog'
 import { authFetch, getStoredToken, jsonHeaders, SessionExpiredError } from '../lib/api'
 import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sendTestPush, subscribeToPush, unsubscribeFromPush, type ServiceWorkerMessage } from '../lib/push'
 import { REMINDER_OFFSETS } from '../lib/reminders'
@@ -201,6 +202,7 @@ const ASSIGNABLE_ROLES = ['ADMIN', 'MANAGER', 'MEMBER']
 export default function DashboardApp() {
   const { user, setUser, logout: authLogout } = useAuth()
   const navigate = useNavigate()
+  const { confirm, prompt } = useDialog()
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
@@ -794,7 +796,7 @@ export default function DashboardApp() {
   }
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!confirm('Delete this task?')) return
+    if (!(await confirm('Delete this task?', { danger: true, confirmLabel: 'Delete' }))) return
     const previous = tasks
     setTasks(prev => prev.filter(tk => tk.id !== taskId))
     try {
@@ -847,7 +849,7 @@ export default function DashboardApp() {
   }
 
   const handleRemoveMember = async (memberId: string) => {
-    if (!confirm('Remove this member from the workspace?')) return
+    if (!(await confirm('Remove this member from the workspace?', { danger: true, confirmLabel: 'Remove' }))) return
     try {
       await request(`/api/workspaces/${selectedWorkspaceId}/members/${memberId}`, { method: 'DELETE' })
       await loadMembers(); showMessage('Member removed', 'info')
@@ -1003,7 +1005,7 @@ export default function DashboardApp() {
   }
 
   const handleLogoutAllDevices = async () => {
-    if (!confirm('This will sign you out on every device, including this one. Continue?')) return
+    if (!(await confirm('This will sign you out on every device, including this one. Continue?', { danger: true, confirmLabel: 'Sign out everywhere' }))) return
     try {
       await request('/api/auth/logout-all', { method: 'POST' })
       await authLogout(); navigate('/login')
@@ -1247,7 +1249,7 @@ export default function DashboardApp() {
 
   const handleSaveCurrentView = async () => {
     if (!taskFilter || !selectedWorkspaceId) return
-    const name = window.prompt('Name this saved view', taskFilter.label)
+    const name = await prompt('Name this saved view', { defaultValue: taskFilter.label, confirmLabel: 'Save view' })
     if (!name?.trim()) return
     try {
       await request(`/api/workspaces/${selectedWorkspaceId}/saved-views`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ name: name.trim(), filters: taskFilter }) })

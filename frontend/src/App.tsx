@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import DialogProvider from './context/DialogProvider'
 import ProtectedRoute from './components/ProtectedRoute'
 import SuperAdminRoute from './components/SuperAdminRoute'
 import AppSplashGate from './components/AppSplashGate'
@@ -21,35 +22,37 @@ function App() {
   return (
     <AuthProvider>
       <AppSplashGate>
-        <Routes>
-          <Route path="/" element={<EntryRedirect />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/verify-email" element={<VerifyEmailPage />} />
-          <Route path="/resend-verification" element={<ResendVerificationPage />} />
-          <Route path="/invite/:token" element={<InvitationAcceptPage />} />
-          <Route
-            path="/app/*"
-            element={
-              <ProtectedRoute>
-                <Suspense fallback={<div className="route-loading">Loading…</div>}>
-                  <DashboardApp />
-                </Suspense>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              <SuperAdminRoute>
-                <Suspense fallback={<div className="route-loading">Loading…</div>}>
-                  <SuperAdminPage />
-                </Suspense>
-              </SuperAdminRoute>
-            }
-          />
-          <Route path="*" element={<EntryRedirect />} />
-        </Routes>
+        <DialogProvider>
+          <Routes>
+            <Route path="/" element={<EntryRedirect />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/verify-email" element={<VerifyEmailPage />} />
+            <Route path="/resend-verification" element={<ResendVerificationPage />} />
+            <Route path="/invite/:token" element={<InvitationAcceptPage />} />
+            <Route
+              path="/app/*"
+              element={
+                <ProtectedRoute>
+                  <Suspense fallback={<div className="route-loading">Loading…</div>}>
+                    <DashboardApp />
+                  </Suspense>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <SuperAdminRoute>
+                  <Suspense fallback={<div className="route-loading">Loading…</div>}>
+                    <SuperAdminPage />
+                  </Suspense>
+                </SuperAdminRoute>
+              }
+            />
+            <Route path="*" element={<EntryRedirect />} />
+          </Routes>
+        </DialogProvider>
       </AppSplashGate>
     </AuthProvider>
   )

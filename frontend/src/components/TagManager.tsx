@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Trash2 } from 'lucide-react'
 import EmptyState from './EmptyState'
+import { useDialog } from '../hooks/useDialog'
 
 export type ManagedTag = { id: string; name: string; color: string; _count?: { tasks: number } }
 
@@ -16,6 +17,7 @@ export default function TagManager({
   onUpdate: (id: string, data: { name?: string; color?: string }) => void | Promise<void>
   onDelete: (id: string) => void | Promise<void>
 }) {
+  const { confirm } = useDialog()
   const [name, setName] = useState('')
   const [color, setColor] = useState(DEFAULT_COLOR)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -76,7 +78,7 @@ export default function TagManager({
               )}
               {typeof tag._count?.tasks === 'number' && <span className="tag-manager-count">{tag._count.tasks} task{tag._count.tasks === 1 ? '' : 's'}</span>}
               {canDelete && (
-                <button type="button" className="mini-btn danger-btn" onClick={() => { if (confirm(`Delete tag "${tag.name}"? It will be removed from every task.`)) onDelete(tag.id) }} aria-label={`Delete tag ${tag.name}`}>
+                <button type="button" className="mini-btn danger-btn" onClick={async () => { if (await confirm(`Delete tag "${tag.name}"? It will be removed from every task.`, { danger: true, confirmLabel: 'Delete' })) onDelete(tag.id) }} aria-label={`Delete tag ${tag.name}`}>
                   <Trash2 size={13} />
                 </button>
               )}
