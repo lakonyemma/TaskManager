@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { AlarmClock, Camera as CameraIcon, GitBranch, Paperclip, Repeat, Send, Tag as TagIcon, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { AlarmClock, Camera as CameraIcon, Clock, GitBranch, Paperclip, Play, Repeat, Send, Square, Tag as TagIcon, Trash2, X } from 'lucide-react'
 import { authFetch, getStoredToken, jsonHeaders } from '../lib/api'
 import { REMINDER_OFFSETS, type ReminderSchedule } from '../lib/reminders'
 import type { RecurrenceConfig } from '../lib/recurrence'
@@ -10,12 +10,18 @@ import CameraCapture from './CameraCapture'
 
 type DepTask = { id: string; title: string; status: string }
 
+type WorkspaceMemberRef = { id: string; firstname: string; lastName: string }
+
 type Comment = {
   id: string
   body: string
   createdAt: string
+  mentions?: string[]
   user: { id: string; firstname: string; lastName: string; avatarUrl?: string | null }
 }
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const mentionNameOf = (m: WorkspaceMemberRef) => `${m.firstname} ${m.lastName}`
 type FileAttachment = {
   id: string
   filename: string
@@ -24,11 +30,28 @@ type FileAttachment = {
   uploadedBy: { id: string; firstname: string; lastName: string }
 }
 
+type TimeEntryItem = {
+  id: string
+  minutes: number
+  note?: string | null
+  loggedAt: string
+  user: { id: string; firstname: string; lastName: string }
+}
+
+const ACTIVE_TIMER_KEY = 'taskly.activeTimer'
+const formatMinutes = (mins: number) => mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`
+const formatElapsed = (seconds: number) => {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0')
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0')
+  return `${m}:${s}`
+}
+
 const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`)
 
 export default function TaskDetailPanel({
   taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId,
   dependsOn, blocks, relatedTo, workspaceTasks, recurrence, onTaskUpdated, taskTags, workspaceTags,
+  workspaceMembers,
 }: {
   taskId: string
   workspaceId: string
@@ -45,9 +68,12 @@ export default function TaskDetailPanel({
   onTaskUpdated: () => void
   taskTags: TagRef[]
   workspaceTags: TagRef[]
+  workspaceMembers: WorkspaceMemberRef[]
 }) {
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionedIds, setMentionedIds] = useState<string[]>([])
   const [files, setFiles] = useState<FileAttachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [showCamera, setShowCamera] = useState(false)
@@ -55,6 +81,15 @@ export default function TaskDetailPanel({
   const [customReminderAt, setCustomReminderAt] = useState('')
   const [recurrenceDraft, setRecurrenceDraft] = useState<RecurrenceConfig>(recurrence)
   const [savingRecurrence, setSavingRecurrence] = useState(false)
+  const [timeEntries, setTimeEntries] = useState<TimeEntryItem[]>([])
+  const [totalMinutes, setTotalMinutes] = useState(0)
+  const [manualMinutes, setManualMinutes] = useState('')
+  const [manualNote, setManualNote] = useState('')
+  const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [timerNote, setTimerNote] = useState('')
+  const [stoppingTimer, setStoppingTimer] = useState(false)
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setRecurrenceDraft(recurrence) }, [recurrence])
@@ -80,8 +115,38 @@ export default function TaskDetailPanel({
     } catch { setReminders([]) }
   }, [taskId])
 
+  const loadTimeEntries = useCallback(async () => {
+    try {
+      const d = await authFetch(`/api/tasks/${taskId}/time-entries`) as { entries: TimeEntryItem[]; totalMinutes: number }
+      setTimeEntries(d.entries || [])
+      setTotalMinutes(d.totalMinutes || 0)
+    } catch { setTimeEntries([]); setTotalMinutes(0) }
+  }, [taskId])
+
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadComments(); loadFiles(); loadReminders() }, [loadComments, loadFiles, loadReminders])
+  useEffect(() => { loadComments(); loadFiles(); loadReminders(); loadTimeEntries() }, [loadComments, loadFiles, loadReminders, loadTimeEntries])
+
+  // Resume an in-progress timer if this is the task it was started against
+  // (e.g. the task detail modal was closed and reopened while it ran).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ACTIVE_TIMER_KEY)
+      const active = raw ? JSON.parse(raw) as { taskId: string; startedAt: number } : null
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (active && active.taskId === taskId) setTimerStartedAt(active.startedAt)
+    } catch { /* ignore malformed localStorage value */ }
+  }, [taskId])
+
+  useEffect(() => {
+    if (timerStartedAt === null) {
+      if (tickRef.current) clearInterval(tickRef.current)
+      return
+    }
+    const tick = () => setElapsedSeconds(Math.max(0, Math.floor((Date.now() - timerStartedAt) / 1000)))
+    tick()
+    tickRef.current = setInterval(tick, 1000)
+    return () => { if (tickRef.current) clearInterval(tickRef.current) }
+  }, [timerStartedAt])
 
   const activeOffsets = reminders.filter(r => r.offsetMinutes != null && r.status === 'PENDING').map(r => r.offsetMinutes as number)
   const canScheduleReminders = !!dueDate && !!assignedToId
@@ -167,14 +232,102 @@ export default function TaskDetailPanel({
     finally { setSavingRecurrence(false) }
   }
 
+  const startTimer = () => {
+    try {
+      const raw = localStorage.getItem(ACTIVE_TIMER_KEY)
+      const active = raw ? JSON.parse(raw) as { taskId: string; startedAt: number } : null
+      if (active && active.taskId !== taskId) {
+        onMessage('A timer is already running on another task — stop it first', 'error')
+        return
+      }
+    } catch { /* malformed stored value — fine to overwrite */ }
+    const startedAt = Date.now()
+    localStorage.setItem(ACTIVE_TIMER_KEY, JSON.stringify({ taskId, startedAt }))
+    setTimerStartedAt(startedAt)
+  }
+
+  const stopTimer = async () => {
+    if (timerStartedAt === null) return
+    const minutes = Math.max(1, Math.round((Date.now() - timerStartedAt) / 60000))
+    setStoppingTimer(true)
+    try {
+      await authFetch(`/api/tasks/${taskId}/time-entries`, {
+        method: 'POST', headers: jsonHeaders,
+        body: JSON.stringify({ minutes, note: timerNote.trim() || undefined, loggedAt: new Date(timerStartedAt).toISOString() }),
+      })
+      localStorage.removeItem(ACTIVE_TIMER_KEY)
+      setTimerStartedAt(null)
+      setElapsedSeconds(0)
+      setTimerNote('')
+      await loadTimeEntries()
+      onMessage(`Logged ${formatMinutes(minutes)}`, 'success')
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to log time', 'error') }
+    finally { setStoppingTimer(false) }
+  }
+
+  const handleLogTime = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const minutes = Math.round(Number(manualMinutes))
+    if (!minutes || minutes < 1) return
+    try {
+      await authFetch(`/api/tasks/${taskId}/time-entries`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ minutes, note: manualNote.trim() || undefined }) })
+      setManualMinutes(''); setManualNote('')
+      await loadTimeEntries()
+      onMessage(`Logged ${formatMinutes(minutes)}`, 'success')
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to log time', 'error') }
+  }
+
+  const handleDeleteTimeEntry = async (id: string) => {
+    try {
+      await authFetch(`/api/time-entries/${id}`, { method: 'DELETE' })
+      await loadTimeEntries()
+    } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to delete time entry', 'error') }
+  }
+
+  const handleCommentInputChange = (value: string) => {
+    setNewComment(value)
+    const match = value.match(/(?:^|\s)@([a-zA-Z]*)$/)
+    setMentionQuery(match ? match[1] : null)
+  }
+
+  const mentionMatches = mentionQuery === null ? [] : workspaceMembers
+    .filter(m => m.id !== currentUserId && mentionNameOf(m).toLowerCase().includes(mentionQuery.toLowerCase()))
+    .slice(0, 5)
+
+  const selectMention = (member: WorkspaceMemberRef) => {
+    setNewComment(prev => prev.replace(/(?:^|\s)@([a-zA-Z]*)$/, match => `${match.startsWith(' ') ? ' ' : ''}@${mentionNameOf(member)} `))
+    setMentionedIds(prev => prev.includes(member.id) ? prev : [...prev, member.id])
+    setMentionQuery(null)
+  }
+
   const handleAddComment = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!newComment.trim()) return
+    // Only send mentions whose "@Full Name" text is still actually present —
+    // guards against a stale id if the user deleted the @mention after
+    // picking it from the dropdown.
+    const activeMentions = mentionedIds.filter(id => {
+      const member = workspaceMembers.find(m => m.id === id)
+      return member && newComment.includes(`@${mentionNameOf(member)}`)
+    })
     try {
-      await authFetch(`/api/tasks/${taskId}/comments`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ body: newComment }) })
+      await authFetch(`/api/tasks/${taskId}/comments`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ body: newComment, mentions: activeMentions }) })
       setNewComment('')
+      setMentionedIds([])
+      setMentionQuery(null)
       await loadComments()
     } catch (err) { onMessage(err instanceof Error ? err.message : 'Unable to add comment', 'error') }
+  }
+
+  const renderCommentBody = (comment: Comment) => {
+    const mentioned = workspaceMembers.filter(m => comment.mentions?.includes(m.id))
+    if (!mentioned.length) return comment.body
+    const pattern = new RegExp(`(${mentioned.map(m => escapeRegExp(`@${mentionNameOf(m)}`)).join('|')})`, 'g')
+    return comment.body.split(pattern).map((part, i) =>
+      mentioned.some(m => `@${mentionNameOf(m)}` === part)
+        ? <span key={i} className="comment-mention">{part}</span>
+        : part,
+    )
   }
 
   const handleDeleteComment = async (id: string) => {
@@ -285,6 +438,55 @@ export default function TaskDetailPanel({
         {savingRecurrence ? 'Saving…' : 'Save recurrence'}
       </button>
 
+      <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Clock size={14} strokeWidth={1.8} /> Time Tracking</h3>
+      <p className="time-tracking-total">Total logged: <strong>{formatMinutes(totalMinutes)}</strong></p>
+
+      <div className="time-tracking-timer">
+        {timerStartedAt === null ? (
+          <button type="button" className="mini-btn" onClick={startTimer}><Play size={13} /> Start timer</button>
+        ) : (
+          <>
+            <span className="time-tracking-elapsed">{formatElapsed(elapsedSeconds)}</span>
+            <input
+              value={timerNote}
+              onChange={e => setTimerNote(e.target.value)}
+              placeholder="What did you work on? (optional)"
+              style={{ flex: 1 }}
+            />
+            <button type="button" className="mini-btn danger-btn" onClick={stopTimer} disabled={stoppingTimer}>
+              <Square size={13} /> {stoppingTimer ? 'Logging…' : 'Stop & log'}
+            </button>
+          </>
+        )}
+      </div>
+
+      <form className="time-tracking-manual-form" onSubmit={handleLogTime}>
+        <input
+          type="number" min={1} step={1} inputMode="numeric"
+          value={manualMinutes} onChange={e => setManualMinutes(e.target.value)}
+          placeholder="Minutes"
+        />
+        <input value={manualNote} onChange={e => setManualNote(e.target.value)} placeholder="Note (optional)" style={{ flex: 1 }} />
+        <button type="submit" className="mini-btn secondary-btn" disabled={!manualMinutes}>Log time</button>
+      </form>
+
+      {timeEntries.length > 0 && (
+        <div className="time-entry-list">
+          {timeEntries.map(entry => (
+            <div key={entry.id} className="time-entry-item">
+              <span className="time-entry-minutes">{formatMinutes(entry.minutes)}</span>
+              <span className="time-entry-meta">
+                {entry.user.firstname} {entry.user.lastName} · {new Date(entry.loggedAt).toLocaleDateString()}
+                {entry.note ? ` · ${entry.note}` : ''}
+              </span>
+              {(entry.user.id === currentUserId || canModerate) && (
+                <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteTimeEntry(entry.id)} aria-label="Delete time entry"><Trash2 size={12} /></button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <h3 style={{ marginTop: 20 }}>Attachments</h3>
       <div className="attachment-list">
         {files.map(f => (
@@ -324,13 +526,27 @@ export default function TaskDetailPanel({
                 <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteComment(c.id)}><X size={12} /></button>
               )}
             </div>
-            <p>{c.body}</p>
+            <p>{renderCommentBody(c)}</p>
           </div>
         ))}
         {comments.length === 0 && <p className="empty-column">No comments yet</p>}
       </div>
-      <form className="comment-form" onSubmit={handleAddComment}>
-        <input value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Write a comment…" />
+      <form className="comment-form" onSubmit={handleAddComment} style={{ position: 'relative' }}>
+        {mentionMatches.length > 0 && (
+          <div className="mention-dropdown">
+            {mentionMatches.map(m => (
+              <button key={m.id} type="button" className="mention-dropdown-item" onClick={() => selectMention(m)}>
+                {mentionNameOf(m)}
+              </button>
+            ))}
+          </div>
+        )}
+        <input
+          value={newComment}
+          onChange={e => handleCommentInputChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') setMentionQuery(null) }}
+          placeholder="Write a comment… (@ to mention someone)"
+        />
         <button type="submit" className="mini-btn" aria-label="Send comment"><Send size={14} /></button>
       </form>
     </div>

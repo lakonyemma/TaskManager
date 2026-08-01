@@ -161,7 +161,7 @@ export const updateNotificationPreferences = async (req: Request, res: Response)
             return res.status(401).json({ message: "Authentication required" });
         }
 
-        const { pushEnabled, soundEnabled, vibrationEnabled, defaultReminderMinutes } = req.body;
+        const { pushEnabled, soundEnabled, vibrationEnabled, defaultReminderMinutes, digestFrequency } = req.body;
 
         const data: Record<string, unknown> = {};
         if (pushEnabled !== undefined) data.pushEnabled = !!pushEnabled;
@@ -172,6 +172,9 @@ export const updateNotificationPreferences = async (req: Request, res: Response)
                 .map((m: unknown) => Number(m))
                 .filter((m: number) => Number.isFinite(m) && m > 0 && m <= 44640);
             data.defaultReminderMinutes = minutes;
+        }
+        if (["OFF", "DAILY", "WEEKLY"].includes(digestFrequency)) {
+            data.digestFrequency = digestFrequency;
         }
 
         const preferences = await prisma.notificationPreference.upsert({

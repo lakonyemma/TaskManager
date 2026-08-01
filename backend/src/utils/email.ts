@@ -160,6 +160,52 @@ export const sendInvitationEmail = async (
     await sendMail(to, `You're invited to join ${workspaceName} on Taskly`, html, "Accept link", acceptUrl);
 };
 
+type DigestTaskLine = { title: string; dueDate: Date | null };
+
+// bodyHtml renders inside a single <p> in emailShell — <br/>-joined lines
+// keep this compatible with email clients that mangle nested block elements
+// (Outlook in particular), rather than introducing a second shell variant
+// for one template.
+const formatDigestLine = (t: DigestTaskLine) => {
+    const due = t.dueDate ? ` — due ${t.dueDate.toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "";
+    return `• ${t.title}${due}`;
+};
+
+const digestSection = (label: string, items: DigestTaskLine[], cap = 8) => {
+    if (!items.length) return "";
+    const shown = items.slice(0, cap).map(formatDigestLine).join("<br/>");
+    const more = items.length > cap ? `<br/>+ ${items.length - cap} more` : "";
+    return `<strong style="color:#f8fafc;">${label} (${items.length})</strong><br/>${shown}${more}<br/><br/>`;
+};
+
+export const sendDigestEmail = async (
+    to: string,
+    firstname: string,
+    frequency: "DAILY" | "WEEKLY",
+    summary: { overdue: DigestTaskLine[]; dueToday: DigestTaskLine[]; dueSoon: DigestTaskLine[]; completedCount: number },
+): Promise<void> => {
+    const dashboardUrl = `${APP_URL}/app`;
+    const period = frequency === "DAILY" ? "today" : "this week";
+    const bodyHtml = [
+        digestSection("⚠ Overdue", summary.overdue),
+        digestSection("Due today", summary.dueToday),
+        digestSection(frequency === "DAILY" ? "Due soon" : "Due this week", summary.dueSoon),
+        summary.completedCount > 0
+            ? `<span style="color:#34d399;">✓ You completed ${summary.completedCount} task${summary.completedCount === 1 ? "" : "s"} since your last digest.</span>`
+            : "",
+    ].filter(Boolean).join("");
+
+    const html = emailShell(
+        "Taskly",
+        `Hi ${firstname}, here's what's due ${period}`,
+        bodyHtml,
+        "Open Taskly",
+        dashboardUrl,
+        `You're getting this because your Taskly email digest is set to ${frequency.toLowerCase()} — change it anytime in Settings.`,
+    );
+    await sendMail(to, `Your Taskly ${frequency === "DAILY" ? "daily" : "weekly"} digest`, html, "Dashboard link", dashboardUrl);
+};
+
 export const sendInvitationAcceptedEmail = async (
     to: string,
     inviterName: string,

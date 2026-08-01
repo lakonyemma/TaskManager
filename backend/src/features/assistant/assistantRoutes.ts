@@ -1,5 +1,5 @@
 import express from "express";
-import { askAssistant, parseTaskWithAssistant, searchWithAssistant } from "./assistantController.js";
+import { askAssistant, getScheduleSuggestions, parseTaskWithAssistant, searchWithAssistant } from "./assistantController.js";
 import { authenticate } from "../../middleware/authMiddleware.js";
 import { assistantRateLimiter } from "../../middleware/rateLimit.js";
 
@@ -8,5 +8,6 @@ const router = express.Router();
 router.post("/ask", authenticate, assistantRateLimiter, askAssistant);
 router.post("/search", authenticate, assistantRateLimiter, searchWithAssistant);
 router.post("/parse-task", authenticate, assistantRateLimiter, parseTaskWithAssistant);
+router.get("/schedule-suggestions", authenticate, assistantRateLimiter, getScheduleSuggestions);
 
 export default router;

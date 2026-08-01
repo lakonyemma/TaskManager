@@ -57,6 +57,7 @@ model User {
   userAchievements       UserAchievement[]
   savedViews             SavedView[]
   focusSessions          FocusSession[]
+  timeEntries            TimeEntry[]
   sentAnnouncements      PlatformAnnouncement[]
 }
 
@@ -169,6 +170,7 @@ model Task {
   reminderSchedules ReminderSchedule[]
   tags              Tag[]              @relation("TaskTags")
   focusSessions     FocusSession[]
+  timeEntries       TimeEntry[]
 
   parentTask Task?  @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
   subtasks   Task[] @relation("Subtasks")
@@ -285,6 +287,27 @@ model Comment {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// Manually logged (or timer-derived) actual time spent on a task — distinct
+// from Task.estimatedMinutes (a plan) and FocusSession (Focus Mode/Pomodoro
+// specific, capped at 4h, break time excluded). A TimeEntry is just "N
+// minutes were spent on this task", optionally with a note, so it also
+// covers work done entirely outside Focus Mode.
+model TimeEntry {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  minutes   Int
+  note      String?
+  loggedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId, loggedAt])
+}
+
 model File {
   id           String   @id @default(uuid())
   workspaceId  String
@@ -365,14 +388,20 @@ model PushSubscription {
 }
 
 model NotificationPreference {
-  id                     String   @id @default(uuid())
-  userId                 String   @unique
-  pushEnabled            Boolean  @default(true)
-  soundEnabled           Boolean  @default(true)
-  vibrationEnabled       Boolean  @default(true)
-  defaultReminderMinutes Int[]    @default([15])
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                     String           @id @default(uuid())
+  userId                 String           @unique
+  pushEnabled            Boolean          @default(true)
+  soundEnabled           Boolean          @default(true)
+  vibrationEnabled       Boolean          @default(true)
+  defaultReminderMinutes Int[]            @default([15])
+  // "Here's what's due" email — off by default so opting in is a deliberate
+  // choice, not something everyone gets by default. digestWorker.ts polls
+  // for who's due one and uses lastDigestSentAt to avoid re-sending within
+  // the same period (24h for DAILY, 7d for WEEKLY) if the worker restarts.
+  digestFrequency        DigestFrequency  @default(OFF)
+  lastDigestSentAt       DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -521,4 +550,10 @@ enum NotificationType {
   WORKSPACE_INVITED
   DUE_DATE_REMINDER
   SYSTEM_ANNOUNCEMENT
+}
+
+enum DigestFrequency {
+  OFF
+  DAILY
+  WEEKLY
 }

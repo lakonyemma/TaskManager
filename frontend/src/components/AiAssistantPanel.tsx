@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bot, CalendarClock, FileText, Loader2, Plus, Search, Send, Sparkles } from 'lucide-react'
+import { ArrowRight, Bot, CalendarClock, CalendarRange, Check, FileText, Loader2, Plus, Search, Send, Sparkles, X } from 'lucide-react'
 import { jsonHeaders } from '../lib/api'
 import { TaskListRowStatic } from './TaskListRow'
 import EmptyState from './EmptyState'
@@ -7,7 +7,8 @@ import type { Task } from '../pages/DashboardApp'
 
 type ChatMessage = { role: 'user' | 'assistant'; text: string }
 type TaskProposal = { title: string; description: string | null; priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'; dueDate: string | null }
-type Mode = 'ask' | 'search' | 'create'
+type ScheduleSuggestion = { taskId: string; taskTitle: string; priority: string; currentDueDate: string; suggestedDueDate: string; reason: string }
+type Mode = 'ask' | 'search' | 'create' | 'suggestions'
 
 const QUICK_PROMPTS = [
   { label: 'Daily Planner', prompt: 'Create a prioritized plan for what I should focus on today, given my current tasks.', icon: Sparkles },
@@ -48,6 +49,11 @@ export default function AiAssistantPanel({
   const [proposal, setProposal] = useState<TaskProposal | null>(null)
   const [parsing, setParsing] = useState(false)
   const [creating, setCreating] = useState(false)
+
+  const [suggestions, setSuggestions] = useState<ScheduleSuggestion[] | null>(null)
+  const [suggestionsMessage, setSuggestionsMessage] = useState('')
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const [applyingTaskId, setApplyingTaskId] = useState<string | null>(null)
 
   const ask = async (message: string, displayText?: string) => {
     if (!message.trim() || asking) return
@@ -117,12 +123,48 @@ export default function AiAssistantPanel({
     }
   }
 
+  const loadSuggestions = async () => {
+    if (!workspaceId || loadingSuggestions) return
+    setLoadingSuggestions(true)
+    setSuggestions(null)
+    setSuggestionsMessage('')
+    try {
+      const d = await request(`/api/assistant/schedule-suggestions?workspaceId=${workspaceId}`) as { suggestions: ScheduleSuggestion[]; message?: string }
+      setSuggestions(d.suggestions || [])
+      setSuggestionsMessage(d.message || '')
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : 'Unable to check your schedule right now', 'error')
+      setSuggestions([])
+    } finally {
+      setLoadingSuggestions(false)
+    }
+  }
+
+  const applySuggestion = async (suggestion: ScheduleSuggestion) => {
+    setApplyingTaskId(suggestion.taskId)
+    try {
+      await request(`/api/tasks/${suggestion.taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ dueDate: suggestion.suggestedDueDate }) })
+      setSuggestions(prev => prev?.filter(s => s.taskId !== suggestion.taskId) ?? null)
+      onTaskCreated()
+      showMessage('Due date updated', 'success')
+    } catch (err) {
+      showMessage(err instanceof Error ? err.message : 'Unable to move that task', 'error')
+    } finally {
+      setApplyingTaskId(null)
+    }
+  }
+
+  const dismissSuggestion = (taskId: string) => {
+    setSuggestions(prev => prev?.filter(s => s.taskId !== taskId) ?? null)
+  }
+
   return (
     <div className="ai-assistant-panel">
       <div className="ai-assistant-tabs">
         <button type="button" className={`ai-assistant-tab ${mode === 'ask' ? 'active' : ''}`} onClick={() => setMode('ask')}><Bot size={14} /> Ask</button>
         <button type="button" className={`ai-assistant-tab ${mode === 'search' ? 'active' : ''}`} onClick={() => setMode('search')}><Search size={14} /> Smart Search</button>
         <button type="button" className={`ai-assistant-tab ${mode === 'create' ? 'active' : ''}`} onClick={() => setMode('create')}><Plus size={14} /> Create Task</button>
+        <button type="button" className={`ai-assistant-tab ${mode === 'suggestions' ? 'active' : ''}`} onClick={() => setMode('suggestions')}><CalendarRange size={14} /> Suggestions</button>
       </div>
 
       {mode === 'ask' && (
@@ -223,6 +265,43 @@ export default function AiAssistantPanel({
                   {creating ? 'Creating…' : 'Create task'}
                 </button>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'suggestions' && (
+        <div className="ai-assistant-mode">
+          <p className="ai-assistant-suggestions-intro">
+            Looks at your upcoming due dates and flags overloaded days, suggesting which lower-priority tasks to move to a lighter one nearby.
+          </p>
+          <button type="button" className="mini-btn" onClick={loadSuggestions} disabled={loadingSuggestions}>
+            {loadingSuggestions ? <><Loader2 size={13} className="spin" /> Checking your schedule…</> : <><CalendarRange size={13} /> Check my schedule</>}
+          </button>
+
+          {suggestions && suggestions.length === 0 && (
+            <EmptyState kind="generic" compact title="Nothing to suggest" description={suggestionsMessage || 'Your schedule looks balanced for the next two weeks.'} />
+          )}
+
+          {suggestions && suggestions.length > 0 && (
+            <div className="ai-assistant-suggestions-list">
+              {suggestions.map(s => (
+                <div key={s.taskId} className="ai-suggestion-card">
+                  <strong>{s.taskTitle}</strong>
+                  <div className="ai-suggestion-dates">
+                    <span>{new Date(s.currentDueDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                    <ArrowRight size={13} />
+                    <span>{new Date(s.suggestedDueDate).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                  </div>
+                  <p className="ai-suggestion-reason">{s.reason}</p>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button type="button" className="mini-btn secondary-btn" onClick={() => dismissSuggestion(s.taskId)}><X size={13} /> Dismiss</button>
+                    <button type="button" className="mini-btn" disabled={applyingTaskId === s.taskId} onClick={() => applySuggestion(s)}>
+                      <Check size={13} /> {applyingTaskId === s.taskId ? 'Moving…' : 'Apply'}
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

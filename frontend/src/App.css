@@ -793,6 +793,146 @@
   border-color: var(--accent-primary-light);
 }
 
+.comment-mention {
+  color: var(--accent-primary-light);
+  font-weight: 600;
+  background: var(--accent-primary-soft);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+.mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 6px;
+  width: 220px;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.mention-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.mention-dropdown-item:hover,
+.mention-dropdown-item:focus-visible {
+  background: var(--surface-hover);
+}
+
+/* ─── Time tracking ─── */
+.time-tracking-total {
+  margin: 8px 0 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.time-tracking-total strong {
+  color: var(--text-secondary);
+}
+
+.time-tracking-timer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.time-tracking-timer input {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.time-tracking-elapsed {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--accent-primary-light);
+  min-width: 56px;
+}
+
+.time-tracking-manual-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.time-tracking-manual-form input[type="number"] {
+  width: 90px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.time-tracking-manual-form input[type="text"],
+.time-tracking-manual-form input:not([type]) {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.time-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.time-entry-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
+  font-size: 0.82rem;
+}
+
+.time-entry-minutes {
+  font-weight: 700;
+  color: var(--accent-primary-light);
+  flex-shrink: 0;
+}
+
+.time-entry-meta {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ─── Attachments ─── */
 .attachment-list {
   display: flex;
@@ -2718,4 +2858,50 @@ textarea:focus-visible, [tabindex]:focus-visible {
   background: var(--bg-base);
   color: var(--text-secondary);
   font-size: 0.85rem;
+}
+
+.ai-assistant-suggestions-intro {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.ai-assistant-suggestions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-suggestion-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--surface-1);
+}
+
+.ai-suggestion-card strong {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+
+.ai-suggestion-dates {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-primary-light);
+}
+
+.ai-suggestion-dates svg { color: var(--text-faint); }
+
+.ai-suggestion-reason {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.5;
 }

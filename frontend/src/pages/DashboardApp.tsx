@@ -52,7 +52,8 @@ import '../App.css'
 
 type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'workload' | 'assistant'
 
-type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vibrationEnabled: boolean; defaultReminderMinutes: number[] }
+type DigestFrequency = 'OFF' | 'DAILY' | 'WEEKLY'
+type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vibrationEnabled: boolean; defaultReminderMinutes: number[]; digestFrequency: DigestFrequency }
 type Toast = { id: string; title: string; body: string; taskId?: string | null }
 
 type Workspace = { id: string; name: string; description?: string | null }
@@ -254,7 +255,7 @@ export default function DashboardApp() {
   const [showNotifs, setShowNotifs] = useState(false)
   const [pendingOpenTaskId, setPendingOpenTaskId] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
-  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({ pushEnabled: true, soundEnabled: true, vibrationEnabled: true, defaultReminderMinutes: [15] })
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>({ pushEnabled: true, soundEnabled: true, vibrationEnabled: true, defaultReminderMinutes: [15], digestFrequency: 'OFF' })
   const [pushPermission, setPushPermission] = useState(getNotificationPermission())
   const [taskReminderOffsets, setTaskReminderOffsets] = useState<number[]>([15])
   const [taskCustomReminderAt, setTaskCustomReminderAt] = useState('')
@@ -1160,7 +1161,7 @@ export default function DashboardApp() {
     try {
       const d = await request('/api/settings/notification-preferences', {
         method: 'PATCH', headers: jsonHeaders,
-        body: JSON.stringify({ soundEnabled: notifPrefs.soundEnabled, vibrationEnabled: notifPrefs.vibrationEnabled, defaultReminderMinutes: notifPrefs.defaultReminderMinutes }),
+        body: JSON.stringify({ soundEnabled: notifPrefs.soundEnabled, vibrationEnabled: notifPrefs.vibrationEnabled, defaultReminderMinutes: notifPrefs.defaultReminderMinutes, digestFrequency: notifPrefs.digestFrequency }),
       }) as { preferences: NotificationPreferences }
       if (d.preferences) setNotifPrefs(d.preferences)
       showMessage('Notification preferences saved', 'success')
@@ -2451,6 +2452,26 @@ export default function DashboardApp() {
               </div>
 
               <div className="panel">
+                <h2>Email digest</h2>
+                <form className="stack-form" onSubmit={handleSaveNotifPrefs}>
+                  <div>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: 6 }}>
+                      "Here's what's due" sent to your inbox — separate from push/in-app notifications.
+                    </span>
+                    <select
+                      value={notifPrefs.digestFrequency}
+                      onChange={e => setNotifPrefs(p => ({ ...p, digestFrequency: e.target.value as DigestFrequency }))}
+                    >
+                      <option value="OFF">Off</option>
+                      <option value="DAILY">Daily</option>
+                      <option value="WEEKLY">Weekly</option>
+                    </select>
+                  </div>
+                  <button type="submit">Save digest setting</button>
+                </form>
+              </div>
+
+              <div className="panel">
                 <h2>Change password</h2>
                 <form className="stack-form" onSubmit={handleChangePassword}>
                   <input type="password" required placeholder="Current password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
@@ -2620,6 +2641,7 @@ export default function DashboardApp() {
             onTaskUpdated={() => { loadTasks(); }}
             taskTags={selectedTask.tags || []}
             workspaceTags={tags}
+            workspaceMembers={members.map(m => ({ id: m.userId, firstname: m.user.firstname, lastName: m.user.lastName }))}
           />
         </Modal>
       )}
