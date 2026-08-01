@@ -735,6 +735,50 @@
   border-color: var(--accent-primary-light);
 }
 
+.comment-mention {
+  color: var(--accent-primary-light);
+  font-weight: 600;
+  background: var(--accent-primary-soft);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+.mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 6px;
+  width: 220px;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+
+.mention-dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.mention-dropdown-item:hover,
+.mention-dropdown-item:focus-visible {
+  background: var(--surface-hover);
+}
+
 /* ─── Time tracking ─── */
 .time-tracking-total {
   margin: 8px 0 10px;
