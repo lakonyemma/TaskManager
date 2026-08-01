@@ -8,9 +8,14 @@ type AuthedRequest = Request & { user?: { id: string; email: string } };
 // tasks nobody has explicitly estimated — LOW=30m, MEDIUM=1h, HIGH=2h,
 // CRITICAL=4h — so workload charts are still meaningful before users adopt
 // the estimatedMinutes field.
-const PRIORITY_MINUTES: Record<string, number> = { LOW: 30, MEDIUM: 60, HIGH: 120, CRITICAL: 240 };
-const effortMinutes = (task: { estimatedMinutes: number | null; priority: string }) =>
+export const PRIORITY_MINUTES: Record<string, number> = { LOW: 30, MEDIUM: 60, HIGH: 120, CRITICAL: 240 };
+export const effortMinutes = (task: { estimatedMinutes: number | null; priority: string }) =>
     task.estimatedMinutes ?? PRIORITY_MINUTES[task.priority] ?? 60;
+
+// Shared with the AI assistant's schedule-suggestions endpoint — same
+// "healthy pace" threshold used to flag a day as overloaded in the
+// workload charts.
+export const HEALTHY_DAILY_MINUTES = 6 * 60;
 
 const bucketKey = (date: Date, granularity: "daily" | "weekly" | "monthly"): string => {
     if (granularity === "monthly") return date.toISOString().slice(0, 7); // YYYY-MM
