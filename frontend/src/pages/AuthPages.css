@@ -183,6 +183,26 @@
   height: 15px;
   accent-color: var(--tm-accent);
   cursor: pointer;
+  flex-shrink: 0;
+}
+
+.terms-row {
+  align-items: flex-start;
+  line-height: 1.45;
+}
+
+.terms-row input[type="checkbox"] {
+  margin-top: 2px;
+}
+
+.terms-row a {
+  color: var(--tm-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.terms-row a:hover {
+  text-decoration: underline;
 }
 
 .strength-meter {
