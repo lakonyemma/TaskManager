@@ -11,6 +11,8 @@ import RegisterPage from './pages/RegisterPage'
 import VerifyEmailPage from './pages/VerifyEmailPage'
 import ResendVerificationPage from './pages/ResendVerificationPage'
 import InvitationAcceptPage from './pages/InvitationAcceptPage'
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
+import TermsPage from './pages/TermsPage'
 import './styles/brand.css'
 
 // Code-split the authenticated dashboard (Recharts + FullCalendar) away from
@@ -30,6 +32,8 @@ function App() {
             <Route path="/verify-email" element={<VerifyEmailPage />} />
             <Route path="/resend-verification" element={<ResendVerificationPage />} />
             <Route path="/invite/:token" element={<InvitationAcceptPage />} />
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
             <Route
               path="/app/*"
               element={

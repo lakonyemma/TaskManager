@@ -30,6 +30,7 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [loading, setLoading] = useState(false)
   const [inviteInfo, setInviteInfo] = useState<{ workspaceName: string } | null>(null)
   const [registered, setRegistered] = useState(false)
@@ -58,6 +59,10 @@ export default function RegisterPage() {
     }
     if (password.length < 8) {
       setError('Password must be at least 8 characters')
+      return
+    }
+    if (!agreedToTerms) {
+      setError('You must agree to the Terms and Conditions and Privacy Policy to create an account')
       return
     }
     setLoading(true)
@@ -157,6 +162,21 @@ export default function RegisterPage() {
               value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Re-enter your password" />
             {!passwordsMatch && <span className="field-hint">Passwords do not match</span>}
           </div>
+
+          <label className="remember-row terms-row">
+            <input
+              type="checkbox"
+              required
+              checked={agreedToTerms}
+              onChange={e => setAgreedToTerms(e.target.checked)}
+            />
+            <span>
+              I agree to Taskly's{' '}
+              <Link to="/terms" target="_blank" rel="noopener noreferrer">Terms and Conditions</Link>
+              {' '}and{' '}
+              <Link to="/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</Link>
+            </span>
+          </label>
 
           <button type="submit" className="submit-btn" disabled={loading}>
             {loading ? 'Creating account…' : 'Create Account'}
