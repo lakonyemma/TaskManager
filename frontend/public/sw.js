@@ -80,7 +80,7 @@ self.addEventListener('install', (event) => {
   // Precache the app shell so a cold offline load still renders something
   // instead of the browser's own offline error page.
   event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => cache.addAll(['/', '/manifest.json', '/favicon.svg', '/boot-splash.jpg'])).catch(() => {}),
+    caches.open(STATIC_CACHE).then((cache) => cache.addAll(['/', '/manifest.json', '/favicon.png', '/boot-splash.jpg'])).catch(() => {}),
   );
 });
 
@@ -100,7 +100,7 @@ const isNavigationRequest = (request) => request.mode === 'navigate';
 // showing its stale name/icons forever, no matter how many times the real
 // file was updated on the server.
 const isRevalidatedStatic = (url) => url.pathname === '/manifest.json';
-const isStaticAsset = (url) => url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/') || url.pathname === '/favicon.svg' || url.pathname === '/boot-splash.jpg';
+const isStaticAsset = (url) => url.pathname.startsWith('/assets/') || url.pathname.startsWith('/icons/') || url.pathname === '/favicon.png' || url.pathname === '/boot-splash.jpg';
 const isApiGet = (request, url) => request.method === 'GET' && url.pathname.startsWith('/api/');
 
 // Network-first: try the network, cache a copy of anything that succeeds,
