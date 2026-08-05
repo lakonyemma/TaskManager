@@ -37,9 +37,24 @@ if (!useR2) fs.mkdirSync(UPLOADS_ROOT, { recursive: true });
 if (useR2) {
     console.log("[storage] Using Cloudflare R2 object storage.");
 } else {
+    const missing = Object.entries({ R2_BUCKET, R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY })
+        .filter(([, value]) => !value)
+        .map(([name]) => name);
+    const allMissing = missing.length === 4;
     console.warn(
-        "[storage] R2_BUCKET/R2_ENDPOINT/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY are not fully set — falling back to local disk. " +
-        "Uploaded files will NOT survive a redeploy/restart on most hosting platforms; see docs/DEPLOYMENT.md.",
+        allMissing
+            // Nothing set at all — the expected, unremarkable local-dev case.
+            ? "[storage] R2_BUCKET/R2_ENDPOINT/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY are not set — falling back to local disk. " +
+              "Uploaded files will NOT survive a redeploy/restart on most hosting platforms; see docs/DEPLOYMENT.md."
+            // Some are set — almost certainly a misconfiguration (partially filled-in
+            // R2 credentials), and one that fails *silently*: uploads still "work" by
+            // falling back to disk, so this is easy to miss until files start
+            // disappearing after a restart. Name the exact gap instead of a generic
+            // "not fully set" so it's obvious at boot.
+            : `[storage] R2 is misconfigured — ${missing.join(", ")} ${missing.length > 1 ? "are" : "is"} missing while the ` +
+              `other R2_* vars are set. Falling back to local disk, which will NOT survive a redeploy/restart on most ` +
+              "hosting platforms (uploaded files, including avatars, will silently disappear). Set the missing " +
+              "variable(s) — see docs/DEPLOYMENT.md.",
     );
 }
 
