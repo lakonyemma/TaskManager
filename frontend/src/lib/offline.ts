@@ -91,6 +91,7 @@ const getOutbox = async (): Promise<OutboxEntry[]> => {
 const removeFromOutbox = async (localId: number): Promise<void> => {
   try {
     const db = await openDb()
+
     const tx = db.transaction(OUTBOX_STORE, 'readwrite')
     tx.objectStore(OUTBOX_STORE).delete(localId)
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error) })
