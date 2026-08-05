@@ -27,7 +27,7 @@ const PRIORITIES: ParsedTask['priority'][] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL
 export default function QuickCapture({
   workspaces, selectedWorkspaceId, onCreated, onMessage,
   workspaceName, setWorkspaceName, workspaceDescription, setWorkspaceDescription,
-  workspaceTemplates, workspaceTemplateId, setWorkspaceTemplateId, onCreateWorkspace,
+  workspaceTemplates, workspaceTemplateId, setWorkspaceTemplateId, onCreateWorkspace, creatingWorkspace,
 }: {
   workspaces: { id: string; name: string }[]
   selectedWorkspaceId: string
@@ -41,6 +41,7 @@ export default function QuickCapture({
   workspaceTemplateId: string
   setWorkspaceTemplateId: (v: string) => void
   onCreateWorkspace: (e: FormEvent<HTMLFormElement>) => void | Promise<void> | Promise<boolean>
+  creatingWorkspace?: boolean
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [open, setOpen] = useState(false)
@@ -248,26 +249,26 @@ export default function QuickCapture({
       )}
 
       {workspaceModalOpen && (
-        <Modal title="New workspace" onClose={() => setWorkspaceModalOpen(false)}>
+        <Modal title="New workspace" onClose={() => { if (!creatingWorkspace) setWorkspaceModalOpen(false) }}>
           <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 0 }}>
             A workspace is where a set of tasks and teammates live — personal or shared.
           </p>
           <form className="stack-form" onSubmit={handleWorkspaceSubmit}>
-            <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder="Workspace name" required autoFocus />
-            <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder="Description (optional)" />
+            <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder="Workspace name" required autoFocus disabled={creatingWorkspace} />
+            <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder="Description (optional)" disabled={creatingWorkspace} />
             <label className="quick-capture-field" style={{ marginTop: 4 }}>
               <span>Template</span>
-              <select value={workspaceTemplateId} onChange={e => setWorkspaceTemplateId(e.target.value)}>
+              <select value={workspaceTemplateId} onChange={e => setWorkspaceTemplateId(e.target.value)} disabled={creatingWorkspace}>
                 <option value="">Blank workspace</option>
                 {workspaceTemplates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}
               </select>
             </label>
-            {workspaceTemplateId && (
-              <p style={{ color: '#94a3b8', fontSize: '0.78rem', margin: '-4px 0 0' }}>
-                {workspaceTemplates.find(tpl => tpl.id === workspaceTemplateId)?.description}
-              </p>
-            )}
-            <button type="submit" className="primary-btn">Create workspace</button>
+            <p style={{ color: '#94a3b8', fontSize: '0.78rem', margin: '-4px 0 0' }}>
+              {workspaceTemplateId ? workspaceTemplates.find(tpl => tpl.id === workspaceTemplateId)?.description : 'Start with a completely empty workspace.'}
+            </p>
+            <button type="submit" className="primary-btn" disabled={creatingWorkspace}>
+              {creatingWorkspace ? 'Creating workspace…' : 'Create workspace'}
+            </button>
           </form>
         </Modal>
       )}

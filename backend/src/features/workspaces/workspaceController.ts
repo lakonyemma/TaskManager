@@ -4,12 +4,19 @@ import { createActivityLog } from "../../utils/activity.js";
 import { deleteObject } from "../files/storage.js";
 import { getMembership } from "../../utils/membership.js";
 import { findWorkspaceTemplate, WORKSPACE_TEMPLATES } from "./templates.js";
-import { syncTaskReminders } from "../reminders/reminderService.js";
-import { seedDefaultColumns } from "../boardColumns/defaultColumns.js";
+import { generateWorkspaceStructure } from "./templateEngine.js";
 
 export const listWorkspaceTemplates = (_req: Request, res: Response) => {
     return res.status(200).json({
-        templates: WORKSPACE_TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, taskCount: t.tasks.length })),
+        templates: WORKSPACE_TEMPLATES.map((t) => ({
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            boardCount: t.columns.length,
+            taskCount: t.tasks.length,
+            labelCount: t.tags.length,
+            milestoneCount: t.milestones.length,
+        })),
     });
 };
 
@@ -60,39 +67,22 @@ export const createWorkspace = async (req: Request, res: Response) => {
 
         await createActivityLog({ userId: authUser.id, action: `Created workspace ${workspace.name}`, workspaceId: workspace.id, entityType: "project_created", entityId: workspace.id });
 
-        const defaultColumns = await seedDefaultColumns(workspace.id);
-        const todoColumnId = defaultColumns.find((c) => c.mapsToStatus === "TODO")?.id;
+        // Generate the workspace's board, labels, milestones, and starter
+        // tasks — the four default columns for a blank workspace, or the
+        // full structure defined by the selected template. See
+        // templateEngine.ts / templates.ts for what actually gets created.
+        const generated = await generateWorkspaceStructure(workspace.id, authUser.id, template);
 
-        // Seed a handful of relevant tags + a short starter task list so the
-        // workspace doesn't open to a completely blank slate.
-        if (template) {
-            const tagsByName = new Map<string, string>();
-            for (const tagDef of template.tags) {
-                const tag = await prisma.tag.create({ data: { name: tagDef.name, color: tagDef.color, workspaceId: workspace.id } });
-                tagsByName.set(tag.name, tag.id);
-            }
-
-            const now = Date.now();
-            for (const taskDef of template.tasks) {
-                const tagIds = (taskDef.tagNames || []).map((n) => tagsByName.get(n)).filter((id): id is string => !!id);
-                const dueDate = taskDef.dueInDays ? new Date(now + taskDef.dueInDays * 24 * 60 * 60 * 1000) : null;
-                const task = await prisma.task.create({
-                    data: {
-                        title: taskDef.title,
-                        description: taskDef.description,
-                        priority: taskDef.priority,
-                        workspaceId: workspace.id,
-                        assignedToId: authUser.id,
-                        columnId: todoColumnId,
-                        dueDate,
-                        ...(tagIds.length ? { tags: { connect: tagIds.map((id) => ({ id })) } } : {}),
-                    },
-                });
-                if (task.dueDate) await syncTaskReminders(task);
-            }
-        }
-
-        return res.status(201).json({ workspace, template: template ? { id: template.id, name: template.name } : null });
+        return res.status(201).json({
+            workspace,
+            template: template ? { id: template.id, name: template.name } : null,
+            generated: {
+                columnCount: generated.columns.length,
+                tagCount: generated.tags.length,
+                milestoneCount: generated.milestones.length,
+                taskCount: generated.tasks.length,
+            },
+        });
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Server error" });

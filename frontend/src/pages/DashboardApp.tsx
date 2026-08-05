@@ -5,7 +5,7 @@ import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
   Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
-  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera, Bot,
+  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera, Bot, Flag,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -32,6 +32,7 @@ import NotificationCard from '../components/NotificationCard'
 import { NOTIF_TYPE_OPTIONS, type NotifItem, type NotifType } from '../lib/notifications'
 import TagBadge, { type TagRef } from '../components/TagBadge'
 import TagManager from '../components/TagManager'
+import MilestoneManager from '../components/MilestoneManager'
 import GlobalSearch from '../components/GlobalSearch'
 import AppLockGate from '../components/AppLockGate'
 import CameraCapture from '../components/CameraCapture'
@@ -57,10 +58,17 @@ type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vi
 type Toast = { id: string; title: string; body: string; taskId?: string | null }
 
 type Workspace = { id: string; name: string; description?: string | null }
-export type WorkspaceTemplateSummary = { id: string; name: string; description: string; taskCount: number }
+export type WorkspaceTemplateSummary = {
+  id: string; name: string; description: string
+  boardCount: number; taskCount: number; labelCount: number; milestoneCount: number
+}
 type DepRef = { id: string; title: string; status: string }
 type BoardColumnRef = { id: string; name: string; color: string; mapsToStatus: string }
 export type BoardColumn = BoardColumnRef & { workspaceId: string; order: number }
+export type MilestoneRef = {
+  id: string; name: string; description?: string | null; dueDate?: string | null; achievedAt?: string | null
+  order: number; totalTasks: number; completedTasks: number
+}
 
 export type Task = {
   id: string; title: string; description?: string | null; notes?: string | null; status: string; priority: string; workspaceId: string
@@ -71,6 +79,7 @@ export type Task = {
   recurrenceEndDate?: string | null; recurrenceCount?: number | null
   tags?: TagRef[]
   columnId?: string | null; column?: BoardColumnRef | null
+  milestoneId?: string | null; milestone?: { id: string; name: string; achievedAt?: string | null } | null
 }
 type Invitation = { id: string; email: string; workspaceId: string; token: string; status: string; expiresAt: string; role?: string; workspace?: { id: string; name: string } }
 type Member = { id: string; userId: string; role: string; user: { id: string; firstname: string; lastName: string; email: string; avatarUrl?: string | null } }
@@ -217,10 +226,12 @@ export default function DashboardApp() {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
   const [tasks, setTasks] = useState<Task[]>([])
   const [boardColumns, setBoardColumns] = useState<BoardColumn[]>([])
+  const [milestones, setMilestones] = useState<MilestoneRef[]>([])
   const [workspaceName, setWorkspaceName] = useState('')
   const [workspaceDescription, setWorkspaceDescription] = useState('')
   const [workspaceTemplateId, setWorkspaceTemplateId] = useState('')
   const [workspaceTemplates, setWorkspaceTemplates] = useState<WorkspaceTemplateSummary[]>([])
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false)
   const [deleteWorkspaceConfirm, setDeleteWorkspaceConfirm] = useState('')
   const [deletingWorkspace, setDeletingWorkspace] = useState(false)
   const [taskTitle, setTaskTitle] = useState('')
@@ -350,6 +361,11 @@ export default function DashboardApp() {
     } catch { setWorkspaceTemplates([]) }
   }, [request])
 
+  const loadMilestones = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    try { const d = await request(`/api/workspaces/${selectedWorkspaceId}/milestones`) as { milestones: MilestoneRef[] }; setMilestones(d.milestones || []) } catch { setMilestones([]) }
+  }, [request, selectedWorkspaceId])
+
   const loadTasks = useCallback(async () => {
     if (!selectedWorkspaceId) return
     try {
@@ -357,6 +373,10 @@ export default function DashboardApp() {
       setTasks(d.tasks || [])
       setIsOffline(false)
       void cacheTasks(selectedWorkspaceId, d.tasks || [])
+      // Milestone progress is derived from linked tasks' status, so any
+      // refresh of the task list can change it — piggyback here instead of
+      // threading a milestones reload through every task-mutating call site.
+      void loadMilestones()
     } catch (err) {
       // A TypeError from `fetch` itself (not an HTTP error response) means
       // the network is unreachable — fall back to whatever we last cached
@@ -371,7 +391,7 @@ export default function DashboardApp() {
     } finally {
       setLoadingDashboard(false)
     }
-  }, [request, selectedWorkspaceId])
+  }, [request, selectedWorkspaceId, loadMilestones])
 
   const loadBoardColumns = useCallback(async () => {
     if (!selectedWorkspaceId) return
@@ -404,6 +424,42 @@ export default function DashboardApp() {
     if (!selectedWorkspaceId) return
     try { const d = await request(`/api/workspaces/${selectedWorkspaceId}/tags`) as { tags: (TagRef & { _count: { tasks: number } })[] }; setTags(d.tags || []) } catch { setTags([]) }
   }, [request, selectedWorkspaceId])
+
+  const handleCreateMilestone = async (name: string, description: string, dueDate: string) => {
+    if (!selectedWorkspaceId) return
+    try {
+      await request(`/api/workspaces/${selectedWorkspaceId}/milestones`, {
+        method: 'POST', headers: jsonHeaders,
+        body: JSON.stringify({ name, description: description || undefined, dueDate: dueDate || undefined }),
+      })
+      await loadMilestones()
+      showMessage('Milestone created', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create milestone', 'error') }
+  }
+
+  const handleUpdateMilestone = async (id: string, data: { name?: string; description?: string; dueDate?: string | null; achieved?: boolean }) => {
+    try {
+      await request(`/api/milestones/${id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(data) })
+      await loadMilestones()
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update milestone', 'error') }
+  }
+
+  const handleDeleteMilestone = async (id: string) => {
+    try {
+      await request(`/api/milestones/${id}`, { method: 'DELETE' })
+      await loadMilestones()
+      await loadTasks()
+      showMessage('Milestone deleted', 'success')
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to delete milestone', 'error') }
+  }
+
+  const handleSetTaskMilestone = async (taskId: string, milestoneId: string | null) => {
+    try {
+      await request(`/api/tasks/${taskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ milestoneId }) })
+      await loadTasks()
+      await loadMilestones()
+    } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to update milestone', 'error') }
+  }
 
   const handleCreateTag = async (name: string, color: string) => {
     if (!selectedWorkspaceId) return
@@ -569,7 +625,7 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews(); loadBoardColumns() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews, loadBoardColumns])
+  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews(); loadBoardColumns(); loadMilestones() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews, loadBoardColumns, loadMilestones])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'reports') { loadReports(); loadFocusSessions() } }, [navPage, loadReports, loadFocusSessions])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -658,16 +714,26 @@ export default function DashboardApp() {
 
   const handleCreateWorkspace = async (e: FormEvent<HTMLFormElement>): Promise<boolean> => {
     e.preventDefault()
+    setCreatingWorkspace(true)
     try {
       const d = await request('/api/workspaces', {
         method: 'POST', headers: jsonHeaders,
         body: JSON.stringify({ name: workspaceName, description: workspaceDescription, templateId: workspaceTemplateId || undefined }),
-      }) as { workspace: Workspace; template: { id: string; name: string } | null }
+      }) as { workspace: Workspace; template: { id: string; name: string } | null; generated: { columnCount: number; tagCount: number; milestoneCount: number; taskCount: number } }
       setWorkspaceName(''); setWorkspaceDescription(''); setWorkspaceTemplateId(''); setSelectedWorkspaceId(d.workspace.id)
       await loadWorkspaces()
-      showMessage(d.template ? `Workspace created from the ${d.template.name} template` : 'Workspace created', 'success')
+      if (d.template) {
+        // Land the user straight on the generated board instead of the
+        // (still-empty-looking) dashboard — the whole point of a template
+        // is to open into an organized workspace, not an extra click away.
+        setNavPage('boards')
+        showMessage(`Workspace created from the ${d.template.name} template — ${d.generated.taskCount} tasks across ${d.generated.columnCount} boards`, 'success')
+      } else {
+        showMessage('Workspace created', 'success')
+      }
       return true
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to create workspace', 'error'); return false }
+    finally { setCreatingWorkspace(false) }
   }
 
   // Irreversible — the confirmation input above this (must match the
@@ -763,6 +829,10 @@ export default function DashboardApp() {
         newAchievements?: { name: string }[]
       }
       setTasks(prev => prev.map(tk => tk.id === taskId ? d.task : tk))
+      // A status change can move a linked milestone's progress — this
+      // updates local task state directly rather than going through
+      // loadTasks(), so it needs its own refresh.
+      void loadMilestones()
       if (d.newAchievements && d.newAchievements.length > 0) {
         showMessage(`Achievement unlocked: ${d.newAchievements.map(a => a.name).join(', ')}`, 'success')
       } else if (d.nextOccurrence) {
@@ -811,6 +881,7 @@ export default function DashboardApp() {
         newAchievements?: { name: string }[]
       }
       setTasks(prev => prev.map(tk => tk.id === taskId ? d.task : tk))
+      void loadMilestones()
       if (d.newAchievements && d.newAchievements.length > 0) {
         showMessage(`Achievement unlocked: ${d.newAchievements.map(a => a.name).join(', ')}`, 'success')
       } else if (d.nextOccurrence) {
@@ -843,6 +914,7 @@ export default function DashboardApp() {
     setFocusTask(prev => prev ? { ...prev, subtasks: prev.subtasks.map(s => s.id === subtaskId ? { ...s, status: nextStatus } : s) } : prev)
     try {
       await request(`/api/tasks/${subtaskId}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ status: nextStatus }) })
+      void loadMilestones()
     } catch (err) {
       setTasks(previousTasks)
       setFocusTask(previousFocusTask)
@@ -878,6 +950,7 @@ export default function DashboardApp() {
     try {
       await request(`/api/tasks/${taskId}`, { method: 'DELETE' })
       showMessage('Task deleted', 'info')
+      void loadMilestones()
     } catch (err) {
       setTasks(previous)
       showMessage(err instanceof Error ? err.message : 'Unable to delete task', 'error')
@@ -1427,7 +1500,7 @@ export default function DashboardApp() {
           workspaceName={workspaceName} setWorkspaceName={setWorkspaceName}
           workspaceDescription={workspaceDescription} setWorkspaceDescription={setWorkspaceDescription}
           workspaceTemplates={workspaceTemplates} workspaceTemplateId={workspaceTemplateId} setWorkspaceTemplateId={setWorkspaceTemplateId}
-          onCreateWorkspace={handleCreateWorkspace}
+          onCreateWorkspace={handleCreateWorkspace} creatingWorkspace={creatingWorkspace}
         />
       )}
       <InstallPrompt />
@@ -1592,7 +1665,7 @@ export default function DashboardApp() {
                   workspaceName={workspaceName} setWorkspaceName={setWorkspaceName}
                   workspaceDescription={workspaceDescription} setWorkspaceDescription={setWorkspaceDescription}
                   workspaceTemplates={workspaceTemplates} workspaceTemplateId={workspaceTemplateId} setWorkspaceTemplateId={setWorkspaceTemplateId}
-                  onCreateWorkspace={handleCreateWorkspace}
+                  onCreateWorkspace={handleCreateWorkspace} creatingWorkspace={creatingWorkspace}
                   languages={LANGUAGES} settingsLang={settingsLang} onLanguageChange={handleLanguageChange}
                   settingsColor={settingsColor} onColorChange={c => { setSettingsColor(c); document.documentElement.setAttribute('data-theme', c) }}
                   onFinish={() => setOnboardingActive(false)}
@@ -1977,7 +2050,10 @@ export default function DashboardApp() {
                       <option key={tpl.id} value={tpl.id}>{tpl.name} ({tpl.taskCount} starter tasks)</option>
                     ))}
                   </select>
-                  <button type="submit">{t('addWorkspace', settingsLang)}</button>
+                  <p className="onboarding-hint" style={{ margin: '-4px 0 0' }}>
+                    {workspaceTemplateId ? workspaceTemplates.find(tpl => tpl.id === workspaceTemplateId)?.description : 'Start with a completely empty workspace.'}
+                  </p>
+                  <button type="submit" disabled={creatingWorkspace}>{creatingWorkspace ? 'Creating…' : t('addWorkspace', settingsLang)}</button>
                 </form>
               </div>
 
@@ -2015,6 +2091,18 @@ export default function DashboardApp() {
                   onCreate={handleCreateTag}
                   onUpdate={handleUpdateTag}
                   onDelete={handleDeleteTag}
+                />
+              </div>
+
+              <div className="panel">
+                <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Flag size={16} strokeWidth={1.8} /> Milestones</h2>
+                <MilestoneManager
+                  milestones={milestones}
+                  canManage={myMembership?.role !== 'GUEST'}
+                  canDelete={!!canManageMembers || myMembership?.role === 'MANAGER'}
+                  onCreate={handleCreateMilestone}
+                  onUpdate={handleUpdateMilestone}
+                  onDelete={handleDeleteMilestone}
                 />
               </div>
 
@@ -2642,6 +2730,9 @@ export default function DashboardApp() {
             taskTags={selectedTask.tags || []}
             workspaceTags={tags}
             workspaceMembers={members.map(m => ({ id: m.userId, firstname: m.user.firstname, lastName: m.user.lastName }))}
+            milestoneId={selectedTask.milestoneId}
+            workspaceMilestones={milestones}
+            onMilestoneChange={id => handleSetTaskMilestone(selectedTask.id, id)}
           />
         </Modal>
       )}
