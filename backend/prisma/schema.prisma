@@ -96,6 +96,7 @@ model Workspace {
   tags          Tag[]
   savedViews    SavedView[]
   boardColumns  BoardColumn[]
+  milestones    Milestone[]
 }
 
 model WorkspaceMember {
@@ -136,6 +137,10 @@ model Task {
   // keeps reading `status` unchanged regardless of how a workspace has
   // customized its columns.
   columnId                   String?
+  // Which milestone (if any) this task counts toward — a milestone's
+  // progress is derived from its linked tasks (see Milestone below), so
+  // this is the only state needed to make that tracking real.
+  milestoneId                String?
   // Client-generated idempotency key for offline-created tasks — lets the
   // sync layer safely retry a "create" mutation (e.g. after a dropped
   // response) without producing a duplicate task.
@@ -163,6 +168,7 @@ model Task {
   assignedTo        User?              @relation("AssignedTasks", fields: [assignedToId], references: [id], onDelete: SetNull)
   completedBy       User?              @relation("CompletedTasks", fields: [completedById], references: [id], onDelete: SetNull)
   column            BoardColumn?       @relation(fields: [columnId], references: [id], onDelete: SetNull)
+  milestone         Milestone?         @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
   activityLogs      ActivityLog[]
   notifications     Notification[]
   comments          Comment[]
@@ -193,6 +199,7 @@ model Task {
   @@index([completedById, status])
   @@index([workspaceId, dueDate])
   @@index([columnId])
+  @@index([milestoneId])
 }
 
 // A workspace-scoped Kanban column. Tasks display in whichever column
@@ -210,6 +217,29 @@ model BoardColumn {
   order        Int
   mapsToStatus TaskStatus @default(TODO)
   createdAt    DateTime   @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+
+  @@index([workspaceId])
+}
+
+// A workspace-scoped delivery checkpoint (e.g. "MVP Complete"). Progress
+// toward one is derived from its linked tasks (tasks.length vs. tasks with
+// status COMPLETED) rather than stored, so it can't drift out of sync with
+// real task state. achievedAt is a separate, explicit "mark reached" — some
+// milestones (e.g. a funding decision) aren't 1:1 with a task ever being
+// completed, so it isn't auto-derived from task progress.
+model Milestone {
+  id          String    @id @default(uuid())
+  workspaceId String
+  name        String
+  description String?
+  dueDate     DateTime?
+  order       Int       @default(0)
+  achievedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tasks     Task[]

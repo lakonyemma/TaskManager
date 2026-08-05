@@ -51,6 +51,7 @@ const TASK_INCLUDE = {
     assignedTo: { select: { id: true, firstname: true, lastName: true, email: true } },
     workspace: true,
     column: { select: { id: true, name: true, color: true, mapsToStatus: true } },
+    milestone: { select: { id: true, name: true, achievedAt: true } },
     subtasks: { select: { id: true, title: true, status: true } },
     dependsOn: { select: { id: true, title: true, status: true } },
     blocks: { select: { id: true, title: true, status: true } },
@@ -186,7 +187,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
             tagIds, parentTaskId, isRecurring, recurrenceRule, dependsOn, relatedTaskIds,
             reminderOffsets, customReminderTimes,
             recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly, recurrenceEndDate, recurrenceCount,
-            estimatedMinutes, clientId, columnId,
+            estimatedMinutes, clientId, columnId, milestoneId,
         } = req.body;
         if (!title || !workspaceId) {
             return res.status(400).json({ message: "Title and workspaceId are required" });
@@ -245,6 +246,13 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
             validRelatedIds = refRelated.filter((t) => t.workspaceId === workspaceId).map((t) => t.id);
         }
 
+        // Milestone must live in the same workspace — same cross-tenant guard.
+        let validMilestoneId: string | null = null;
+        if (milestoneId) {
+            const refMilestone = await prisma.milestone.findUnique({ where: { id: milestoneId }, select: { id: true, workspaceId: true } });
+            if (refMilestone && refMilestone.workspaceId === workspaceId) validMilestoneId = refMilestone.id;
+        }
+
         const initialStatus = (status as TaskStatus) || "TODO";
         const columnResolution = await resolveColumnAndStatus(workspaceId, { columnId, status: initialStatus });
         const finalStatus = columnResolution.status || initialStatus;
@@ -273,6 +281,7 @@ export const createTask = async (req: AuthedRequest, res: Response) => {
                 dueDate: dueDate ? new Date(dueDate) : null,
                 estimatedMinutes: estimatedMinutes ?? null,
                 clientId: clientId || null,
+                milestoneId: validMilestoneId,
                 ...(validTagIds.length ? { tags: { connect: validTagIds.map((tid) => ({ id: tid })) } } : {}),
                 ...(validRelatedIds.length ? { relatedTo: { connect: validRelatedIds.map((tid) => ({ id: tid })) } } : {}),
                 parentTaskId: parentTaskId || null,
@@ -349,7 +358,7 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
         const {
             title, description, notes, priority, status, assignedToId, dueDate, tagIds, relatedTaskIds, reminderOffsets, customReminderTimes,
             dependsOn, isRecurring, recurrenceRule, recurrenceInterval, recurrenceDaysOfWeek, recurrenceBusinessDaysOnly,
-            recurrenceEndDate, recurrenceCount, estimatedMinutes, columnId,
+            recurrenceEndDate, recurrenceCount, estimatedMinutes, columnId, milestoneId,
         } = req.body;
 
         // Either `columnId` (a board drag) or `status` (everything else,
@@ -473,6 +482,15 @@ export const updateTask = async (req: AuthedRequest, res: Response) => {
             const refRelated = await prisma.task.findMany({ where: { id: { in: candidateIds } }, select: { id: true, workspaceId: true } });
             const validRelatedIds = refRelated.filter((t) => t.workspaceId === existingTask.workspaceId).map((t) => t.id);
             data.relatedTo = { set: validRelatedIds.map((tid) => ({ id: tid })) };
+        }
+
+        if (milestoneId !== undefined) {
+            if (!milestoneId) {
+                data.milestoneId = null;
+            } else {
+                const refMilestone = await prisma.milestone.findUnique({ where: { id: milestoneId }, select: { id: true, workspaceId: true } });
+                data.milestoneId = refMilestone && refMilestone.workspaceId === existingTask.workspaceId ? refMilestone.id : null;
+            }
         }
 
         const task = await prisma.task.update({

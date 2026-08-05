@@ -11,7 +11,7 @@ const COLORS = ['purple', 'blue', 'green', 'orange', 'red', 'pink', 'teal', 'yel
 // padding it out with steps that wouldn't do anything.
 export default function OnboardingWizard({
   firstname, workspaceName, setWorkspaceName, workspaceDescription, setWorkspaceDescription,
-  workspaceTemplates, workspaceTemplateId, setWorkspaceTemplateId, onCreateWorkspace,
+  workspaceTemplates, workspaceTemplateId, setWorkspaceTemplateId, onCreateWorkspace, creatingWorkspace,
   languages, settingsLang, onLanguageChange, settingsColor, onColorChange, onFinish,
 }: {
   firstname: string
@@ -23,6 +23,7 @@ export default function OnboardingWizard({
   workspaceTemplateId: string
   setWorkspaceTemplateId: (v: string) => void
   onCreateWorkspace: (e: FormEvent<HTMLFormElement>) => Promise<boolean>
+  creatingWorkspace?: boolean
   languages: Record<string, string>
   settingsLang: string
   onLanguageChange: (lang: string) => void
@@ -58,8 +59,8 @@ export default function OnboardingWizard({
           <h2>Create your first workspace</h2>
           <p className="onboarding-hint">A workspace is where your tasks and team live — personal or shared. You can always create more later.</p>
           <form className="stack-form" style={{ maxWidth: 380 }} onSubmit={handleWorkspaceSubmit}>
-            <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder="Workspace name" required autoFocus />
-            <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder="Description (optional)" />
+            <input value={workspaceName} onChange={e => setWorkspaceName(e.target.value)} placeholder="Workspace name" required autoFocus disabled={creatingWorkspace} />
+            <input value={workspaceDescription} onChange={e => setWorkspaceDescription(e.target.value)} placeholder="Description (optional)" disabled={creatingWorkspace} />
             {workspaceTemplates.length > 0 && (
               <div className="onboarding-field">
                 <span>Start from a template (optional)</span>
@@ -68,6 +69,7 @@ export default function OnboardingWizard({
                     type="button"
                     className={`onboarding-template-card ${!workspaceTemplateId ? 'active' : ''}`}
                     onClick={() => setWorkspaceTemplateId('')}
+                    disabled={creatingWorkspace}
                   >
                     Blank workspace
                   </button>
@@ -77,6 +79,7 @@ export default function OnboardingWizard({
                       type="button"
                       className={`onboarding-template-card ${workspaceTemplateId === tpl.id ? 'active' : ''}`}
                       onClick={() => setWorkspaceTemplateId(tpl.id)}
+                      disabled={creatingWorkspace}
                     >
                       {tpl.name}
                     </button>
@@ -89,7 +92,9 @@ export default function OnboardingWizard({
                 )}
               </div>
             )}
-            <button type="submit" className="primary-btn">Continue <ArrowRight size={14} /></button>
+            <button type="submit" className="primary-btn" disabled={creatingWorkspace}>
+              {creatingWorkspace ? 'Creating workspace…' : <>Continue <ArrowRight size={14} /></>}
+            </button>
           </form>
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { AlarmClock, Camera as CameraIcon, Clock, GitBranch, Paperclip, Play, Repeat, Send, Square, Tag as TagIcon, Trash2, X } from 'lucide-react'
+import { AlarmClock, Camera as CameraIcon, Clock, Flag, GitBranch, Paperclip, Play, Repeat, Send, Square, Tag as TagIcon, Trash2, X } from 'lucide-react'
 import { authFetch, getStoredToken, jsonHeaders } from '../lib/api'
 import { REMINDER_OFFSETS, type ReminderSchedule } from '../lib/reminders'
 import type { RecurrenceConfig } from '../lib/recurrence'
@@ -51,7 +51,7 @@ const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.round(bytes
 export default function TaskDetailPanel({
   taskId, workspaceId, currentUserId, canModerate, onMessage, dueDate, assignedToId,
   dependsOn, blocks, relatedTo, workspaceTasks, recurrence, onTaskUpdated, taskTags, workspaceTags,
-  workspaceMembers,
+  workspaceMembers, milestoneId, workspaceMilestones, onMilestoneChange,
 }: {
   taskId: string
   workspaceId: string
@@ -69,6 +69,9 @@ export default function TaskDetailPanel({
   taskTags: TagRef[]
   workspaceTags: TagRef[]
   workspaceMembers: WorkspaceMemberRef[]
+  milestoneId?: string | null
+  workspaceMilestones: { id: string; name: string }[]
+  onMilestoneChange: (milestoneId: string | null) => void | Promise<void>
 }) {
   const [comments, setComments] = useState<Comment[]>([])
   const [newComment, setNewComment] = useState('')
@@ -415,6 +418,20 @@ export default function TaskDetailPanel({
             </div>
           )}
         </>
+      )}
+
+      <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><Flag size={14} strokeWidth={1.8} /> Milestone</h3>
+      {workspaceMilestones.length === 0 ? (
+        <p className="empty-column">No milestones in this workspace yet — create one from the Team page.</p>
+      ) : (
+        <select
+          value={milestoneId || ''}
+          onChange={e => onMilestoneChange(e.target.value || null)}
+          aria-label="Milestone"
+        >
+          <option value="">No milestone</option>
+          {workspaceMilestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+        </select>
       )}
 
       <h3 style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6 }}><TagIcon size={14} strokeWidth={1.8} /> Tags</h3>

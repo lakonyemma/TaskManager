@@ -2299,6 +2299,14 @@ textarea:focus { border-color: var(--accent-primary-light); }
 .tag-manager-row input[type="text"] { flex: 1; min-width: 0; }
 .tag-manager-row input[type="color"] { width: 32px; height: 28px; padding: 2px; border-radius: 6px; border: 1px solid var(--border-default); background: var(--surface-2); cursor: pointer; }
 .tag-manager-count { font-size: 0.72rem; color: var(--text-faint); }
+
+.milestone-manager-item { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 8px; background: var(--surface-2); }
+.milestone-achieve-btn { flex-shrink: 0; padding: 4px 6px; }
+.milestone-achieve-btn.active { background: var(--accent-primary); color: #fff; border-color: transparent; }
+.milestone-progress-row { display: flex; align-items: center; gap: 8px; }
+.milestone-progress-track { flex: 1; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.milestone-progress-fill { height: 100%; border-radius: 999px; background: var(--accent-primary); transition: width 0.2s ease; }
+
 .dependency-add { position: relative; }
 .dependency-suggestions {
   position: absolute;
