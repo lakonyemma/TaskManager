@@ -260,6 +260,8 @@
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .main-content {
@@ -444,6 +446,16 @@
 }
 
 .mini-btn {
+  /* min-height/min-width, not fixed — text buttons ("Snooze", "Add
+     column") should still size to their label, but this app also uses
+     .mini-btn constantly as an icon-only button (delete, focus, cancel…),
+     where 6px vertical padding around a 12-13px icon landed at ~24px tall —
+     under any reasonable touch-target floor for controls this frequent. */
+  min-height: 32px;
+  min-width: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 6px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
@@ -507,6 +519,13 @@
   border-radius: var(--radius-lg);
   padding: var(--space-4);
   min-height: 200px;
+  transition: background-color var(--duration-base) var(--ease-swift), box-shadow var(--duration-base) var(--ease-swift);
+}
+
+/* Drop-target highlight while a card is dragged over this column. */
+.kanban-column-drop-over {
+  background: var(--accent-primary-soft);
+  box-shadow: inset 0 0 0 2px var(--accent-primary-light);
 }
 
 .kanban-column h3 {
@@ -640,6 +659,43 @@
   border-color: var(--border-strong);
 }
 
+/* Rendered by DragOverlay — follows the pointer/finger while dragging,
+   detached from the column layout so it doesn't get clipped or reflow the
+   list underneath it. */
+.kanban-drag-overlay {
+  cursor: grabbing;
+  box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--border-strong);
+}
+
+.task-card-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-top: 1px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-faint);
+  cursor: grab;
+  /* Prevents the browser from also trying to scroll/pan on touch while a
+     drag is in progress on this handle. */
+  touch-action: none;
+}
+
+.task-card-drag-handle:hover,
+.task-card-drag-handle:focus-visible {
+  background: var(--surface-3, var(--border-subtle));
+  color: var(--text-secondary);
+}
+
+.task-card-drag-handle:active {
+  cursor: grabbing;
+}
+
 .task-card strong {
   font-size: 0.85rem;
   color: var(--text-primary);
@@ -689,8 +745,20 @@
 
 .invite-banner-item span {
   flex: 1;
+  /* Without min-width:0, a flex child won't shrink below its content's
+     natural width — a long workspace name then pushes the Accept button
+     past the row's edge, where the shell's overflow-x:hidden (.main-area)
+     silently clips it instead of it being reachable via page scroll. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.82rem;
   color: var(--text-tertiary);
+}
+
+.invite-banner-item .accept-btn {
+  flex-shrink: 0;
 }
 
 /* ─── Invite section inside workspace panel ─── */
@@ -1330,6 +1398,10 @@
 .recent-task-item:last-child { border-bottom: none; }
 .recent-task-item strong { flex: 1; color: var(--text-primary); }
 .recent-task-item span { color: var(--text-faint); font-size: 0.78rem; }
+
+.recent-task-item.clickable { cursor: pointer; border-radius: var(--radius-sm); transition: background var(--duration-fast) var(--ease-swift); }
+.recent-task-item.clickable:hover { background: var(--surface-hover); }
+.recent-task-item.clickable:focus-visible { outline: 2px solid var(--accent-primary-light); outline-offset: -2px; }
 
 /* ─── Settings ─── */
 .theme-previews {
