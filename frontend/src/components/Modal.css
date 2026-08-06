@@ -20,6 +20,14 @@
    deliberate accent instead of a blanket effect. */
 .modal-card {
   width: min(100%, 420px);
+  /* .modal-overlay has 20px padding on all sides, so this is the most
+     height ever actually available — without a cap, content taller than
+     the viewport (comments/attachments/time-tracking on a task, for
+     instance) pushes the card past the screen edge with no way to reach
+     the rest of it, including the close button. */
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
   background: var(--surface-glass, rgba(13, 17, 40, 0.82));
   backdrop-filter: var(--blur-glass, blur(20px) saturate(160%));
   -webkit-backdrop-filter: var(--blur-glass, blur(20px) saturate(160%));
@@ -40,6 +48,7 @@
   justify-content: space-between;
   padding: 16px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -65,4 +74,6 @@
 
 .modal-body {
   padding: 18px;
+  overflow-y: auto;
+  min-height: 0;
 }

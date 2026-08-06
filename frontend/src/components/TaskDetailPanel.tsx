@@ -513,7 +513,7 @@ export default function TaskDetailPanel({
             </button>
             <span className="attachment-meta">{formatSize(f.sizeBytes)}</span>
             {(f.uploadedBy.id === currentUserId || canModerate) && (
-              <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteFile(f.id)}><X size={12} /></button>
+              <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteFile(f.id)} aria-label={`Delete attachment ${f.filename}`}><X size={12} /></button>
             )}
           </div>
         ))}
@@ -540,7 +540,7 @@ export default function TaskDetailPanel({
               <strong>{c.user.firstname} {c.user.lastName}</strong>
               <span>{new Date(c.createdAt).toLocaleString()}</span>
               {(c.user.id === currentUserId || canModerate) && (
-                <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteComment(c.id)}><X size={12} /></button>
+                <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteComment(c.id)} aria-label={`Delete comment by ${c.user.firstname} ${c.user.lastName}`}><X size={12} /></button>
               )}
             </div>
             <p>{renderCommentBody(c)}</p>

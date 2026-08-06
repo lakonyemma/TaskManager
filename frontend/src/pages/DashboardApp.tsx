@@ -2,10 +2,14 @@ import { Suspense, type FormEvent, useCallback, useEffect, useMemo, useRef, useS
 import { useNavigate } from 'react-router-dom'
 import { List } from 'react-window'
 import {
+  DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors,
+  type DragEndEvent, type DragStartEvent,
+} from '@dnd-kit/core'
+import {
   LayoutDashboard, ClipboardCheck, KanbanSquare, CalendarDays, Users, ChartColumn,
   Activity as ActivityIcon, Settings as SettingsIcon, Bell, BellRing, LogOut, X, UserPlus, Menu,
   Download, Volume2, Vibrate, CheckCheck, Gauge, Trophy, Maximize2, Search, ChevronLeft, WifiOff, RefreshCw,
-  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera, Bot, Flag,
+  User as UserIcon, Upload, Trash2, Lock, ShieldCheck, Camera, Bot, Flag, GripVertical,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -216,6 +220,85 @@ const AvatarThumb = ({ url }: { url?: string | null }) => (
 const FONTS = ['default', 'serif', 'mono', 'georgia', 'impact', 'comic', 'courier', 'fantasy', 'trebuchet']
 const COLORS = ['purple', 'blue', 'green', 'orange', 'red', 'pink', 'teal', 'yellow', 'indigo']
 const ASSIGNABLE_ROLES = ['ADMIN', 'MANAGER', 'MEMBER']
+
+// One board card, draggable (via a dedicated grab handle, not the whole
+// card) between columns. A handle rather than a whole-card drag keeps the
+// card's own click-to-open and its nested buttons/select unambiguous — no
+// pointer-distance heuristics needed to tell "click" from "drag start".
+// The "Move to…" select stays as-is alongside it: dragging isn't usable by
+// keyboard or many assistive-tech setups, so it remains the accessible way
+// to do the exact same move.
+function KanbanTaskCard({
+  task, sortedColumns, currentColumnId, blocked, draggable, onSelect, onFocus, onMoveToColumn,
+}: {
+  task: Task
+  sortedColumns: BoardColumn[]
+  currentColumnId: string
+  blocked: boolean
+  draggable: boolean
+  onSelect: (task: Task) => void
+  onFocus: (task: Task) => void
+  onMoveToColumn: (taskId: string, columnId: string) => void
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, disabled: !draggable })
+  const currentColumn = sortedColumns.find(c => c.id === currentColumnId)
+  return (
+    <div ref={setNodeRef} className="task-card" onClick={() => onSelect(task)} style={{ cursor: 'pointer', opacity: isDragging ? 0.4 : 1 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+        {draggable && (
+          <button
+            type="button"
+            className="task-card-drag-handle"
+            {...listeners}
+            {...attributes}
+            onClick={e => e.stopPropagation()}
+            aria-label={`Drag ${task.title} to another column`}
+            title="Drag to move"
+          >
+            <GripVertical size={14} />
+          </button>
+        )}
+        <strong style={{ flex: 1 }}>{task.title}</strong>
+      </div>
+      {task.description && <p>{task.description}</p>}
+      <p className="task-meta">Priority: {task.priority}</p>
+      {task.dueDate && <p className="task-meta">Due: {new Date(task.dueDate).toLocaleDateString()}</p>}
+      {task.tags && task.tags.length > 0 && (
+        <div className="tag-row" style={{ marginBottom: 4 }}>
+          {task.tags.map(tag => <TagBadge key={tag.id} tag={tag} size="sm" />)}
+        </div>
+      )}
+      {(blocked || task.isRecurring || !!task.blocks?.length || !!task.relatedTo?.length) && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+          {blocked && <span className="status-badge blocked">Blocked</span>}
+          {!!task.blocks?.length && <span className="status-badge blocks">Blocks {task.blocks.length}</span>}
+          {!!task.relatedTo?.length && <span className="status-badge related">Related {task.relatedTo.length}</span>}
+          {task.isRecurring && <span className="status-badge recurring">Repeats</span>}
+        </div>
+      )}
+      <div className="task-actions" onClick={e => e.stopPropagation()}>
+        <button type="button" className="mini-btn" title="Focus on this task" onClick={() => onFocus(task)}><Maximize2 size={13} /></button>
+        <select
+          value=""
+          disabled={blocked && currentColumn?.mapsToStatus !== 'COMPLETED'}
+          onChange={e => { if (e.target.value) onMoveToColumn(task.id, e.target.value) }}
+        >
+          <option value="">Move to…</option>
+          {sortedColumns.filter(c => c.id !== currentColumnId).map(c => (
+            <option key={c.id} value={c.id} disabled={c.mapsToStatus === 'COMPLETED' && blocked}>{c.name}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
+}
+
+// A board column as a drop target — highlights while a dragged card is
+// over it so the drop destination is unambiguous.
+function DroppableKanbanColumn({ columnId, className, children }: { columnId: string; className: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: columnId })
+  return <div ref={setNodeRef} className={`${className}${isOver ? ' kanban-column-drop-over' : ''}`}>{children}</div>
+}
 
 export default function DashboardApp() {
   const { user, setUser, logout: authLogout } = useAuth()
@@ -900,6 +983,29 @@ export default function DashboardApp() {
       setPendingSyncCount(await getOutboxCount())
       showMessage("You're offline — change saved locally and will sync automatically", 'info')
     }
+  }
+
+  // Distance-gated so a plain tap on the card (to open it) never gets
+  // mistaken for a drag — only the dedicated grab handle actually starts
+  // one, and PointerSensor covers mouse and touch alike.
+  const boardDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  const [activeDragTaskId, setActiveDragTaskId] = useState<string | null>(null)
+  const handleBoardDragStart = (event: DragStartEvent) => setActiveDragTaskId(String(event.active.id))
+  const handleBoardDragEnd = (event: DragEndEvent) => {
+    setActiveDragTaskId(null)
+    const { active, over } = event
+    if (!over) return
+    const taskId = String(active.id)
+    const targetColumnId = String(over.id)
+    const task = tasks.find(tk => tk.id === taskId)
+    const targetColumn = boardColumns.find(c => c.id === targetColumnId)
+    if (!task || !targetColumn || task.columnId === targetColumnId) return
+    const blocked = task.dependsOn?.some(d => d.status !== 'COMPLETED')
+    if (blocked && targetColumn.mapsToStatus === 'COMPLETED') {
+      showMessage('This task is blocked by incomplete dependencies and can’t be moved to a Done column', 'error')
+      return
+    }
+    handleMoveTaskToColumn(taskId, targetColumnId)
   }
 
   const handleSubtaskToggle = async (subtaskId: string, completed: boolean) => {
@@ -1696,7 +1802,7 @@ export default function DashboardApp() {
                   {loadingDashboard ? <SkeletonList rows={3} /> : (
                     <>
                       {tasks.slice(0, 5).map(tk => (
-                        <div key={tk.id} className="recent-task-item">
+                        <div key={tk.id} className="recent-task-item clickable" onClick={() => setSelectedTask(tk)} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTask(tk) } }}>
                           <strong>{tk.title}</strong>
                           <span className={`priority-badge ${tk.priority.toLowerCase()}`}>{tk.priority}</span>
                           <span className={`status-badge ${tk.status.toLowerCase()}`}>{tk.status.replace('_', ' ')}</span>
@@ -1712,7 +1818,7 @@ export default function DashboardApp() {
                 <div className="panel">
                   <h2>{t('deadlines', settingsLang)}</h2>
                   {upcomingDeadlines.map(tk => (
-                    <div key={tk.id} className="recent-task-item">
+                    <div key={tk.id} className="recent-task-item clickable" onClick={() => setSelectedTask(tk)} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedTask(tk) } }}>
                       <strong>{tk.title}</strong>
                       <span>{new Date(tk.dueDate!).toLocaleDateString()} {tk.dueDate!.includes('T') ? new Date(tk.dueDate!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                     </div>
@@ -1727,7 +1833,7 @@ export default function DashboardApp() {
                 <div className="panel">
                   <h2>Team activity</h2>
                   {activityLog.slice(0, 5).map(entry => (
-                    <div key={entry.id} className="recent-task-item">
+                    <div key={entry.id} className="recent-task-item clickable" onClick={() => setNavPage('activity')} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setNavPage('activity') } }}>
                       <strong>{entry.action}</strong>
                       <span>{entry.user ? `${entry.user.firstname} ${entry.user.lastName}` : ''}</span>
                     </div>
@@ -1739,7 +1845,7 @@ export default function DashboardApp() {
                 <div className="panel">
                   <h2>Recent projects</h2>
                   {workspaces.slice(0, 5).map(ws => (
-                    <div key={ws.id} className="recent-task-item">
+                    <div key={ws.id} className="recent-task-item clickable" onClick={() => setSelectedWorkspaceId(ws.id)} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedWorkspaceId(ws.id) } }}>
                       <strong>{ws.name}</strong>
                       <span>{ws.description || ''}</span>
                     </div>
@@ -1929,91 +2035,78 @@ export default function DashboardApp() {
                 // matching status into the first column that means it.
                 const firstColumnIdForStatus = new Map<string, string>()
                 for (const col of sortedColumns) if (!firstColumnIdForStatus.has(col.mapsToStatus)) firstColumnIdForStatus.set(col.mapsToStatus, col.id)
+                const activeDragTask = activeDragTaskId ? tasks.find(tk => tk.id === activeDragTaskId) : null
 
                 return (
-                  <div className="kanban-board">
-                    {sortedColumns.map(col => {
-                      const columnTasks = tasks.filter(tk => (tk.columnId ? tk.columnId === col.id : firstColumnIdForStatus.get(tk.status) === col.id)
-                        && (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter))
-                        && (!boardPriorityFilter || tk.priority === boardPriorityFilter)
-                        && (!boardTagFilter || tk.tags?.some(tg => tg.id === boardTagFilter)))
-                      return (
-                        <div key={col.id} className="kanban-column">
-                          {manageColumns ? (
-                            <div className="kanban-column-manage-header">
-                              <input type="color" value={col.color} onChange={e => handleRecolorColumn(col.id, e.target.value)} title="Column color" />
-                              <input
-                                className="kanban-column-name-input"
-                                defaultValue={col.name}
-                                onBlur={e => { if (e.target.value.trim() && e.target.value.trim() !== col.name) handleRenameColumn(col.id, e.target.value) }}
-                                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                              />
-                              <button type="button" className="mini-btn secondary-btn" disabled={col.order === 0} onClick={() => handleReorderColumn(col.id, -1)} aria-label="Move column left">←</button>
-                              <button type="button" className="mini-btn secondary-btn" disabled={col.order === sortedColumns.length - 1} onClick={() => handleReorderColumn(col.id, 1)} aria-label="Move column right">→</button>
-                              <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteColumn(col.id)} aria-label={`Delete ${col.name} column`}><Trash2 size={12} /></button>
-                            </div>
-                          ) : (
-                            <h3><span className="kanban-column-dot" style={{ background: col.color }} /> {col.name}</h3>
-                          )}
-                          {columnTasks.length === 0
-                            ? <p className="empty-column">{boardAssigneeFilter || boardPriorityFilter ? 'No matching tasks' : 'Nothing here yet'}</p>
-                            : columnTasks.map(tk => {
-                              const blocked = tk.dependsOn?.some(d => d.status !== 'COMPLETED')
-                              return (
-                                <div key={tk.id} className="task-card" onClick={() => setSelectedTask(tk)} style={{ cursor: 'pointer' }}>
-                                  <strong>{tk.title}</strong>
-                                  {tk.description && <p>{tk.description}</p>}
-                                  <p className="task-meta">Priority: {tk.priority}</p>
-                                  {tk.dueDate && <p className="task-meta">Due: {new Date(tk.dueDate).toLocaleDateString()}</p>}
-                                  {tk.tags && tk.tags.length > 0 && (
-                                    <div className="tag-row" style={{ marginBottom: 4 }}>
-                                      {tk.tags.map(tag => <TagBadge key={tag.id} tag={tag} size="sm" />)}
-                                    </div>
-                                  )}
-                                  {(blocked || tk.isRecurring || !!tk.blocks?.length || !!tk.relatedTo?.length) && (
-                                    <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                                      {blocked && <span className="status-badge blocked">Blocked</span>}
-                                      {!!tk.blocks?.length && <span className="status-badge blocks">Blocks {tk.blocks.length}</span>}
-                                      {!!tk.relatedTo?.length && <span className="status-badge related">Related {tk.relatedTo.length}</span>}
-                                      {tk.isRecurring && <span className="status-badge recurring">Repeats</span>}
-                                    </div>
-                                  )}
-                                  <div className="task-actions" onClick={e => e.stopPropagation()}>
-                                    <button type="button" className="mini-btn" title="Focus on this task" onClick={() => openFocusMode(tk)}><Maximize2 size={13} /></button>
-                                    <select
-                                      value=""
-                                      disabled={blocked && col.mapsToStatus !== 'COMPLETED'}
-                                      onChange={e => { if (e.target.value) handleMoveTaskToColumn(tk.id, e.target.value) }}
-                                    >
-                                      <option value="">Move to…</option>
-                                      {sortedColumns.filter(c => c.id !== col.id).map(c => (
-                                        <option key={c.id} value={c.id} disabled={c.mapsToStatus === 'COMPLETED' && blocked}>{c.name}</option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                </div>
-                              )
-                            })}
+                  <DndContext sensors={boardDragSensors} onDragStart={handleBoardDragStart} onDragEnd={handleBoardDragEnd}>
+                    <div className="kanban-board">
+                      {sortedColumns.map(col => {
+                        const columnTasks = tasks.filter(tk => (tk.columnId ? tk.columnId === col.id : firstColumnIdForStatus.get(tk.status) === col.id)
+                          && (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter))
+                          && (!boardPriorityFilter || tk.priority === boardPriorityFilter)
+                          && (!boardTagFilter || tk.tags?.some(tg => tg.id === boardTagFilter)))
+                        return (
+                          <DroppableKanbanColumn key={col.id} columnId={col.id} className="kanban-column">
+                            {manageColumns ? (
+                              <div className="kanban-column-manage-header">
+                                <input type="color" value={col.color} onChange={e => handleRecolorColumn(col.id, e.target.value)} title="Column color" />
+                                <input
+                                  className="kanban-column-name-input"
+                                  defaultValue={col.name}
+                                  onBlur={e => { if (e.target.value.trim() && e.target.value.trim() !== col.name) handleRenameColumn(col.id, e.target.value) }}
+                                  onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                                />
+                                <button type="button" className="mini-btn secondary-btn" disabled={col.order === 0} onClick={() => handleReorderColumn(col.id, -1)} aria-label="Move column left">←</button>
+                                <button type="button" className="mini-btn secondary-btn" disabled={col.order === sortedColumns.length - 1} onClick={() => handleReorderColumn(col.id, 1)} aria-label="Move column right">→</button>
+                                <button type="button" className="mini-btn danger-btn" onClick={() => handleDeleteColumn(col.id)} aria-label={`Delete ${col.name} column`}><Trash2 size={12} /></button>
+                              </div>
+                            ) : (
+                              <h3><span className="kanban-column-dot" style={{ background: col.color }} /> {col.name}</h3>
+                            )}
+                            {columnTasks.length === 0
+                              ? <p className="empty-column">{boardAssigneeFilter || boardPriorityFilter ? 'No matching tasks' : 'Nothing here yet'}</p>
+                              : columnTasks.map(tk => (
+                                <KanbanTaskCard
+                                  key={tk.id}
+                                  task={tk}
+                                  sortedColumns={sortedColumns}
+                                  currentColumnId={col.id}
+                                  blocked={!!tk.dependsOn?.some(d => d.status !== 'COMPLETED')}
+                                  draggable={!manageColumns}
+                                  onSelect={setSelectedTask}
+                                  onFocus={openFocusMode}
+                                  onMoveToColumn={handleMoveTaskToColumn}
+                                />
+                              ))}
+                          </DroppableKanbanColumn>
+                        )
+                      })}
+                      {manageColumns && (
+                        <div className="kanban-column kanban-column-add">
+                          <h3>Add column</h3>
+                          <input value={newColumnName} onChange={e => setNewColumnName(e.target.value)} placeholder="Column name" />
+                          <select value={newColumnStatus} onChange={e => setNewColumnStatus(e.target.value)}>
+                            <option value="TODO">Behaves like: To Do</option>
+                            <option value="IN_PROGRESS">Behaves like: In Progress</option>
+                            <option value="REVIEW">Behaves like: Review</option>
+                            <option value="COMPLETED">Behaves like: Done</option>
+                          </select>
+                          <button
+                            type="button" className="mini-btn" disabled={!newColumnName.trim()}
+                            onClick={async () => { await handleCreateColumn(newColumnName, newColumnStatus); setNewColumnName('') }}
+                          >Add column</button>
                         </div>
-                      )
-                    })}
-                    {manageColumns && (
-                      <div className="kanban-column kanban-column-add">
-                        <h3>Add column</h3>
-                        <input value={newColumnName} onChange={e => setNewColumnName(e.target.value)} placeholder="Column name" />
-                        <select value={newColumnStatus} onChange={e => setNewColumnStatus(e.target.value)}>
-                          <option value="TODO">Behaves like: To Do</option>
-                          <option value="IN_PROGRESS">Behaves like: In Progress</option>
-                          <option value="REVIEW">Behaves like: Review</option>
-                          <option value="COMPLETED">Behaves like: Done</option>
-                        </select>
-                        <button
-                          type="button" className="mini-btn" disabled={!newColumnName.trim()}
-                          onClick={async () => { await handleCreateColumn(newColumnName, newColumnStatus); setNewColumnName('') }}
-                        >Add column</button>
-                      </div>
-                    )}
-                  </div>
+                      )}
+                    </div>
+                    <DragOverlay>
+                      {activeDragTask && (
+                        <div className="task-card kanban-drag-overlay">
+                          <strong>{activeDragTask.title}</strong>
+                          <p className="task-meta">Priority: {activeDragTask.priority}</p>
+                        </div>
+                      )}
+                    </DragOverlay>
+                  </DndContext>
                 )
               })()}
             </>
