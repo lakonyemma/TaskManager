@@ -44,24 +44,29 @@ app.set("trust proxy", 1);
 app.use(helmet());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use(cors({ origin: process.env.CORS_ORIGIN || "http://localhost:5173", credentials: true }));
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({
+  limit: "5mb",
+  verify: (req, _res, buf) => {
+    (req as express.Request & { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+  },
+}));
 
 app.get("/", (_req, res) => {
-    res.json({
-        success: true,
-        message: "TaskManager API is running",
-        endpoints: {
-            authRegister: "/api/auth/register",
-            authLogin: "/api/auth/login",
-            workspaces: "/api/workspaces",
-            tasks: "/api/tasks",
-            notifications: "/api/notifications",
-            reports: "/api/reports",
-            billing: "/api/billing",
-            push: "/api/push",
-            reminders: "/api/reminders",
-        },
-    });
+  res.json({
+    success: true,
+    message: "TaskManager API is running",
+    endpoints: {
+      authRegister: "/api/auth/register",
+      authLogin: "/api/auth/login",
+      workspaces: "/api/workspaces",
+      tasks: "/api/tasks",
+      notifications: "/api/notifications",
+      reports: "/api/reports",
+      billing: "/api/billing",
+      push: "/api/push",
+      reminders: "/api/reminders",
+    },
+  });
 });
 
 app.use("/api/auth", authRoutes);
@@ -92,18 +97,17 @@ app.use("/api", timeEntryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/assistant", assistantRoutes);
 app.use("/api/billing", billingRoutes);
-
 app.use((_req, res) => res.status(404).json({ message: "Route not found" }));
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    startReminderWorker();
-    startDigestWorker();
-    ensureAchievementsSeeded().catch((error) => console.error("[achievements] Failed to seed catalog:", error));
-    void enforceExpiredSubscriptions().catch((error) => console.error("[billing] Initial expiry sweep failed:", error));
-    setInterval(() => {
-        void enforceExpiredSubscriptions().catch((error) => console.error("[billing] Expiry sweep failed:", error));
-    }, 60 * 60 * 1000).unref();
+  console.log(`Server running on port ${PORT}`);
+  startReminderWorker();
+  startDigestWorker();
+  ensureAchievementsSeeded().catch((error) => console.error("[achievements] Failed to seed catalog:", error));
+  void enforceExpiredSubscriptions().catch((error) => console.error("[billing] Initial expiry sweep failed:", error));
+  setInterval(() => {
+    void enforceExpiredSubscriptions().catch((error) => console.error("[billing] Expiry sweep failed:", error));
+  }, 60 * 60 * 1000).unref();
 });
