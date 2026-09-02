@@ -36,7 +36,7 @@ const issueSession = async (
 ) => {
     const jti = crypto.randomUUID();
     const refreshToken = signRefreshToken({ id: user.id, email: user.email }, jti);
-    await prisma.session.create({
+    const session = await prisma.session.create({
         data: {
             userId: user.id,
             tokenHash: hashToken(refreshToken),
@@ -46,7 +46,7 @@ const issueSession = async (
         },
     });
     const accessToken = signAccessToken({ id: user.id, email: user.email });
-    return { accessToken, refreshToken };
+    return { accessToken, refreshToken, sessionId: session.id };
 };
 
 export const register = async (req: Request, res: Response) => {
@@ -128,7 +128,7 @@ export const login = async (req: Request, res: Response) => {
             return res.status(403).json({ message: "This account has been suspended. Contact your administrator for help." });
         }
 
-        const { accessToken, refreshToken } = await issueSession(user, req);
+        const { accessToken, refreshToken, sessionId } = await issueSession(user, req);
 
         await createActivityLog({ userId: user.id, action: "Logged in", entityType: "login", ipAddress: req.ip || null });
 
@@ -139,6 +139,7 @@ export const login = async (req: Request, res: Response) => {
             message: "Login successful",
             accessToken,
             refreshToken,
+            sessionId,
             user: safeUser,
         });
     } catch (error) {
@@ -231,8 +232,10 @@ export const listSessions = async (req: Request, res: Response) => {
         if (!authUser) {
             return res.status(401).json({ message: "Authentication required" });
         }
-        const { refreshToken } = req.query as { refreshToken?: string };
-        const currentHash = refreshToken ? hashToken(refreshToken) : null;
+        // Session IDs identify a browser session but are not credentials. Keeping
+        // the refresh token out of the URL prevents it from being retained in
+        // access logs, browser history, analytics, and proxy logs.
+        const currentSessionId = req.header("X-Session-Id") || null;
 
         const sessions = await prisma.session.findMany({
             where: { userId: authUser.id, revokedAt: null, expiresAt: { gt: new Date() } },
@@ -241,7 +244,7 @@ export const listSessions = async (req: Request, res: Response) => {
         });
 
         return res.status(200).json({
-            sessions: sessions.map(({ tokenHash, ...s }) => ({ ...s, isCurrent: currentHash ? tokenHash === currentHash : false })),
+            sessions: sessions.map(({ tokenHash, ...s }) => ({ ...s, isCurrent: currentSessionId === s.id })),
         });
     } catch (error) {
         console.error(error);

@@ -2,6 +2,7 @@ import { syncTokenToServiceWorker } from './swAuthSync'
 
 export const TOKEN_KEY = 'taskmanager_token'
 export const REFRESH_KEY = 'taskmanager_refresh_token'
+export const SESSION_KEY = 'taskmanager_session_id'
 
 // "Remember session" support: when the user unchecks it at login, tokens are
 // kept in sessionStorage (cleared when the browser/tab closes) instead of
@@ -11,13 +12,15 @@ const activeStorage = (): Storage => (localStorage.getItem(TOKEN_KEY) ? localSto
 
 export const getStoredToken = () => localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY)
 export const getStoredRefreshToken = () => localStorage.getItem(REFRESH_KEY) || sessionStorage.getItem(REFRESH_KEY)
+export const getStoredSessionId = () => localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY)
 
-export const persistTokens = (accessToken: string, refreshToken?: string | null, remember = true) => {
+export const persistTokens = (accessToken: string, refreshToken?: string | null, remember = true, sessionId?: string | null) => {
   const target = refreshToken ? (remember ? localStorage : sessionStorage) : activeStorage()
   const other = target === localStorage ? sessionStorage : localStorage
   target.setItem(TOKEN_KEY, accessToken)
   if (refreshToken) target.setItem(REFRESH_KEY, refreshToken)
-  if (refreshToken) { other.removeItem(TOKEN_KEY); other.removeItem(REFRESH_KEY) }
+  if (sessionId) target.setItem(SESSION_KEY, sessionId)
+  if (refreshToken) { other.removeItem(TOKEN_KEY); other.removeItem(REFRESH_KEY); other.removeItem(SESSION_KEY) }
   void syncTokenToServiceWorker(accessToken)
 }
 
@@ -26,6 +29,8 @@ export const clearTokens = () => {
   localStorage.removeItem(REFRESH_KEY)
   sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.removeItem(REFRESH_KEY)
+  localStorage.removeItem(SESSION_KEY)
+  sessionStorage.removeItem(SESSION_KEY)
   void syncTokenToServiceWorker(null)
 }
 

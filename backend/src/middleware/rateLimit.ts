@@ -68,3 +68,16 @@ export const assistantRateLimiter = rateLimit({
     keyGenerator: (req: Request) => (req as Request & { user?: { id: string } }).user?.id || ipKeyGenerator(req.ip || "unknown"),
     message: { message: "You've reached the AI assistant's hourly limit. Please try again later." },
 });
+
+
+// File uploads buffer content in application memory. Bound attempts per user
+// so a single account cannot turn simultaneous 15 MB requests into memory
+// pressure for every tenant.
+export const uploadRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => (req as Request & { user?: { id: string } }).user?.id || ipKeyGenerator(req.ip || "unknown"),
+    message: { message: "Too many uploads. Please try again later." },
+});

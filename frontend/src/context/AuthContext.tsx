@@ -56,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (data.emailNotVerified) throw new EmailNotVerifiedError(data.message || 'Please verify your email before signing in')
       throw new Error(data.message || 'Unable to sign in')
     }
-    persistTokens(data.accessToken, data.refreshToken, remember)
+    persistTokens(data.accessToken, data.refreshToken, remember, data.sessionId)
     setUser(data.user)
     setSessionNotice('')
     await redeemPendingInvite()
