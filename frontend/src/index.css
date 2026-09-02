@@ -1,3 +1,16 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-taskly-canvas: var(--bg-canvas);
+  --color-taskly-surface: var(--surface-1);
+  --color-taskly-surface-raised: var(--surface-2);
+  --color-taskly-text: var(--text-primary);
+  --color-taskly-muted: var(--text-muted);
+  --color-taskly-accent: var(--accent-primary);
+  --color-taskly-accent-light: var(--accent-primary-light);
+  --font-sans: var(--font-sans);
+}
+
 :root {
   color-scheme: dark;
   font-synthesis: none;
