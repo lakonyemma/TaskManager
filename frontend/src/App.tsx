@@ -14,6 +14,7 @@ import InvitationAcceptPage from './pages/InvitationAcceptPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsPage from './pages/TermsPage'
 import BillingPage from './pages/BillingPage'
+import BillingAdminPage from './pages/BillingAdminPage'
 import './styles/brand.css'
 
 const DashboardApp = lazy(() => import('./pages/DashboardApp'))
@@ -34,6 +35,7 @@ function App() {
             <Route path="/privacy" element={<PrivacyPolicyPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/billing" element={<ProtectedRoute><BillingPage /></ProtectedRoute>} />
+            <Route path="/admin/billing" element={<SuperAdminRoute><BillingAdminPage /></SuperAdminRoute>} />
             <Route
               path="/app/*"
               element={
