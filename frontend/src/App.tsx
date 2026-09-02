@@ -13,10 +13,9 @@ import ResendVerificationPage from './pages/ResendVerificationPage'
 import InvitationAcceptPage from './pages/InvitationAcceptPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsPage from './pages/TermsPage'
+import BillingPage from './pages/BillingPage'
 import './styles/brand.css'
 
-// Code-split the authenticated dashboard (Recharts + FullCalendar) away from
-// the public marketing/auth pages so first-time visitors don't pay for it.
 const DashboardApp = lazy(() => import('./pages/DashboardApp'))
 const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage'))
 
@@ -34,6 +33,7 @@ function App() {
             <Route path="/invite/:token" element={<InvitationAcceptPage />} />
             <Route path="/privacy" element={<PrivacyPolicyPage />} />
             <Route path="/terms" element={<TermsPage />} />
+            <Route path="/billing" element={<ProtectedRoute><BillingPage /></ProtectedRoute>} />
             <Route
               path="/app/*"
               element={
