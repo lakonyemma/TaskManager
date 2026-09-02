@@ -35,6 +35,7 @@ function App() {
             <Route path="/privacy" element={<PrivacyPolicyPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/billing" element={<ProtectedRoute><BillingPage /></ProtectedRoute>} />
+            <Route path="/app/billing" element={<ProtectedRoute><BillingPage /></ProtectedRoute>} />
             <Route path="/admin/billing" element={<SuperAdminRoute><BillingAdminPage /></SuperAdminRoute>} />
             <Route
               path="/app/*"
