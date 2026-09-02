@@ -29,13 +29,16 @@ export const createCheckout = async (params: {
   name: string;
   phone?: string | null;
   redirectUrl: string;
+  userId: string;
 }) => {
+  const paymentPlan = process.env.FLW_PREMIUM_PAYMENT_PLAN_ID ? Number(process.env.FLW_PREMIUM_PAYMENT_PLAN_ID) : undefined;
   const data = await request("/payments", {
     tx_ref: params.txRef,
     amount: params.amount,
     currency: params.currency,
     redirect_url: params.redirectUrl,
     payment_options: params.country === "UG" ? "card,mobilemoneyuganda" : "card",
+    ...(paymentPlan ? { payment_plan: paymentPlan } : {}),
     customer: {
       email: params.email,
       name: params.name,
@@ -45,7 +48,7 @@ export const createCheckout = async (params: {
       title: "Taskly Premium",
       description: "Taskly Premium monthly subscription",
     },
-    meta: { product: "taskly_premium", billing_cycle: "monthly" },
+    meta: { product: "taskly_premium", billing_cycle: "monthly", userId: params.userId },
   });
 
   if (!data?.data?.link) throw new Error("Flutterwave did not return a checkout link");
