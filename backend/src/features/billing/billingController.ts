@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../../lib/prisma.js";
-import { getEntitlements, getSubscription, startTrial, activatePaidSubscription, cancelSubscription, markPastDue, enforceExpiredSubscriptions } from "./billingService.js";
+import { getEntitlements, getSubscription, ensureSubscription, startTrial, activatePaidSubscription, cancelSubscription, markPastDue, enforceExpiredSubscriptions } from "./billingService.js";
 import { createCheckout, verifyTransaction, isValidWebhook } from "./flutterwave.js";
 
 const auth = (req: Request) => (req as Request & { user?: { id: string; email: string } }).user;
@@ -26,39 +26,39 @@ export const beginCheckout = async (req: Request, res: Response) => {
   const user = auth(req);
   if (!user) return res.status(401).json({ message: "Authentication required" });
   try {
-    const { country = "UG", currency = country === "UG" ? "UGX" : "USD", amount, phone } = req.body as {
-      country?: string; currency?: string; amount?: number; phone?: string;
+    const { country = "UG", currency = country === "UG" ? "UGX" : "USD", phone } = req.body as {
+      country?: string; currency?: string; phone?: string;
     };
 
     const configuredAmount = country === "UG"
       ? Number(process.env.TASKLY_PREMIUM_MONTHLY_UGX || 0)
       : Number(process.env.TASKLY_PREMIUM_MONTHLY_USD || 5);
-    const finalAmount = Number(amount || configuredAmount);
-    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
-      return res.status(500).json({ message: "Premium price is not configured" });
-    }
+    if (!Number.isFinite(configuredAmount) || configuredAmount <= 0) return res.status(500).json({ message: "Premium price is not configured" });
 
     const dbUser = await prisma.user.findUnique({ where: { id: user.id }, select: { firstname: true, lastName: true, email: true } });
     if (!dbUser) return res.status(404).json({ message: "User not found" });
+    await ensureSubscription(user.id);
 
     const txRef = `TASKLY-PREMIUM-${user.id}-${Date.now()}`;
+    const amountMinor = Math.round(configuredAmount * (currency.toUpperCase() === "USD" ? 100 : 1));
+    await prisma.$executeRawUnsafe(
+      `UPDATE "BillingSubscription" SET "provider"='FLUTTERWAVE', "paymentMethod"='checkout', "currency"=$2, "amountMinor"=$3, "providerTxRef"=$4, "updatedAt"=CURRENT_TIMESTAMP WHERE "userId"=$1`,
+      user.id, currency.toUpperCase(), amountMinor, txRef,
+    );
+
     const link = await createCheckout({
       txRef,
-      amount: finalAmount,
-      currency,
+      amount: configuredAmount,
+      currency: currency.toUpperCase(),
       country: country.toUpperCase(),
       email: dbUser.email,
       name: `${dbUser.firstname} ${dbUser.lastName}`,
       phone: phone || null,
+      userId: user.id,
       redirectUrl: `${frontendUrl()}/billing?status=callback&tx_ref=${encodeURIComponent(txRef)}`,
     });
 
-    await prisma.$executeRawUnsafe(
-      `UPDATE "BillingSubscription" SET "provider"='FLUTTERWAVE', "paymentMethod"='checkout', "currency"=$2, "amountMinor"=$3, "providerTxRef"=$4, "updatedAt"=CURRENT_TIMESTAMP WHERE "userId"=$1`,
-      user.id, currency, Math.round(finalAmount * (currency === "USD" ? 100 : 1)), txRef,
-    );
-
-    return res.json({ url: link, txRef, amount: finalAmount, currency });
+    return res.json({ url: link, txRef, amount: configuredAmount, currency: currency.toUpperCase() });
   } catch (error) {
     console.error("[billing checkout]", error);
     return res.status(502).json({ message: error instanceof Error ? error.message : "Unable to start checkout" });
@@ -80,17 +80,11 @@ export const completeCheckout = async (req: Request, res: Response) => {
 
     const txRef = String(transaction.tx_ref || "");
     const expected = await getSubscription(user.id);
-    if (!expected?.providerTxRef || expected.providerTxRef !== txRef) {
-      return res.status(400).json({ message: "Transaction reference mismatch" });
-    }
+    if (!expected?.providerTxRef || expected.providerTxRef !== txRef) return res.status(400).json({ message: "Transaction reference mismatch" });
 
     const expectedAmount = Number(expected.amountMinor || 0);
-    const actualMinor = String(transaction.currency).toUpperCase() === "USD"
-      ? Math.round(Number(transaction.amount) * 100)
-      : Math.round(Number(transaction.amount));
-    if (expectedAmount !== actualMinor || String(transaction.currency).toUpperCase() !== String(expected.currency).toUpperCase()) {
-      return res.status(400).json({ message: "Payment amount or currency mismatch" });
-    }
+    const actualMinor = String(transaction.currency).toUpperCase() === "USD" ? Math.round(Number(transaction.amount) * 100) : Math.round(Number(transaction.amount));
+    if (expectedAmount !== actualMinor || String(transaction.currency).toUpperCase() !== String(expected.currency).toUpperCase()) return res.status(400).json({ message: "Payment amount or currency mismatch" });
 
     const subscription = await activatePaidSubscription({
       userId: user.id,
@@ -115,7 +109,6 @@ export const billingWebhook = async (req: Request, res: Response) => {
   try {
     const hash = req.headers["verif-hash"];
     if (!isValidWebhook(typeof hash === "string" ? hash : undefined)) return res.status(401).json({ message: "Invalid webhook signature" });
-
     const data = req.body?.data;
     const transactionId = data?.id ? String(data.id) : null;
     if (!transactionId) return res.json({ received: true });
@@ -126,7 +119,6 @@ export const billingWebhook = async (req: Request, res: Response) => {
 
     const current = await getSubscription(userId);
     if (!current?.providerTxRef || current.providerTxRef !== String(transaction.tx_ref)) return res.json({ received: true });
-
     const actualMinor = String(transaction.currency).toUpperCase() === "USD" ? Math.round(Number(transaction.amount) * 100) : Math.round(Number(transaction.amount));
     if (actualMinor !== Number(current.amountMinor) || String(transaction.currency).toUpperCase() !== String(current.currency).toUpperCase()) return res.json({ received: true });
 
@@ -160,11 +152,7 @@ export const expireBilling = async (_req: Request, res: Response) => {
 };
 
 export const adminBillingSummary = async (_req: Request, res: Response) => {
-  const rows = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT "plan", "status", COUNT(*)::int AS count FROM "BillingSubscription" GROUP BY "plan", "status" ORDER BY "plan", "status"`,
-  );
-  const revenue = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT COALESCE(SUM("amountMinor"),0)::bigint AS total, "currency" FROM "BillingPayment" WHERE "status"='SUCCEEDED' GROUP BY "currency" ORDER BY "currency"`,
-  );
+  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT "plan", "status", COUNT(*)::int AS count FROM "BillingSubscription" GROUP BY "plan", "status" ORDER BY "plan", "status"`);
+  const revenue = await prisma.$queryRawUnsafe<any[]>(`SELECT COALESCE(SUM("amountMinor"),0)::bigint AS total, "currency" FROM "BillingPayment" WHERE "status"='SUCCEEDED' GROUP BY "currency" ORDER BY "currency"`);
   return res.json({ subscriptions: rows, revenue });
 };
