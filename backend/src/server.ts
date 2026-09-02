@@ -33,6 +33,7 @@ import timeEntryRoutes from "./features/timeEntries/timeEntryRoutes.js";
 import adminRoutes from "./features/admin/adminRoutes.js";
 import assistantRoutes from "./features/assistant/assistantRoutes.js";
 import billingRoutes from "./features/billing/billingRoutes.js";
+import { enforceExpiredSubscriptions } from "./features/billing/billingService.js";
 import { ensureAchievementsSeeded } from "./features/achievements/achievementService.js";
 import { errorHandler } from "./shared/errorHandler.js";
 
@@ -101,4 +102,8 @@ app.listen(PORT, () => {
     startReminderWorker();
     startDigestWorker();
     ensureAchievementsSeeded().catch((error) => console.error("[achievements] Failed to seed catalog:", error));
+    void enforceExpiredSubscriptions().catch((error) => console.error("[billing] Initial expiry sweep failed:", error));
+    setInterval(() => {
+        void enforceExpiredSubscriptions().catch((error) => console.error("[billing] Expiry sweep failed:", error));
+    }, 60 * 60 * 1000).unref();
 });
