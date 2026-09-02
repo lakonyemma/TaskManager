@@ -1,10 +1,14 @@
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 
-if (!process.env.JWT_SECRET) {
-    console.warn("[auth] JWT_SECRET is not set — falling back to an insecure development secret. Set JWT_SECRET in production.");
+const configuredJwtSecret = process.env.JWT_SECRET;
+if (!configuredJwtSecret && process.env.NODE_ENV === "production") {
+    throw new Error("[auth] JWT_SECRET must be set in production.");
 }
-const JWT_SECRET = process.env.JWT_SECRET || "development-secret";
+if (!configuredJwtSecret) {
+    console.warn("[auth] JWT_SECRET is not set — using an insecure development-only secret.");
+}
+const JWT_SECRET = configuredJwtSecret || "development-secret";
 
 export type AuthTokenPayload = {
     id: string;
