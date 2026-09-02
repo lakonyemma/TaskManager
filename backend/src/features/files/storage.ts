@@ -10,7 +10,22 @@ const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15MB
 // Buffered in memory (not staged to disk first) — small enough at this size
 // cap, and lets putObject() below write to either local disk or R2 without
 // the caller needing to know which backend is active.
-export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_SIZE_BYTES } });
+const ALLOWED_UPLOAD_TYPES = new Set([
+    "image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf",
+    "text/plain", "text/csv",
+]);
+
+export const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_FILE_SIZE_BYTES, files: 1 },
+    fileFilter: (_req, file, callback) => {
+        if (!ALLOWED_UPLOAD_TYPES.has(file.mimetype)) {
+            callback(new Error("Unsupported file type. Upload an image, PDF, text file, or CSV."));
+            return;
+        }
+        callback(null, true);
+    },
+});
 
 const R2_BUCKET = process.env.R2_BUCKET;
 const R2_ENDPOINT = process.env.R2_ENDPOINT;
