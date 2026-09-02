@@ -13,14 +13,13 @@ const features = [
   'File attachments, email digests and push notifications',
 ]
 
+type StripeElements = { create: (type: string) => { mount: (selector: HTMLElement) => void; unmount: () => void } }
 type StripeInstance = {
-  elements: (options: { clientSecret: string }) => { create: (type: string) => { mount: (selector: HTMLElement) => void; unmount: () => void } }
-  confirmPayment: (options: { elements: ReturnType<StripeInstance['elements']>; confirmParams?: { return_url?: string }; redirect?: 'if_required' }) => Promise<{ error?: { message?: string } }>
+  elements: (options: { clientSecret: string }) => StripeElements
+  confirmPayment: (options: { elements: StripeElements; confirmParams?: { return_url?: string }; redirect?: 'if_required' }) => Promise<{ error?: { message?: string } }>
 }
 
-declare global {
-  interface Window { Stripe?: (publishableKey: string) => StripeInstance }
-}
+declare global { interface Window { Stripe?: (publishableKey: string) => StripeInstance } }
 
 type BillingData = { subscription: any; entitlements: any }
 
@@ -50,6 +49,7 @@ export default function BillingPage() {
   const [reference, setReference] = useState<string | null>(null)
   const cardMount = useRef<HTMLDivElement | null>(null)
   const cardElement = useRef<{ unmount: () => void } | null>(null)
+  const stripeElements = useRef<StripeElements | null>(null)
 
   const load = async () => {
     try { setData(await authFetch('/api/billing') as BillingData) }
@@ -64,16 +64,14 @@ export default function BillingPage() {
       try {
         const result = await authFetch('/api/billing/verify', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ reference: paymentReference }) }) as any
         if (result?.status === 'completed' || result?.entitlements?.premium) {
-          await load()
-          setMessage('Payment successful. Premium is now active.')
-          return true
+          await load(); setMessage('Payment successful. Premium is now active.'); return true
         }
       } catch (error: any) {
         if (error?.status !== 402 && attempt > 1) throw error
       }
       await new Promise(resolve => setTimeout(resolve, 3000))
     }
-    throw new Error('Payment is still pending. You can leave this page and check Billing again shortly.')
+    throw new Error('Payment is still pending. Check Billing again shortly.')
   }
 
   const startTrial = async () => {
@@ -86,18 +84,11 @@ export default function BillingPage() {
   const checkout = async () => {
     setBusy(true); setMessage('')
     try {
-      const result = await authFetch('/api/billing/checkout', {
-        method: 'POST', headers: jsonHeaders,
-        body: JSON.stringify({ country, paymentMethod, phone: paymentMethod === 'mobile_money' ? phone : undefined }),
-      }) as any
+      const result = await authFetch('/api/billing/checkout', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ country, paymentMethod, phone: paymentMethod === 'mobile_money' ? phone : undefined }) }) as any
       setReference(result.reference)
       if (paymentMethod === 'card') {
         if (!result.clientSecret || !result.stripePublishableKey) throw new Error('Card payment setup was not returned by DGateway')
-        setCardSecret(result.clientSecret)
-        setStripeKey(result.stripePublishableKey)
-        setMessage('Enter your card details below to complete payment.')
-        setBusy(false)
-        return
+        setCardSecret(result.clientSecret); setStripeKey(result.stripePublishableKey); setMessage('Enter your card details below to complete payment.'); setBusy(false); return
       }
       setMessage('A Mobile Money payment prompt has been sent to your phone. Approve it to continue.')
       await pollPayment(result.reference)
@@ -112,20 +103,20 @@ export default function BillingPage() {
       if (!mounted || !window.Stripe || !cardMount.current) return
       const stripe = window.Stripe(stripeKey)
       const elements = stripe.elements({ clientSecret: cardSecret })
+      stripeElements.current = elements
       const element = elements.create('payment')
       element.mount(cardMount.current)
       cardElement.current = element
     }).catch(error => setMessage(error instanceof Error ? error.message : 'Unable to load card form'))
-    return () => { mounted = false; cardElement.current?.unmount(); cardElement.current = null }
+    return () => { mounted = false; cardElement.current?.unmount(); cardElement.current = null; stripeElements.current = null }
   }, [cardSecret, stripeKey])
 
   const payByCard = async () => {
-    if (!cardSecret || !stripeKey || !window.Stripe) return
+    if (!cardSecret || !stripeKey || !window.Stripe || !stripeElements.current) return
     setBusy(true); setMessage('')
     try {
       const stripe = window.Stripe(stripeKey)
-      const elements = stripe.elements({ clientSecret: cardSecret })
-      const result = await stripe.confirmPayment({ elements, confirmParams: { return_url: `${window.location.origin}/app/billing` }, redirect: 'if_required' })
+      const result = await stripe.confirmPayment({ elements: stripeElements.current, confirmParams: { return_url: `${window.location.origin}/app/billing` }, redirect: 'if_required' })
       if (result.error) throw new Error(result.error.message || 'Card payment failed')
       if (reference) await pollPayment(reference)
       setCardSecret(null); setStripeKey(null); setReference(null)
@@ -151,22 +142,14 @@ export default function BillingPage() {
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 28 }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Crown size={28} /><h1 style={{ margin: 0 }}>Taskly Premium</h1></div>
-          <p style={{ opacity: .7 }}>More workspaces. More productivity. One simple plan.</p>
-        </div>
-        <select value={country} onChange={e => setCountry(e.target.value)} style={{ padding: 10, borderRadius: 10 }}>
-          <option value="UG">Uganda</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="KE">Kenya</option>
-        </select>
+        <div><div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Crown size={28} /><h1 style={{ margin: 0 }}>Taskly Premium</h1></div><p style={{ opacity: .7 }}>More workspaces. More productivity. One simple plan.</p></div>
+        <select value={country} onChange={e => setCountry(e.target.value)} style={{ padding: 10, borderRadius: 10 }}><option value="UG">Uganda</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="KE">Kenya</option></select>
       </div>
 
       {message && <div style={{ padding: 14, marginBottom: 18, borderRadius: 12, background: 'rgba(220,38,38,.1)' }}>{message}</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(280px, .8fr)', gap: 22 }}>
-        <section style={{ border: '1px solid var(--border, #ddd)', borderRadius: 20, padding: 26 }}>
-          <h2>Premium includes</h2>
-          <div style={{ display: 'grid', gap: 13 }}>{features.map(feature => <div key={feature} style={{ display: 'flex', gap: 10, alignItems: 'center' }}><Check size={18} />{feature}</div>)}</div>
-        </section>
+        <section style={{ border: '1px solid var(--border, #ddd)', borderRadius: 20, padding: 26 }}><h2>Premium includes</h2><div style={{ display: 'grid', gap: 13 }}>{features.map(feature => <div key={feature} style={{ display: 'flex', gap: 10, alignItems: 'center' }}><Check size={18} />{feature}</div>)}</div></section>
 
         <section style={{ border: '2px solid #8b5cf6', borderRadius: 20, padding: 26 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>PREMIUM</span><Crown size={20} /></div>
@@ -183,18 +166,11 @@ export default function BillingPage() {
             <button disabled={busy || premium} onClick={checkout} style={{ width: '100%', padding: 13, borderRadius: 12 }}>{busy ? 'Processing…' : paymentMethod === 'mobile_money' ? 'Pay with Mobile Money' : 'Continue to card payment'}</button>
           </>}
 
-          {cardSecret && <div style={{ marginTop: 12 }}>
-            <div ref={cardMount} style={{ padding: 12, border: '1px solid var(--border, #ddd)', borderRadius: 10, marginBottom: 10, minHeight: 80 }} />
-            <button disabled={busy} onClick={payByCard} style={{ width: '100%', padding: 13, borderRadius: 12 }}>{busy ? 'Processing card…' : 'Pay $5 with card'}</button>
-          </div>}
+          {cardSecret && <div style={{ marginTop: 12 }}><div ref={cardMount} style={{ padding: 12, border: '1px solid var(--border, #ddd)', borderRadius: 10, marginBottom: 10, minHeight: 80 }} /><button disabled={busy} onClick={payByCard} style={{ width: '100%', padding: 13, borderRadius: 12 }}>{busy ? 'Processing card…' : 'Pay $5 with card'}</button></div>}
 
           {premium && <button disabled={busy || data?.subscription?.cancelAtPeriodEnd} onClick={cancel} style={{ width: '100%', padding: 12, borderRadius: 12, marginTop: 10 }}>{data?.subscription?.cancelAtPeriodEnd ? 'Cancellation scheduled' : 'Cancel Premium'}</button>}
           {trialEnds && <p style={{ fontSize: 13, marginTop: 16 }}>Trial ends {trialEnds}.</p>}
-          <div style={{ marginTop: 18, display: 'grid', gap: 8, fontSize: 13, opacity: .75 }}>
-            <div><CreditCard size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />Visa and Mastercard via DGateway and Stripe</div>
-            <div><Smartphone size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />Uganda supports MTN and Airtel Mobile Money</div>
-            <div><XCircle size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />Cancel any time. Your data remains after downgrade.</div>
-          </div>
+          <div style={{ marginTop: 18, display: 'grid', gap: 8, fontSize: 13, opacity: .75 }}><div><CreditCard size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />Visa and Mastercard via DGateway and Stripe</div><div><Smartphone size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />Uganda supports MTN and Airtel Mobile Money</div><div><XCircle size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />Cancel any time. Your data remains after downgrade.</div></div>
         </section>
       </div>
     </div>
