@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 const apiProxy = {
   '/api': {
@@ -31,7 +32,7 @@ const writeApiRedirects = (): Plugin => ({
 })
 
 export default defineConfig({
-  plugins: [react(), writeApiRedirects()],
+  plugins: [tailwindcss(), react(), writeApiRedirects()],
   server: {
     allowedHosts: ['.trycloudflare.com'],
     proxy: apiProxy,
