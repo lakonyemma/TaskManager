@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useDialog } from '../hooks/useDialog'
-import { authFetch, getStoredToken, jsonHeaders, SessionExpiredError } from '../lib/api'
+import { authFetch, getStoredSessionId, getStoredToken, jsonHeaders, SessionExpiredError } from '../lib/api'
 import { getNotificationPermission, isPushSupported, onServiceWorkerMessage, sendTestPush, subscribeToPush, unsubscribeFromPush, type ServiceWorkerMessage } from '../lib/push'
 import { REMINDER_OFFSETS } from '../lib/reminders'
 import { DEFAULT_RECURRENCE, type RecurrenceConfig } from '../lib/recurrence'
@@ -657,8 +657,10 @@ export default function DashboardApp() {
 
   const loadSessions = useCallback(async () => {
     try {
-      const refreshToken = localStorage.getItem('taskmanager_refresh_token') || ''
-      const d = await request(`/api/auth/sessions?refreshToken=${encodeURIComponent(refreshToken)}`) as { sessions: Session[] }
+      const sessionId = getStoredSessionId()
+      const d = await request('/api/auth/sessions', {
+        headers: sessionId ? { 'X-Session-Id': sessionId } : undefined,
+      }) as { sessions: Session[] }
       setSessions(d.sessions || [])
     } catch { setSessions([]) }
   }, [request])
