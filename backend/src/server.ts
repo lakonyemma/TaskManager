@@ -33,30 +33,18 @@ import timeEntryRoutes from "./features/timeEntries/timeEntryRoutes.js";
 import adminRoutes from "./features/admin/adminRoutes.js";
 import assistantRoutes from "./features/assistant/assistantRoutes.js";
 import executionRoutes from "./features/execution/executionRoutes.js";
+import mailRoutes from "./features/mail/mailRoutes.js";
+import { startMailMonitor } from "./features/mail/mailMonitor.js";
 import { ensureAchievementsSeeded } from "./features/achievements/achievementService.js";
 import { errorHandler } from "./shared/errorHandler.js";
 
 dotenv.config();
 
 const app = express();
-
-// Render (and most PaaS hosts) put a reverse proxy in front of the app —
-// without this, req.ip resolves to the proxy's internal address for every
-// request, which breaks IP-based rate limiting (falls back to sharing one
-// bucket across all users) and makes activity/session logging useless.
-// `1` trusts exactly one hop, matching a single reverse proxy; harmless in
-// local dev, where there's no proxy in front at all.
 app.set("trust proxy", 1);
-
 app.use(helmet());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
-app.use(
-    cors({
-        origin: process.env.CORS_ORIGIN || "http://localhost:5173",
-        credentials: true,
-    })
-);
-
+app.use(cors({ origin: process.env.CORS_ORIGIN || "http://localhost:5173", credentials: true }));
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/", (_req, res) => {
@@ -73,6 +61,7 @@ app.get("/", (_req, res) => {
             push: "/api/push",
             reminders: "/api/reminders",
             execution: "/api/execution/overview",
+            mail: "/api/mail/status",
         },
     });
 });
@@ -105,11 +94,9 @@ app.use("/api", timeEntryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/assistant", assistantRoutes);
 app.use("/api/execution", executionRoutes);
+app.use("/api/mail", mailRoutes);
 
-app.use((_req, res) => {
-    res.status(404).json({ message: "Route not found" });
-});
-
+app.use((_req, res) => res.status(404).json({ message: "Route not found" }));
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
@@ -117,5 +104,6 @@ app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     startReminderWorker();
     startDigestWorker();
+    startMailMonitor();
     ensureAchievementsSeeded().catch((error) => console.error("[achievements] Failed to seed catalog:", error));
 });
