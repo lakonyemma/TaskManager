@@ -30,6 +30,7 @@ type TokenResponse = {
 };
 
 type GmailProfile = { emailAddress: string; historyId?: string };
+type GmailLabel = { messagesUnread?: number };
 
 const config = () => ({
     clientId: process.env.GMAIL_OAUTH_CLIENT_ID || "",
@@ -54,6 +55,9 @@ const assertConfigured = () => {
     return config();
 };
 
+export const gmailWebUrl = (email: string, threadId: string): string =>
+    `https://mail.google.com/mail/?authuser=${encodeURIComponent(email)}#all/${encodeURIComponent(threadId)}`;
+
 export const buildGoogleAuthorizationUrl = (state: string): string => {
     const { clientId, redirectUri } = assertConfigured();
     const url = new URL(GOOGLE_AUTH_URL);
@@ -63,7 +67,7 @@ export const buildGoogleAuthorizationUrl = (state: string): string => {
     url.searchParams.set("scope", GMAIL_SCOPE);
     url.searchParams.set("access_type", "offline");
     url.searchParams.set("include_granted_scopes", "true");
-    url.searchParams.set("prompt", "consent");
+    url.searchParams.set("prompt", "select_account consent");
     url.searchParams.set("state", state);
     return url.toString();
 };
@@ -86,9 +90,7 @@ const gmailGet = async <T>(path: string, accessToken: string): Promise<T> => {
         headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
     });
     const data = await response.json() as T & { error?: { message?: string } };
-    if (!response.ok) {
-        throw new Error(data.error?.message || `Gmail API request failed (${response.status})`);
-    }
+    if (!response.ok) throw new Error(data.error?.message || `Gmail API request failed (${response.status})`);
     return data;
 };
 
@@ -108,52 +110,57 @@ export const connectGmailUser = async (userId: string, code: string) => {
     const profile = await gmailGet<GmailProfile>("/profile", tokens.access_token);
     if (!profile.emailAddress) throw new Error("Gmail did not return an account email address.");
 
-    const previous = await prisma.gmailConnection.findUnique({ where: { userId } });
-    const refreshToken = tokens.refresh_token
+    const previous = await prisma.gmailConnection.findUnique({
+        where: { userId_email: { userId, email: profile.emailAddress } },
+    });
+    const refreshTokenEnc = tokens.refresh_token
         ? encryptMailSecret(tokens.refresh_token)
         : previous?.refreshTokenEnc ?? null;
 
-    const connection = await prisma.gmailConnection.upsert({
-        where: { userId },
+    return prisma.gmailConnection.upsert({
+        where: { userId_email: { userId, email: profile.emailAddress } },
         update: {
-            email: profile.emailAddress,
             accessTokenEnc: encryptMailSecret(tokens.access_token),
-            refreshTokenEnc: refreshToken,
+            refreshTokenEnc,
             tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 3600) * 1000),
-            historyId: profile.historyId || null,
+            historyId: profile.historyId || previous?.historyId || null,
             monitoringEnabled: true,
         },
         create: {
             userId,
             email: profile.emailAddress,
             accessTokenEnc: encryptMailSecret(tokens.access_token),
-            refreshTokenEnc: refreshToken,
+            refreshTokenEnc,
             tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 3600) * 1000),
             historyId: profile.historyId || null,
         },
     });
+};
+
+const ownedConnection = async (connectionId: string, userId?: string) => {
+    const connection = await prisma.gmailConnection.findFirst({
+        where: { id: connectionId, ...(userId ? { userId } : {}) },
+    });
+    if (!connection) throw new Error("Connected Gmail account was not found.");
     return connection;
 };
 
-export const getValidGmailAccessToken = async (userId: string): Promise<string> => {
-    const connection = await prisma.gmailConnection.findUnique({ where: { userId } });
-    if (!connection) throw new Error("Gmail is not connected.");
-
+export const getValidGmailAccessToken = async (connectionId: string, userId?: string): Promise<string> => {
+    const connection = await ownedConnection(connectionId, userId);
     if (connection.tokenExpiresAt && connection.tokenExpiresAt.getTime() > Date.now() + 60_000) {
         return decryptMailSecret(connection.accessTokenEnc);
     }
-    if (!connection.refreshTokenEnc) throw new Error("Gmail authorization expired. Reconnect Gmail.");
+    if (!connection.refreshTokenEnc) throw new Error(`${connection.email} authorization expired. Reconnect this Gmail account.`);
 
     const { clientId, clientSecret } = assertConfigured();
-    const refreshToken = decryptMailSecret(connection.refreshTokenEnc);
     const tokens = await tokenRequest(new URLSearchParams({
-        refresh_token: refreshToken,
+        refresh_token: decryptMailSecret(connection.refreshTokenEnc),
         client_id: clientId,
         client_secret: clientSecret,
         grant_type: "refresh_token",
     }));
     await prisma.gmailConnection.update({
-        where: { userId },
+        where: { id: connection.id },
         data: {
             accessTokenEnc: encryptMailSecret(tokens.access_token),
             tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 3600) * 1000),
@@ -162,27 +169,33 @@ export const getValidGmailAccessToken = async (userId: string): Promise<string> 
     return tokens.access_token;
 };
 
-export const fetchGmailProfile = async (userId: string) => {
-    const accessToken = await getValidGmailAccessToken(userId);
+export const fetchGmailProfile = async (connectionId: string, userId?: string) => {
+    const accessToken = await getValidGmailAccessToken(connectionId, userId);
     return gmailGet<GmailProfile>("/profile", accessToken);
 };
 
-export const listGmailMessages = async (userId: string, query: string, maxResults = 25) => {
-    const accessToken = await getValidGmailAccessToken(userId);
-    const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
-    return gmailGet<{ messages?: { id: string; threadId: string }[] }>(`/messages?${params.toString()}`, accessToken);
+export const getUnreadGmailCount = async (connectionId: string, userId?: string): Promise<number> => {
+    const accessToken = await getValidGmailAccessToken(connectionId, userId);
+    const inbox = await gmailGet<GmailLabel>("/labels/INBOX", accessToken);
+    return Math.max(0, inbox.messagesUnread || 0);
 };
 
-export const getGmailMessage = async (userId: string, messageId: string): Promise<GmailMessageMetadata> => {
-    const accessToken = await getValidGmailAccessToken(userId);
+export const listGmailMessages = async (connectionId: string, query: string, maxResults = 25, userId?: string) => {
+    const accessToken = await getValidGmailAccessToken(connectionId, userId);
+    const params = new URLSearchParams({ q: query, maxResults: String(maxResults) });
+    return gmailGet<{ messages?: { id: string; threadId: string }[]; resultSizeEstimate?: number }>(`/messages?${params.toString()}`, accessToken);
+};
+
+export const getGmailMessage = async (connectionId: string, messageId: string, userId?: string): Promise<GmailMessageMetadata> => {
+    const accessToken = await getValidGmailAccessToken(connectionId, userId);
     const params = new URLSearchParams();
     params.append("format", "metadata");
     for (const header of ["From", "To", "Reply-To", "Subject", "Date"]) params.append("metadataHeaders", header);
     return gmailGet<GmailMessageMetadata>(`/messages/${encodeURIComponent(messageId)}?${params.toString()}`, accessToken);
 };
 
-export const getGmailThread = async (userId: string, threadId: string): Promise<GmailThreadMetadata> => {
-    const accessToken = await getValidGmailAccessToken(userId);
+export const getGmailThread = async (connectionId: string, threadId: string, userId?: string): Promise<GmailThreadMetadata> => {
+    const accessToken = await getValidGmailAccessToken(connectionId, userId);
     const params = new URLSearchParams();
     params.append("format", "metadata");
     for (const header of ["From", "To", "Subject", "Date"]) params.append("metadataHeaders", header);

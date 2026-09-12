@@ -5,6 +5,7 @@ import {
     fetchGmailProfile,
     getGmailMessage,
     getGmailThread,
+    getUnreadGmailCount,
     headerValue,
     listGmailMessages,
     messageReceivedAt,
@@ -17,15 +18,15 @@ const SENT_QUERY = "in:sent newer_than:30d -in:trash";
 const isFromSelf = (from: string, email: string) => from.toLowerCase().includes(email.toLowerCase());
 const cleanCounterparty = (value: string) => value.replace(/<[^>]+>/g, "").replace(/[\"']/g, "").trim().slice(0, 240);
 
-const upsertIncomingAction = async (userId: string, messageId: string) => {
-    const message = await getGmailMessage(userId, messageId);
+const upsertIncomingAction = async (userId: string, connectionId: string, messageId: string) => {
+    const message = await getGmailMessage(connectionId, messageId, userId);
     const subject = headerValue(message, "Subject") || "(No subject)";
     const sender = headerValue(message, "From") || "Unknown sender";
     const receivedAt = messageReceivedAt(message);
     const classification = classifyIncomingMail(subject, message.snippet || "", receivedAt);
     if (!classification.actionable || !classification.kind) return { created: false };
 
-    const key = { userId_gmailMessageId: { userId, gmailMessageId: message.id } };
+    const key = { gmailConnectionId_gmailMessageId: { gmailConnectionId: connectionId, gmailMessageId: message.id } };
     const existing = await prisma.mailActionItem.findUnique({ where: key, select: { id: true } });
     if (existing) {
         await prisma.mailActionItem.update({
@@ -48,6 +49,7 @@ const upsertIncomingAction = async (userId: string, messageId: string) => {
     await prisma.mailActionItem.create({
         data: {
             userId,
+            gmailConnectionId: connectionId,
             gmailMessageId: message.id,
             threadId: message.threadId,
             counterparty: cleanCounterparty(sender),
@@ -63,22 +65,20 @@ const upsertIncomingAction = async (userId: string, messageId: string) => {
     return { created: true };
 };
 
-const syncWaitingReplies = async (userId: string, email: string, followUpDays: number) => {
-    const sent = await listGmailMessages(userId, SENT_QUERY, 25);
+const syncWaitingReplies = async (userId: string, connectionId: string, email: string, followUpDays: number) => {
+    const sent = await listGmailMessages(connectionId, SENT_QUERY, 25, userId);
     const threadIds = [...new Set((sent.messages || []).map((item) => item.threadId))];
     let created = 0;
 
     for (const threadId of threadIds) {
-        const thread = await getGmailThread(userId, threadId);
-        const messages = [...(thread.messages || [])].sort(
-            (a, b) => messageReceivedAt(a).getTime() - messageReceivedAt(b).getTime(),
-        );
+        const thread = await getGmailThread(connectionId, threadId, userId);
+        const messages = [...(thread.messages || [])].sort((a, b) => messageReceivedAt(a).getTime() - messageReceivedAt(b).getTime());
         const latest = messages[messages.length - 1];
         if (!latest) continue;
 
         const waitingKey = `waiting:${threadId}`;
         const existing = await prisma.mailActionItem.findUnique({
-            where: { userId_gmailMessageId: { userId, gmailMessageId: waitingKey } },
+            where: { gmailConnectionId_gmailMessageId: { gmailConnectionId: connectionId, gmailMessageId: waitingKey } },
         });
 
         const from = headerValue(latest, "From");
@@ -112,6 +112,7 @@ const syncWaitingReplies = async (userId: string, email: string, followUpDays: n
         await prisma.mailActionItem.create({
             data: {
                 userId,
+                gmailConnectionId: connectionId,
                 gmailMessageId: waitingKey,
                 threadId,
                 counterparty: recipient,
@@ -144,8 +145,8 @@ const localHour = (date: Date, timezone: string) => {
     }
 };
 
-const dispatchMailBriefIfDue = async (userId: string) => {
-    const connection = await prisma.gmailConnection.findUnique({ where: { userId } });
+const dispatchMailBriefIfDue = async (connectionId: string) => {
+    const connection = await prisma.gmailConnection.findUnique({ where: { id: connectionId } });
     if (!connection?.digestEnabled) return;
     const now = new Date();
     if (localHour(now, connection.timezone) < connection.digestHour) return;
@@ -153,12 +154,12 @@ const dispatchMailBriefIfDue = async (userId: string) => {
 
     const grouped = await prisma.mailActionItem.groupBy({
         by: ["kind"],
-        where: { userId, status: "OPEN" },
+        where: { gmailConnectionId: connection.id, status: "OPEN" },
         _count: { _all: true },
     });
     const counts = Object.fromEntries(grouped.map((row) => [row.kind, row._count._all])) as Record<string, number>;
     const total = grouped.reduce((sum, row) => sum + row._count._all, 0);
-    await prisma.gmailConnection.update({ where: { userId }, data: { lastDigestAt: now } });
+    await prisma.gmailConnection.update({ where: { id: connection.id }, data: { lastDigestAt: now } });
     if (!total) return;
 
     const parts = [
@@ -166,47 +167,66 @@ const dispatchMailBriefIfDue = async (userId: string) => {
         counts.DEADLINE ? `${counts.DEADLINE} deadline${counts.DEADLINE === 1 ? "" : "s"}` : "",
         counts.WAITING_REPLY ? `${counts.WAITING_REPLY} follow-up${counts.WAITING_REPLY === 1 ? "" : "s"}` : "",
     ].filter(Boolean);
-    await sendPushToUser(userId, {
-        title: "Taskly Mail Brief",
+    await sendPushToUser(connection.userId, {
+        title: `Taskly Mail · ${connection.email}`,
         body: parts.join(" · "),
-        tag: `mail-brief-${localDateKey(now, connection.timezone)}`,
+        tag: `mail-brief-${connection.id}-${localDateKey(now, connection.timezone)}`,
         url: "/app/mail",
         sound: true,
         vibrate: true,
     });
 };
 
-export const syncGmailForUser = async (userId: string, notify = true) => {
-    const connection = await prisma.gmailConnection.findUnique({ where: { userId } });
-    if (!connection) throw new Error("Gmail is not connected.");
+export const syncGmailConnection = async (connectionId: string, notify = true) => {
+    const connection = await prisma.gmailConnection.findUnique({ where: { id: connectionId } });
+    if (!connection) throw new Error("Gmail account is not connected.");
 
-    const inbox = await listGmailMessages(userId, INBOX_QUERY, 30);
+    const inbox = await listGmailMessages(connection.id, INBOX_QUERY, 30, connection.userId);
     let newItems = 0;
     for (const item of inbox.messages || []) {
-        const result = await upsertIncomingAction(userId, item.id);
+        const result = await upsertIncomingAction(connection.userId, connection.id, item.id);
         if (result.created) newItems += 1;
     }
 
-    const waitingCreated = await syncWaitingReplies(userId, connection.email, Math.max(1, connection.followUpDays));
-    newItems += waitingCreated;
-    const profile = await fetchGmailProfile(userId);
+    newItems += await syncWaitingReplies(connection.userId, connection.id, connection.email, Math.max(1, connection.followUpDays));
+    const [profile, unreadCount] = await Promise.all([
+        fetchGmailProfile(connection.id, connection.userId),
+        getUnreadGmailCount(connection.id, connection.userId),
+    ]);
     await prisma.gmailConnection.update({
-        where: { userId },
-        data: { lastSyncedAt: new Date(), historyId: profile.historyId || connection.historyId },
+        where: { id: connection.id },
+        data: {
+            lastSyncedAt: new Date(),
+            historyId: profile.historyId || connection.historyId,
+            unreadCount,
+        },
     });
 
     if (notify && newItems > 0) {
-        await sendPushToUser(userId, {
-            title: "Taskly Mail",
+        await sendPushToUser(connection.userId, {
+            title: `Taskly Mail · ${connection.email}`,
             body: `${newItems} new email item${newItems === 1 ? " needs" : "s need"} your attention.`,
-            tag: `mail-attention-${Date.now()}`,
+            tag: `mail-attention-${connection.id}-${Date.now()}`,
             url: "/app/mail",
             sound: true,
             vibrate: true,
         });
     }
-    await dispatchMailBriefIfDue(userId);
-    return { newItems, scanned: inbox.messages?.length || 0 };
+    await dispatchMailBriefIfDue(connection.id);
+    return { connectionId: connection.id, email: connection.email, newItems, scanned: inbox.messages?.length || 0, unreadCount };
+};
+
+export const syncGmailForUser = async (userId: string, notify = true) => {
+    const connections = await prisma.gmailConnection.findMany({ where: { userId }, orderBy: { createdAt: "asc" } });
+    if (!connections.length) throw new Error("Gmail is not connected.");
+    const results = [];
+    for (const connection of connections) results.push(await syncGmailConnection(connection.id, notify));
+    return {
+        accounts: results,
+        newItems: results.reduce((sum, result) => sum + result.newItems, 0),
+        scanned: results.reduce((sum, result) => sum + result.scanned, 0),
+        unreadTotal: results.reduce((sum, result) => sum + result.unreadCount, 0),
+    };
 };
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -219,15 +239,15 @@ export const runMailMonitorTick = async () => {
     try {
         const connections = await prisma.gmailConnection.findMany({
             where: { monitoringEnabled: true },
-            select: { userId: true },
-            take: 100,
+            select: { id: true, email: true },
+            take: 250,
         });
         for (const connection of connections) {
             try {
-                await syncGmailForUser(connection.userId, true);
+                await syncGmailConnection(connection.id, true);
                 synced += 1;
             } catch (error) {
-                console.error(`[mail] Sync failed for user ${connection.userId}:`, error);
+                console.error(`[mail] Sync failed for ${connection.email}:`, error);
             }
         }
     } finally {
