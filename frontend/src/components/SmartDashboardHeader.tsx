@@ -1,8 +1,17 @@
+import { useEffect, useState } from 'react'
 import { AlertTriangle, CalendarClock, CalendarRange, CheckCircle2, Mail, Target, TrendingDown, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { authFetch } from '../lib/api'
 import AnalogClock from './AnalogClock'
 
 const greetingFor = (hour: number, lang: Record<string, string>) => hour < 12 ? lang.morning : hour < 18 ? lang.afternoon : lang.evening
+
+type MailOverview = {
+  connected: boolean
+  unreadTotal: number
+  counts: { total: number }
+  accounts?: { id: string; email: string; unreadCount: number }[]
+}
 
 export default function SmartDashboardHeader({
   firstname, dueTodayCount, overdueCount, upcomingCount, completedYesterdayCount, productivityDeltaPercent, translations,
@@ -17,6 +26,22 @@ export default function SmartDashboardHeader({
 }) {
   const greeting = greetingFor(new Date().getHours(), translations)
   const hasAnyStat = dueTodayCount > 0 || overdueCount > 0 || upcomingCount > 0
+  const [mailOverview, setMailOverview] = useState<MailOverview | null>(null)
+
+  useEffect(() => {
+    let active = true
+    const loadMailOverview = async () => {
+      try {
+        const result = await authFetch('/api/mail/status') as MailOverview
+        if (active) setMailOverview(result)
+      } catch {
+        if (active) setMailOverview(null)
+      }
+    }
+    void loadMailOverview()
+    const timer = window.setInterval(() => void loadMailOverview(), 120_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
 
   return (
     <div className="smart-header">
@@ -40,8 +65,18 @@ export default function SmartDashboardHeader({
         )}
         <div className="smart-header-stats">
           <Link to="/app/execution" className="smart-stat"><Target size={13} strokeWidth={1.8} /> Open execution plan</Link>
-          <Link to="/app/mail" className="smart-stat"><Mail size={13} strokeWidth={1.8} /> Personal Action Inbox</Link>
+          <Link to="/app/mail" className="smart-stat">
+            <Mail size={13} strokeWidth={1.8} />
+            {mailOverview?.connected
+              ? `${mailOverview.unreadTotal} unread email${mailOverview.unreadTotal === 1 ? '' : 's'} · ${mailOverview.counts.total} need action`
+              : 'Personal Action Inbox'}
+          </Link>
         </div>
+        {mailOverview?.connected && (mailOverview.accounts?.length || 0) > 1 && (
+          <p className="smart-header-yesterday">
+            <Mail size={13} strokeWidth={1.8} /> Monitoring {mailOverview.accounts?.length} Gmail accounts in one inbox.
+          </p>
+        )}
         {productivityDeltaPercent !== null && (
           <p className={`smart-header-delta ${productivityDeltaPercent >= 0 ? 'up' : 'down'}`}>
             {productivityDeltaPercent >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
