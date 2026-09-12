@@ -4,11 +4,14 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - feature/taskly-android-apk
+      - main
     paths:
       - 'mobile/**'
       - '.github/workflows/android-apk.yml'
       - 'frontend/public/icons/**'
+
+permissions:
+  contents: write
 
 jobs:
   build-apk:
@@ -63,3 +66,13 @@ jobs:
           path: Taskly-Android.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish public APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete taskly-latest --cleanup-tag -y || true
+          gh release create taskly-latest Taskly-Android.apk \
+            --target "$GITHUB_SHA" \
+            --title "Taskly Android" \
+            --notes "Latest installable Taskly Android APK."
