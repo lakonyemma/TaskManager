@@ -15,10 +15,9 @@ import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsPage from './pages/TermsPage'
 import './styles/brand.css'
 
-// Code-split the authenticated dashboard (Recharts + FullCalendar) away from
-// the public marketing/auth pages so first-time visitors don't pay for it.
 const DashboardApp = lazy(() => import('./pages/DashboardApp'))
 const ExecutionPage = lazy(() => import('./pages/ExecutionPage'))
+const MailActionPage = lazy(() => import('./pages/MailActionPage'))
 const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage'))
 
 function App() {
@@ -37,33 +36,19 @@ function App() {
             <Route path="/terms" element={<TermsPage />} />
             <Route
               path="/app/execution"
-              element={
-                <ProtectedRoute>
-                  <Suspense fallback={<div className="route-loading">Loading…</div>}>
-                    <ExecutionPage />
-                  </Suspense>
-                </ProtectedRoute>
-              }
+              element={<ProtectedRoute><Suspense fallback={<div className="route-loading">Loading…</div>}><ExecutionPage /></Suspense></ProtectedRoute>}
+            />
+            <Route
+              path="/app/mail"
+              element={<ProtectedRoute><Suspense fallback={<div className="route-loading">Loading…</div>}><MailActionPage /></Suspense></ProtectedRoute>}
             />
             <Route
               path="/app/*"
-              element={
-                <ProtectedRoute>
-                  <Suspense fallback={<div className="route-loading">Loading…</div>}>
-                    <DashboardApp />
-                  </Suspense>
-                </ProtectedRoute>
-              }
+              element={<ProtectedRoute><Suspense fallback={<div className="route-loading">Loading…</div>}><DashboardApp /></Suspense></ProtectedRoute>}
             />
             <Route
               path="/admin"
-              element={
-                <SuperAdminRoute>
-                  <Suspense fallback={<div className="route-loading">Loading…</div>}>
-                    <SuperAdminPage />
-                  </Suspense>
-                </SuperAdminRoute>
-              }
+              element={<SuperAdminRoute><Suspense fallback={<div className="route-loading">Loading…</div>}><SuperAdminPage /></Suspense></SuperAdminRoute>}
             />
             <Route path="*" element={<EntryRedirect />} />
           </Routes>

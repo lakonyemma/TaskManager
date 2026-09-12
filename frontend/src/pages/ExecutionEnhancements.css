@@ -1,4 +1,5 @@
 .execution-next-action,
+.execution-mail-attention,
 .execution-settings-row,
 .execution-update-card,
 .execution-offline,
@@ -26,6 +27,7 @@
 }
 
 .execution-next-copy p,
+.execution-mail-attention p,
 .execution-update-card p {
   margin: 0 0 7px;
   color: #7eb0ff;
@@ -43,6 +45,7 @@
 
 .execution-next-copy span,
 .execution-next-copy small,
+.execution-mail-attention span,
 .execution-settings-row span,
 .execution-update-card span,
 .execution-helper,
@@ -58,6 +61,33 @@
 .execution-focus-button {
   flex: 0 0 auto;
   min-width: 130px;
+}
+
+.execution-mail-attention {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 12px;
+  padding: 16px 18px;
+  border: 1px solid #1d3150;
+  border-radius: 14px;
+  background: rgba(9, 24, 46, 0.88);
+}
+
+.execution-mail-attention.has-items {
+  border-color: #2f6fe5;
+  background: linear-gradient(135deg, rgba(30, 64, 175, 0.22), rgba(9, 24, 46, 0.94));
+}
+
+.execution-mail-attention strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #e4edfb;
+}
+
+.execution-mail-attention span {
+  font-size: 0.8rem;
 }
 
 .execution-settings-row {
@@ -250,6 +280,7 @@
 
 @media (max-width: 620px) {
   .execution-next-action,
+  .execution-mail-attention,
   .execution-settings-row,
   .execution-update-card {
     align-items: stretch;

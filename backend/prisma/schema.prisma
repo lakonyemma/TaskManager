@@ -17,9 +17,6 @@ model User {
   avatarUrl                  String?
   bio                        String?
   isActive                   Boolean   @default(true)
-  // Platform-wide role, orthogonal to per-workspace WorkspaceRole — a
-  // super admin manages the platform itself (users, workspaces, system
-  // health) and isn't necessarily a member of any given workspace.
   isSuperAdmin               Boolean   @default(false)
   language                   String    @default("en")
   fontStyle                  String    @default("default")
@@ -30,12 +27,6 @@ model User {
   emailVerifiedAt            DateTime?
   verificationToken          String?   @unique
   verificationTokenExpiresAt DateTime?
-  // App Lock — a local re-authentication gate distinct from the account
-  // password (see settings/appLockController.ts). appLockPinHash is a
-  // bcrypt hash, never the raw PIN. Biometric ("Fingerprint"/"Face")
-  // unlock is out of scope for now — a browser can only expose that via
-  // WebAuthn, which authenticates the device's platform authenticator, not
-  // a value Taskly could store/compare like a PIN.
   appLockEnabled             Boolean   @default(false)
   appLockPinHash             String?
   appLockTimeoutMinutes      Int       @default(5)
@@ -59,6 +50,8 @@ model User {
   focusSessions          FocusSession[]
   timeEntries            TimeEntry[]
   sentAnnouncements      PlatformAnnouncement[]
+  gmailConnection        GmailConnection?
+  mailActionItems        MailActionItem[]
 }
 
 model Session {
@@ -80,9 +73,6 @@ model Workspace {
   name        String
   description String?
   type        WorkspaceType @default(PERSONAL)
-  // Platform admin kill switch — a disabled workspace's members keep their
-  // membership rows (nothing is deleted) but every workspace-scoped action
-  // is blocked (see utils/membership.ts).
   isActive    Boolean       @default(true)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -117,43 +107,21 @@ model Task {
   id                         String          @id @default(uuid())
   title                      String
   description                String?
-  // Free-form scratchpad distinct from `description` — meant for jottings
-  // made *while working* (e.g. in Focus Mode), not the task's definition.
   notes                      String?
   priority                   TaskPriority    @default(MEDIUM)
   status                     TaskStatus      @default(TODO)
   dueDate                    DateTime?
   completedAt                DateTime?
-  // Who actually marked the task complete — distinct from assignedToId.
-  // Achievements/insights credit this, not the assignee: a solo user very
-  // often completes tasks they never bothered to explicitly assign to
-  // themselves, and assignment tracks delegation/ownership, not who did
-  // the work of finishing it.
   completedById              String?
   estimatedMinutes           Int?
-  // Which custom board column this task currently sits in (Kanban display
-  // position only) — kept independent of `status` (see BoardColumn.
-  // mapsToStatus), so completion/reporting/achievement logic elsewhere
-  // keeps reading `status` unchanged regardless of how a workspace has
-  // customized its columns.
   columnId                   String?
-  // Which milestone (if any) this task counts toward — a milestone's
-  // progress is derived from its linked tasks (see Milestone below), so
-  // this is the only state needed to make that tracking real.
   milestoneId                String?
-  // Client-generated idempotency key for offline-created tasks — lets the
-  // sync layer safely retry a "create" mutation (e.g. after a dropped
-  // response) without producing a duplicate task.
   clientId                   String?         @unique
   workspaceId                String
   assignedToId               String?
   parentTaskId               String?
   isRecurring                Boolean         @default(false)
   recurrenceRule             RecurrenceRule?
-  // Recurrence engine config (only meaningful when isRecurring is true).
-  // interval multiplies the base unit ("every N days/weeks/months/years");
-  // daysOfWeek (0=Sun..6=Sat) restricts a WEEKLY rule to specific weekdays;
-  // businessDaysOnly skips generated occurrences that land on a weekend.
   recurrenceInterval         Int?
   recurrenceDaysOfWeek       Int[]           @default([])
   recurrenceBusinessDaysOnly Boolean         @default(false)
@@ -177,6 +145,7 @@ model Task {
   tags              Tag[]              @relation("TaskTags")
   focusSessions     FocusSession[]
   timeEntries       TimeEntry[]
+  mailActionItems   MailActionItem[]
 
   parentTask Task?  @relation("Subtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
   subtasks   Task[] @relation("Subtasks")
@@ -187,10 +156,6 @@ model Task {
   dependsOn Task[] @relation("TaskDependencies")
   blocks    Task[] @relation("TaskDependencies")
 
-  // Purely informational cross-link — no blocking/completion semantics, no
-  // cycle checks (unlike dependsOn/blocks). Undirected in spirit: a link is
-  // stored once (via relatedTo) but the UI/API reads both fields together so
-  // it shows up from either task.
   relatedTo   Task[] @relation("TaskRelated")
   relatedFrom Task[] @relation("TaskRelated")
 
@@ -202,13 +167,6 @@ model Task {
   @@index([milestoneId])
 }
 
-// A workspace-scoped Kanban column. Tasks display in whichever column
-// `Task.columnId` points to; `mapsToStatus` is what that column actually
-// means for every status-based system elsewhere (achievements, reports,
-// insights, reminders, dependency-completion checks) — moving a task
-// between columns updates both `columnId` and `status` together (see
-// taskController.updateTask), so none of that logic needed to change to
-// support arbitrary custom columns.
 model BoardColumn {
   id           String     @id @default(uuid())
   workspaceId  String
@@ -224,12 +182,6 @@ model BoardColumn {
   @@index([workspaceId])
 }
 
-// A workspace-scoped delivery checkpoint (e.g. "MVP Complete"). Progress
-// toward one is derived from its linked tasks (tasks.length vs. tasks with
-// status COMPLETED) rather than stored, so it can't drift out of sync with
-// real task state. achievedAt is a separate, explicit "mark reached" — some
-// milestones (e.g. a funding decision) aren't 1:1 with a task ever being
-// completed, so it isn't auto-derived from task progress.
 model Milestone {
   id          String    @id @default(uuid())
   workspaceId String
@@ -247,9 +199,6 @@ model Milestone {
   @@index([workspaceId])
 }
 
-// A workspace-scoped, reusable tag — replaces the earlier free-text
-// Task.labels string array (which had no UI, no reuse/autocomplete, and no
-// way to rename/delete a tag everywhere it was used at once).
 model Tag {
   id          String   @id @default(uuid())
   name        String
@@ -264,11 +213,6 @@ model Tag {
   @@index([workspaceId])
 }
 
-// A user's personal saved task-list filter (e.g. "Due This Week", "High
-// Priority") — private to the user who created it, scoped to one workspace.
-// `filters` mirrors the frontend's task-filter shape ({kind, status?,
-// tagId?, priority?}) as opaque JSON rather than a fixed set of columns, so
-// new filter kinds don't need a migration to become saveable.
 model SavedView {
   id          String   @id @default(uuid())
   userId      String
@@ -284,10 +228,6 @@ model SavedView {
   @@index([userId, workspaceId])
 }
 
-// One row per completed stretch of focused time on a task (Focus Mode) —
-// logged when the user exits Focus Mode or a Pomodoro focus interval
-// finishes, whichever comes first. Powers "focus history" and the
-// analytics dashboard's time-on-task figures. Break time is never logged.
 model FocusSession {
   id              String   @id @default(uuid())
   userId          String
@@ -317,11 +257,6 @@ model Comment {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// Manually logged (or timer-derived) actual time spent on a task — distinct
-// from Task.estimatedMinutes (a plan) and FocusSession (Focus Mode/Pomodoro
-// specific, capped at 4h, break time excluded). A TimeEntry is just "N
-// minutes were spent on this task", optionally with a note, so it also
-// covers work done entirely outside Focus Mode.
 model TimeEntry {
   id        String   @id @default(uuid())
   taskId    String
@@ -354,13 +289,6 @@ model File {
   uploadedBy User      @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
 }
 
-// Doubles as both the collaboration "Activity Feed" (task/comment/project
-// events — see /api/activity) and, for the security-relevant entityTypes
-// (login, logout, password_changed, account_changed, role_changed, etc.),
-// the source for /api/audit-logs. previousValue/newValue capture a
-// structured before/after diff where one applies (e.g. {role: "MEMBER"} ->
-// {role: "ADMIN"}) — never populated for password changes, which log the
-// event only, on purpose.
 model ActivityLog {
   id            String   @id @default(uuid())
   action        String
@@ -399,9 +327,6 @@ model Notification {
   reminderSchedule ReminderSchedule? @relation(fields: [reminderScheduleId], references: [id], onDelete: SetNull)
 }
 
-// One row per device/browser a user has granted Web Push permission on.
-// `endpoint` is globally unique per browser installation, so it doubles as
-// the natural upsert key when a client re-subscribes.
 model PushSubscription {
   id         String   @id @default(uuid())
   userId     String
@@ -424,10 +349,6 @@ model NotificationPreference {
   soundEnabled           Boolean          @default(true)
   vibrationEnabled       Boolean          @default(true)
   defaultReminderMinutes Int[]            @default([15])
-  // "Here's what's due" email — off by default so opting in is a deliberate
-  // choice, not something everyone gets by default. digestWorker.ts polls
-  // for who's due one and uses lastDigestSentAt to avoid re-sending within
-  // the same period (24h for DAILY, 7d for WEEKLY) if the worker restarts.
   digestFrequency        DigestFrequency  @default(OFF)
   lastDigestSentAt       DateTime?
   createdAt              DateTime         @default(now())
@@ -436,9 +357,54 @@ model NotificationPreference {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// Static catalog of achievements (streaks, milestones). Seeded idempotently
-// at server boot (see achievementService.ensureAchievementsSeeded) rather
-// than requiring a manual seed run, so the catalog is always present.
+model GmailConnection {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  email                String
+  accessTokenEnc       String
+  refreshTokenEnc      String?
+  tokenExpiresAt       DateTime?
+  historyId            String?
+  monitoringEnabled    Boolean  @default(true)
+  digestEnabled        Boolean  @default(true)
+  digestHour           Int      @default(8)
+  followUpDays         Int      @default(3)
+  timezone             String   @default("UTC")
+  lastSyncedAt         DateTime?
+  lastDigestAt         DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MailActionItem {
+  id            String           @id @default(uuid())
+  userId        String
+  gmailMessageId String
+  threadId      String
+  counterparty  String?
+  subject       String
+  snippet       String
+  receivedAt    DateTime
+  unread        Boolean          @default(false)
+  kind          MailActionKind
+  confidence    Int              @default(50)
+  detectedDueAt DateTime?
+  status        MailActionStatus @default(OPEN)
+  taskId        String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, gmailMessageId])
+  @@index([userId, status, receivedAt])
+  @@index([userId, threadId])
+  @@index([taskId])
+}
+
 model Achievement {
   id          String   @id @default(uuid())
   key         String   @unique
@@ -450,8 +416,6 @@ model Achievement {
   userAchievements UserAchievement[]
 }
 
-// One row per (user, achievement) the user has actually earned — earning is
-// permanent once granted, so this doubles as the "earned at" audit record.
 model UserAchievement {
   id            String   @id @default(uuid())
   userId        String
@@ -464,10 +428,6 @@ model UserAchievement {
   @@unique([userId, achievementId])
 }
 
-// A single scheduled reminder for one user on one task. Offset-based
-// reminders (5m/10m/.../1d before) store `offsetMinutes` so they can be
-// recomputed if the due date changes; fully custom reminders leave it null
-// and `remindAt` is authoritative.
 model ReminderSchedule {
   id            String         @id @default(uuid())
   taskId        String
@@ -519,11 +479,6 @@ enum InvitationStatus {
   CANCELLED
 }
 
-// A platform-wide broadcast sent by a super admin. Fans out to a
-// SYSTEM_ANNOUNCEMENT Notification per user at send time (see
-// features/admin/adminController.ts) — this row is the durable record for
-// the admin dashboard's "sent announcements" history, not itself the
-// delivery mechanism.
 model PlatformAnnouncement {
   id         String   @id @default(uuid())
   title      String
@@ -586,4 +541,18 @@ enum DigestFrequency {
   OFF
   DAILY
   WEEKLY
+}
+
+enum MailActionKind {
+  ACTION_REQUIRED
+  DEADLINE
+  WAITING_REPLY
+}
+
+enum MailActionStatus {
+  OPEN
+  TASK_CREATED
+  WAITING_CREATED
+  DONE
+  DISMISSED
 }
