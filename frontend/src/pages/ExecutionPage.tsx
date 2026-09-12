@@ -59,7 +59,10 @@ type ExecutionOverview = {
     overdueOpen: number
   }
 }
-
+type MailAttention = {
+  connected: boolean
+  counts: { ACTION_REQUIRED: number; DEADLINE: number; WAITING_REPLY: number; total: number }
+}
 type UpdateState = {
   currentVersion: string | null
   latest: TasklyVersionInfo
@@ -103,6 +106,7 @@ export default function ExecutionPage() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [workspaceId, setWorkspaceId] = useState('')
   const [overview, setOverview] = useState<ExecutionOverview | null>(null)
+  const [mailAttention, setMailAttention] = useState<MailAttention | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -177,6 +181,12 @@ export default function ExecutionPage() {
   useEffect(() => {
     void checkForTasklyUpdate()
       .then((state) => setUpdateState({ currentVersion: state.currentVersion, latest: state.latest, updateAvailable: state.updateAvailable }))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    void authFetch('/api/mail/status')
+      .then((data) => setMailAttention(data as MailAttention))
       .catch(() => {})
   }, [])
 
@@ -323,6 +333,17 @@ export default function ExecutionPage() {
               </button>
             )}
           </section>
+
+          {mailAttention?.connected && (
+            <section className={`execution-mail-attention ${mailAttention.counts.total > 0 ? 'has-items' : ''}`}>
+              <div>
+                <p>Email Attention</p>
+                <strong>{mailAttention.counts.total > 0 ? `${mailAttention.counts.total} email item${mailAttention.counts.total === 1 ? '' : 's'} need attention` : 'Your email action inbox is clear.'}</strong>
+                <span>{mailAttention.counts.ACTION_REQUIRED} actions · {mailAttention.counts.DEADLINE} deadlines · {mailAttention.counts.WAITING_REPLY} waiting for reply</span>
+              </div>
+              <Link className="execution-primary" to="/app/mail">Open Personal Action Inbox</Link>
+            </section>
+          )}
 
           <section className="execution-settings-row">
             <div>
