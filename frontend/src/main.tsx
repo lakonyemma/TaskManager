@@ -4,11 +4,15 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { registerServiceWorker } from './lib/push.ts'
+import { installClientTelemetry } from './lib/telemetry.ts'
+import { installNativeRuntimeListeners } from './lib/nativeRuntime.ts'
 
 // Registered unconditionally (not gated on push-notification permission) so
 // the PWA install prompt and offline asset/API caching work for every
 // visitor, not just ones who've opted into push.
 void registerServiceWorker()
+installClientTelemetry()
+void installNativeRuntimeListeners()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
