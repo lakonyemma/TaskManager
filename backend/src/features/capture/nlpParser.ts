@@ -9,10 +9,11 @@ const WEEKDAY_MAP: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, 
 
 type RecurrenceMatch = { rule: RecurrenceUnit; interval: number; daysOfWeek: number[]; businessDaysOnly: boolean; matchedText: string };
 
+type DurationMatch = { estimatedMinutes: number; matchedText: string };
+
 // Chrono handles absolute/relative dates & times well, but has no concept of
-// recurrence ("every Monday") or priority language — those are handled with
-// small dedicated regexes here, then all three (date, recurrence, priority)
-// are stripped from the text as merged index ranges to recover a clean title.
+// recurrence, priority, or work duration. Those are extracted separately and
+// stripped from the final title alongside the date phrase.
 const extractRecurrence = (lower: string): RecurrenceMatch | null => {
     let m = lower.match(/every\s+(weekday|business day)s?/);
     if (m) return { rule: "DAILY", interval: 1, daysOfWeek: [], businessDaysOnly: true, matchedText: m[0] };
@@ -47,6 +48,26 @@ const extractPriority = (lower: string): { priority: Priority; matchedText: stri
 
     m = lower.match(/\b(low priority|whenever|no rush)\b/);
     if (m) return { priority: "LOW", matchedText: m[0] };
+
+    return null;
+};
+
+const extractDuration = (lower: string): DurationMatch | null => {
+    const patterns = [
+        /\b(?:for|takes?|duration\s*:?\s*)\s*(\d+(?:\.\d+)?)\s*(minutes?|mins?|min|hours?|hrs?|hr)\b/,
+        /\b(\d+(?:\.\d+)?)\s*(minutes?|mins?|min|hours?|hrs?|hr)\s*(?:of\s+work)?\b/,
+    ];
+
+    for (const pattern of patterns) {
+        const match = lower.match(pattern);
+        if (!match) continue;
+        const amount = Number(match[1]);
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const unit = match[2];
+        const estimatedMinutes = unit.startsWith("h") ? Math.round(amount * 60) : Math.round(amount);
+        if (estimatedMinutes < 5 || estimatedMinutes > 16 * 60) continue;
+        return { estimatedMinutes, matchedText: match[0] };
+    }
 
     return null;
 };
@@ -91,6 +112,7 @@ export type ParsedTask = {
     recurrenceDaysOfWeek: number[];
     recurrenceBusinessDaysOnly: boolean;
     priority: Priority;
+    estimatedMinutes: number | null;
     originalText: string;
 };
 
@@ -103,6 +125,7 @@ export const parseNaturalLanguageTask = (text: string, referenceDate: Date = new
 
     const recurrence = extractRecurrence(lower);
     const priorityMatch = extractPriority(lower);
+    const durationMatch = extractDuration(lower);
 
     const ranges: Range[] = [];
     if (dateResult) ranges.push({ start: dateResult.index, end: dateResult.index + dateResult.text.length });
@@ -113,6 +136,10 @@ export const parseNaturalLanguageTask = (text: string, referenceDate: Date = new
     if (priorityMatch) {
         const idx = lower.indexOf(priorityMatch.matchedText);
         if (idx >= 0) ranges.push({ start: idx, end: idx + priorityMatch.matchedText.length });
+    }
+    if (durationMatch) {
+        const idx = lower.indexOf(durationMatch.matchedText);
+        if (idx >= 0) ranges.push({ start: idx, end: idx + durationMatch.matchedText.length });
     }
 
     const title = cleanTitle(removeRanges(trimmed, ranges)) || trimmed;
@@ -127,6 +154,7 @@ export const parseNaturalLanguageTask = (text: string, referenceDate: Date = new
         recurrenceDaysOfWeek: recurrence?.daysOfWeek ?? [],
         recurrenceBusinessDaysOnly: recurrence?.businessDaysOnly ?? false,
         priority: priorityMatch?.priority ?? "MEDIUM",
+        estimatedMinutes: durationMatch?.estimatedMinutes ?? null,
         originalText: trimmed,
     };
 };
