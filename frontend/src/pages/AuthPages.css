@@ -1,3 +1,5 @@
+@reference "../index.css";
+
 /* Auth screens are the first Tailwind-migrated Taskly surface. Components
    keep semantic class names while Tailwind owns layout, spacing, typography,
    responsive behavior, focus treatment, and interactive states. */
