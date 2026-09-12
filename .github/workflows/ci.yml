@@ -29,8 +29,8 @@ jobs:
         run: npx prisma generate
       - name: TypeScript build
         run: npm run build
-      - name: Planner tests
-        run: npx tsx --test tests/executionPlanner.test.ts
+      - name: Backend behavior tests
+        run: npx tsx --test tests/executionPlanner.test.ts tests/nlpParser.test.ts
 
   frontend:
     runs-on: ubuntu-latest

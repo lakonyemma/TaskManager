@@ -13,6 +13,7 @@ type ParsedTask = {
   recurrenceDaysOfWeek: number[]
   recurrenceBusinessDaysOnly: boolean
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  estimatedMinutes: number | null
 }
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -60,8 +61,6 @@ export default function QuickCapture({
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open) setWorkspaceId(selectedWorkspaceId) }, [open, selectedWorkspaceId])
 
-  // Global shortcuts still jump straight to task capture — the menu never
-  // gates the keyboard fast-path.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
@@ -79,8 +78,6 @@ export default function QuickCapture({
     return () => window.removeEventListener('keydown', handler)
   }, [open, menuOpen])
 
-  // Menu: focus the first item on open, Escape closes and returns focus to
-  // the FAB, and a click outside the menu/FAB closes it too.
   useEffect(() => {
     if (!menuOpen) return
     const id = setTimeout(() => firstMenuItemRef.current?.focus(), 10)
@@ -137,6 +134,7 @@ export default function QuickCapture({
         method: 'POST', headers: jsonHeaders,
         body: JSON.stringify({
           title: parsed.title, workspaceId, dueDate: parsed.dueDate, priority,
+          estimatedMinutes: parsed.estimatedMinutes,
           isRecurring: parsed.isRecurring, recurrenceRule: parsed.recurrenceRule,
           recurrenceInterval: parsed.recurrenceInterval, recurrenceDaysOfWeek: parsed.recurrenceDaysOfWeek,
           recurrenceBusinessDaysOnly: parsed.recurrenceBusinessDaysOnly,
@@ -197,13 +195,13 @@ export default function QuickCapture({
       {open && (
         <Modal title="Quick capture" onClose={close}>
           <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 0 }}>
-            Describe the task in plain language — due dates, times, recurrence, and priority are picked up automatically.
+            Describe the task in plain language. Taskly picks up dates, priority, recurrence and work duration automatically.
           </p>
           <input
             ref={inputRef}
             value={text}
             onChange={e => setText(e.target.value)}
-            placeholder='e.g. "Submit assignment next Friday" or "Call Sarah every Monday at 9 AM"'
+            placeholder='e.g. "Submit assignment tomorrow 2pm, high priority, 90 minutes"'
             aria-label="Task description"
           />
 
@@ -218,6 +216,9 @@ export default function QuickCapture({
                   <span>Due</span>
                   <strong>{parsed.hasExplicitTime ? new Date(parsed.dueDate).toLocaleString() : new Date(parsed.dueDate).toLocaleDateString()}</strong>
                 </div>
+              )}
+              {parsed.estimatedMinutes && (
+                <div className="quick-capture-field"><span>Effort</span><strong>{parsed.estimatedMinutes} minutes</strong></div>
               )}
               <label className="quick-capture-field">
                 <span>Priority</span>

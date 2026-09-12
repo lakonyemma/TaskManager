@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#060b23" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <title>Install Taskly</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      color: #edf4ff;
+      background: radial-gradient(circle at 82% 8%, rgba(37,99,235,.28), transparent 34%), linear-gradient(145deg,#050a1b,#08152d 60%,#0a1e40);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(100%, 520px); }
+    .card {
+      border: 1px solid #25446e;
+      border-radius: 24px;
+      padding: clamp(24px, 6vw, 42px);
+      background: rgba(7,19,40,.92);
+      box-shadow: 0 30px 80px rgba(0,0,0,.32);
+    }
+    .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 30px; }
+    .brand img { width: 54px; height: 54px; border-radius: 14px; }
+    .brand strong { display: block; font-size: 1.3rem; }
+    .brand span { color: #88a3c9; font-size: .82rem; }
+    .eyebrow { margin: 0 0 10px; color: #74a8ff; font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(2rem, 8vw, 3.2rem); line-height: .98; letter-spacing: -.05em; }
+    .copy { margin: 18px 0 26px; color: #a4b4cf; line-height: 1.6; }
+    button, a.button {
+      width: 100%;
+      min-height: 52px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #4b86ef;
+      border-radius: 14px;
+      padding: 0 18px;
+      color: white;
+      background: #2563d8;
+      font: inherit;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .62; cursor: default; }
+    .secondary { margin-top: 10px; border-color: #29486f !important; color: #c8d9f5 !important; background: #0d2344 !important; }
+    .status { min-height: 44px; margin: 18px 0 0; color: #8fa7c8; font-size: .84rem; line-height: 1.5; }
+    .points { display: grid; gap: 10px; margin: 24px 0; }
+    .points div { display: flex; gap: 10px; color: #b8c7dc; font-size: .86rem; }
+    .dot { color: #60a5fa; font-weight: 900; }
+    .small { margin-top: 20px; color: #7085a5; font-size: .72rem; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <div class="brand">
+        <img src="/icons/icon-192.png" alt="Taskly" />
+        <div><strong>Taskly</strong><span>Personal execution system</span></div>
+      </div>
+      <p class="eyebrow">Chrome install</p>
+      <h1>Install once. Keep getting updates.</h1>
+      <p class="copy">Install Taskly from Chrome as an app. The web experience updates automatically, so normal Taskly improvements do not require downloading another APK.</p>
+      <div class="points">
+        <div><span class="dot">✓</span><span>Works from your home screen like an app</span></div>
+        <div><span class="dot">✓</span><span>Offline task cache and automatic sync</span></div>
+        <div><span class="dot">✓</span><span>Automatic web updates without reinstalling</span></div>
+      </div>
+      <button id="install" type="button" disabled>Preparing install…</button>
+      <a class="button secondary" href="/app">Open Taskly</a>
+      <a class="button secondary" href="https://github.com/lakonyemma/TaskManager/releases/tag/taskly-latest">Android APK option</a>
+      <p id="status" class="status">Open this page in Chrome. When Chrome confirms Taskly is installable, the button above becomes active.</p>
+      <p class="small">If Taskly is already installed from Chrome, use “Open Taskly”. Chrome and Taskly’s service worker handle future web updates automatically.</p>
+    </section>
+  </main>
+  <script>
+    const installButton = document.getElementById('install')
+    const status = document.getElementById('status')
+    let deferredPrompt = null
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {})
+    }
+
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault()
+      deferredPrompt = event
+      installButton.disabled = false
+      installButton.textContent = 'Install Taskly'
+      status.textContent = 'Taskly is ready to install. Tap the button once and confirm Chrome’s install prompt.'
+    })
+
+    window.addEventListener('appinstalled', () => {
+      deferredPrompt = null
+      installButton.disabled = true
+      installButton.textContent = 'Taskly installed'
+      status.textContent = 'Installed successfully. Open Taskly from your home screen.'
+    })
+
+    installButton.addEventListener('click', async () => {
+      if (!deferredPrompt) {
+        status.textContent = 'Chrome has not offered the install prompt yet. Open Chrome’s menu and choose “Install app” or “Add to Home screen”.'
+        return
+      }
+      deferredPrompt.prompt()
+      const choice = await deferredPrompt.userChoice
+      deferredPrompt = null
+      if (choice.outcome === 'accepted') {
+        installButton.disabled = true
+        installButton.textContent = 'Installing…'
+        status.textContent = 'Chrome accepted the installation.'
+      } else {
+        status.textContent = 'Installation was cancelled. You can tap Install Taskly again when Chrome offers it.'
+      }
+    })
+
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      installButton.disabled = true
+      installButton.textContent = 'Taskly is already installed'
+      status.textContent = 'This device is already running Taskly in installed mode.'
+    }
+  </script>
+</body>
+</html>

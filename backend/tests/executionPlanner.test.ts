@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
     buildDeadlineRisks,
     buildTodayPlan,
+    buildWeeklyReview,
     computeExecutionScore,
+    selectNextAction,
+    suggestSmartReschedule,
     type ExecutionTask,
 } from "../src/features/execution/executionPlanner.js";
 
@@ -53,17 +56,50 @@ test("waiting items do not consume today's execution capacity", () => {
     assert.deepEqual(plan.tasks.map((item) => item.title), ["Finish report"]);
 });
 
-test("deadline risk detects overdue and high-pressure tasks", () => {
+test("deadline risk detects overdue and combined workload pressure", () => {
     const risks = buildDeadlineRisks([
         task({ title: "Late", dueDate: new Date("2026-09-10T12:00:00.000Z") }),
         task({ title: "Heavy today", dueDate: new Date("2026-09-12T17:00:00.000Z"), estimatedMinutes: 240 }),
         task({ title: "Safe", dueDate: new Date("2026-09-20T17:00:00.000Z"), estimatedMinutes: 30 }),
-    ], NOW);
+    ], NOW, 360);
 
     assert.equal(risks.length, 2);
     assert.equal(risks[0].title, "Late");
     assert.equal(risks[0].level, "CRITICAL");
     assert.equal(risks[1].title, "Heavy today");
+    assert.ok(risks[1].workloadPressurePercent >= 75);
+});
+
+test("next action explains why the highest ranked task comes first", () => {
+    const plan = buildTodayPlan([
+        task({ title: "Normal task", priority: "MEDIUM" }),
+        task({ title: "Due today", dueDate: new Date("2026-09-12T17:00:00.000Z"), priority: "HIGH" }),
+    ], NOW, 360);
+    const nextAction = selectNextAction(plan, NOW);
+
+    assert.equal(nextAction?.title, "Due today");
+    assert.match(nextAction?.reason ?? "", /Due today/i);
+});
+
+test("smart reschedule skips a day that is already full", () => {
+    const target = task({ title: "Move me", estimatedMinutes: 120, dueDate: new Date("2026-09-12T17:00:00.000Z") });
+    const busyTomorrow = task({ title: "Tomorrow load", estimatedMinutes: 300, dueDate: new Date("2026-09-13T16:00:00.000Z") });
+    const suggestion = suggestSmartReschedule(target, [target, busyTomorrow], NOW, 360);
+
+    assert.equal(suggestion.dueDate.toISOString().slice(0, 10), "2026-09-14");
+});
+
+test("weekly review summarizes wins and next-week pressure", () => {
+    const review = buildWeeklyReview([
+        task({ status: "COMPLETED", title: "Finished", completedAt: new Date("2026-09-11T10:00:00.000Z"), dueDate: new Date("2026-09-11T18:00:00.000Z") }),
+        task({ title: "Next", dueDate: new Date("2026-09-15T18:00:00.000Z"), estimatedMinutes: 180 }),
+        task({ title: "Late", dueDate: new Date("2026-09-10T18:00:00.000Z") }),
+    ], NOW, 360);
+
+    assert.equal(review.completed, 1);
+    assert.equal(review.overdueCarried, 1);
+    assert.equal(review.dueNext7Days, 1);
+    assert.equal(review.recentWins[0].title, "Finished");
 });
 
 test("execution score rewards recent on-time completion and penalizes overdue work", () => {
