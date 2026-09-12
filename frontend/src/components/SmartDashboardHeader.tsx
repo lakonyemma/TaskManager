@@ -1,4 +1,5 @@
-import { AlertTriangle, CalendarClock, CalendarRange, CheckCircle2, TrendingDown, TrendingUp } from 'lucide-react'
+import { AlertTriangle, CalendarClock, CalendarRange, CheckCircle2, Target, TrendingDown, TrendingUp } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import AnalogClock from './AnalogClock'
 
 const greetingFor = (hour: number, lang: Record<string, string>) => hour < 12 ? lang.morning : hour < 18 ? lang.afternoon : lang.evening
@@ -42,6 +43,9 @@ export default function SmartDashboardHeader({
         ) : (
           <p className="smart-header-empty">Nothing urgent on your plate right now — stay focused.</p>
         )}
+        <Link to="/app/execution" className="smart-stat">
+          <Target size={13} strokeWidth={1.8} /> Open execution plan
+        </Link>
         {productivityDeltaPercent !== null && (
           <p className={`smart-header-delta ${productivityDeltaPercent >= 0 ? 'up' : 'down'}`}>
             {productivityDeltaPercent >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
