@@ -32,6 +32,7 @@ import milestoneRoutes from "./features/milestones/milestoneRoutes.js";
 import timeEntryRoutes from "./features/timeEntries/timeEntryRoutes.js";
 import adminRoutes from "./features/admin/adminRoutes.js";
 import assistantRoutes from "./features/assistant/assistantRoutes.js";
+import executionRoutes from "./features/execution/executionRoutes.js";
 import { ensureAchievementsSeeded } from "./features/achievements/achievementService.js";
 import { errorHandler } from "./shared/errorHandler.js";
 
@@ -71,6 +72,7 @@ app.get("/", (_req, res) => {
             reports: "/api/reports",
             push: "/api/push",
             reminders: "/api/reminders",
+            execution: "/api/execution/overview",
         },
     });
 });
@@ -102,6 +104,7 @@ app.use("/api", milestoneRoutes);
 app.use("/api", timeEntryRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/assistant", assistantRoutes);
+app.use("/api/execution", executionRoutes);
 
 app.use((_req, res) => {
     res.status(404).json({ message: "Route not found" });
