@@ -10,7 +10,7 @@ type MailOverview = {
   connected: boolean
   unreadTotal: number
   counts: { total: number }
-  accounts?: { id: string; email: string; unreadCount: number }[]
+  connections?: { id: string; email: string; unreadCount: number }[]
 }
 
 export default function SmartDashboardHeader({
@@ -72,9 +72,9 @@ export default function SmartDashboardHeader({
               : 'Personal Action Inbox'}
           </Link>
         </div>
-        {mailOverview?.connected && (mailOverview.accounts?.length || 0) > 1 && (
+        {mailOverview?.connected && (mailOverview.connections?.length || 0) > 1 && (
           <p className="smart-header-yesterday">
-            <Mail size={13} strokeWidth={1.8} /> Monitoring {mailOverview.accounts?.length} Gmail accounts in one inbox.
+            <Mail size={13} strokeWidth={1.8} /> Monitoring {mailOverview.connections?.length} Gmail accounts in one inbox.
           </p>
         )}
         {productivityDeltaPercent !== null && (
