@@ -28,6 +28,7 @@ const accountSummary = (connection: {
     followUpDays: number;
     timezone: string;
     lastSyncedAt: Date | null;
+    lastDigestAt?: Date | null;
     unreadCount: number;
 }) => ({
     id: connection.id,
@@ -38,6 +39,7 @@ const accountSummary = (connection: {
     followUpDays: connection.followUpDays,
     timezone: connection.timezone,
     lastSyncedAt: connection.lastSyncedAt?.toISOString() || null,
+    lastDigestAt: connection.lastDigestAt?.toISOString() || null,
     unreadCount: connection.unreadCount,
 });
 
@@ -54,7 +56,7 @@ export const getMailStatus = async (req: AuthedRequest, res: Response) => {
         configured: gmailConfiguration(),
         connected: summaries.length > 0,
         connections: summaries,
-        // Keep the first connection for old clients while new clients use `connections`.
+        accounts: summaries,
         connection: summaries[0] || null,
         unreadTotal: summaries.reduce((sum, connection) => sum + connection.unreadCount, 0),
         counts: { ...counts, total: counts.ACTION_REQUIRED + counts.DEADLINE + counts.WAITING_REPLY },
@@ -91,7 +93,8 @@ export const googleCallback = async (req: Request, res: Response) => {
 
 export const disconnectGmailConnection = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
-    const connectionId = Array.isArray(req.params.connectionId) ? req.params.connectionId[0] : req.params.connectionId;
+    const rawId = req.params.connectionId || req.params.accountId;
+    const connectionId = Array.isArray(rawId) ? rawId[0] : rawId;
     if (!connectionId) return res.status(400).json({ message: "connectionId is required" });
     const connection = await prisma.gmailConnection.findFirst({ where: { id: connectionId, userId: user.id } });
     if (!connection) return res.status(404).json({ message: "Gmail account not found" });
@@ -112,9 +115,14 @@ export const disconnectGmail = async (req: AuthedRequest, res: Response) => {
 
 export const syncMailNow = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
+    const accountId = typeof req.body?.accountId === "string" ? req.body.accountId : "";
     try {
-        const result = await syncGmailForUser(user.id, false);
-        return res.json(result);
+        if (accountId) {
+            const owned = await prisma.gmailConnection.findFirst({ where: { id: accountId, userId: user.id } });
+            if (!owned) return res.status(404).json({ message: "Gmail account not found" });
+            return res.json(await syncGmailConnection(owned.id, false));
+        }
+        return res.json(await syncGmailForUser(user.id, false));
     } catch (error) {
         return res.status(400).json({ message: error instanceof Error ? error.message : "Unable to sync Gmail" });
     }
@@ -122,7 +130,8 @@ export const syncMailNow = async (req: AuthedRequest, res: Response) => {
 
 export const syncMailConnectionNow = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
-    const connectionId = Array.isArray(req.params.connectionId) ? req.params.connectionId[0] : req.params.connectionId;
+    const rawId = req.params.connectionId || req.params.accountId;
+    const connectionId = Array.isArray(rawId) ? rawId[0] : rawId;
     if (!connectionId) return res.status(400).json({ message: "connectionId is required" });
     const owned = await prisma.gmailConnection.findFirst({ where: { id: connectionId, userId: user.id } });
     if (!owned) return res.status(404).json({ message: "Gmail account not found" });
@@ -167,6 +176,7 @@ export const listMailActions = async (req: AuthedRequest, res: Response) => {
             taskId: item.taskId,
             gmailConnectionId: item.gmailConnectionId,
             accountEmail: item.gmailConnection.email,
+            account: { id: item.gmailConnectionId, email: item.gmailConnection.email },
             gmailUrl: gmailWebUrl(item.gmailConnection.email, item.threadId),
         })),
     });
@@ -180,8 +190,11 @@ const resolveConnectionForSettings = async (userId: string, connectionId?: strin
 
 export const updateMailSettings = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
-    const routeId = Array.isArray(req.params.connectionId) ? req.params.connectionId[0] : req.params.connectionId;
-    const bodyId = typeof req.body.connectionId === "string" ? req.body.connectionId : undefined;
+    const routeRaw = req.params.connectionId || req.params.accountId;
+    const routeId = Array.isArray(routeRaw) ? routeRaw[0] : routeRaw;
+    const bodyId = typeof req.body.connectionId === "string"
+        ? req.body.connectionId
+        : typeof req.body.accountId === "string" ? req.body.accountId : undefined;
     const existing = await resolveConnectionForSettings(user.id, routeId || bodyId);
     if (!existing) return res.status(404).json({ message: "Choose a connected Gmail account first" });
 
