@@ -3,25 +3,13 @@ import prisma from "../../lib/prisma.js";
 import { createActivityLog } from "../../utils/activity.js";
 import { getMembership } from "../../utils/membership.js";
 import { syncTaskReminders } from "../reminders/reminderService.js";
-import {
-    buildGoogleAuthorizationUrl,
-    connectGmailUser,
-    getGmailAccounts,
-    getGmailPrimaryEmail,
-    gmailConfiguration,
-    gmailWebUrl,
-    parseGmailStorageKey,
-    removeGmailAccount,
-    updateGmailAccount,
-    type GmailAccountSummary,
-} from "./gmailService.js";
+import { buildGoogleAuthorizationUrl, connectGmailUser, gmailConfiguration, gmailWebUrl } from "./gmailService.js";
 import { createMailOAuthState, verifyMailOAuthState } from "./mailOAuthState.js";
-import { mailItemBelongsToAccount, syncGmailAccount, syncGmailForUser } from "./mailMonitor.js";
+import { syncGmailConnection, syncGmailForUser } from "./mailMonitor.js";
 
 type AuthedRequest = Request & { user?: { id: string; email: string } };
 
 const frontendBase = () => (process.env.TASKLY_FRONTEND_URL || process.env.CORS_ORIGIN || "http://localhost:5173").replace(/\/$/, "");
-const lower = (value: string) => value.trim().toLowerCase();
 
 const requireUser = (req: AuthedRequest, res: Response) => {
     if (!req.user) {
@@ -31,27 +19,44 @@ const requireUser = (req: AuthedRequest, res: Response) => {
     return req.user;
 };
 
-const resolveItemAccount = (gmailMessageId: string, accounts: GmailAccountSummary[], primaryEmail: string | null) => {
-    const parsed = parseGmailStorageKey(gmailMessageId);
-    const email = parsed?.email || primaryEmail || accounts[0]?.email || "";
-    return accounts.find((account) => lower(account.email) === lower(email)) || accounts[0] || null;
-};
+const accountSummary = (connection: {
+    id: string;
+    email: string;
+    monitoringEnabled: boolean;
+    digestEnabled: boolean;
+    digestHour: number;
+    followUpDays: number;
+    timezone: string;
+    lastSyncedAt: Date | null;
+    unreadCount: number;
+}) => ({
+    id: connection.id,
+    email: connection.email,
+    monitoringEnabled: connection.monitoringEnabled,
+    digestEnabled: connection.digestEnabled,
+    digestHour: connection.digestHour,
+    followUpDays: connection.followUpDays,
+    timezone: connection.timezone,
+    lastSyncedAt: connection.lastSyncedAt?.toISOString() || null,
+    unreadCount: connection.unreadCount,
+});
 
 export const getMailStatus = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
-    const [accounts, grouped] = await Promise.all([
-        getGmailAccounts(user.id),
+    const [connections, grouped] = await Promise.all([
+        prisma.gmailConnection.findMany({ where: { userId: user.id }, orderBy: { createdAt: "asc" } }),
         prisma.mailActionItem.groupBy({ by: ["kind"], where: { userId: user.id, status: "OPEN" }, _count: { _all: true } }),
     ]);
     const counts = { ACTION_REQUIRED: 0, DEADLINE: 0, WAITING_REPLY: 0 } as Record<string, number>;
     for (const row of grouped) counts[row.kind] = row._count._all;
-    const unreadTotal = accounts.reduce((sum, account) => sum + account.unreadCount, 0);
+    const summaries = connections.map(accountSummary);
     return res.json({
         configured: gmailConfiguration(),
-        connected: accounts.length > 0,
-        accounts,
-        connection: accounts[0] || null,
-        unreadTotal,
+        connected: summaries.length > 0,
+        connections: summaries,
+        // Keep the first connection for old clients while new clients use `connections`.
+        connection: summaries[0] || null,
+        unreadTotal: summaries.reduce((sum, connection) => sum + connection.unreadCount, 0),
         counts: { ...counts, total: counts.ACTION_REQUIRED + counts.DEADLINE + counts.WAITING_REPLY },
     });
 };
@@ -73,9 +78,9 @@ export const googleCallback = async (req: Request, res: Response) => {
         if (!code || !state) throw new Error("Google did not return an authorization code.");
         const payload = verifyMailOAuthState(state);
         returnTo = payload.returnTo;
-        const account = await connectGmailUser(payload.userId, code);
-        try { await syncGmailAccount(payload.userId, account.id, false); } catch (error) { console.warn(`[mail] Initial sync deferred for ${account.email}:`, error); }
-        const params = new URLSearchParams({ gmail: "connected", account: account.email });
+        const connection = await connectGmailUser(payload.userId, code);
+        try { await syncGmailConnection(connection.id, false); } catch (error) { console.warn("[mail] Initial sync deferred:", error); }
+        const params = new URLSearchParams({ gmail: "connected", account: connection.email });
         return res.redirect(`${frontendBase()}${returnTo}${returnTo.includes("?") ? "&" : "?"}${params.toString()}`);
     } catch (error) {
         const message = error instanceof Error ? error.message : "Google authorization failed";
@@ -84,40 +89,45 @@ export const googleCallback = async (req: Request, res: Response) => {
     }
 };
 
+export const disconnectGmailConnection = async (req: AuthedRequest, res: Response) => {
+    const user = requireUser(req, res); if (!user) return;
+    const connectionId = Array.isArray(req.params.connectionId) ? req.params.connectionId[0] : req.params.connectionId;
+    if (!connectionId) return res.status(400).json({ message: "connectionId is required" });
+    const connection = await prisma.gmailConnection.findFirst({ where: { id: connectionId, userId: user.id } });
+    if (!connection) return res.status(404).json({ message: "Gmail account not found" });
+    await prisma.gmailConnection.delete({ where: { id: connection.id } });
+    await createActivityLog({ userId: user.id, action: `Disconnected Gmail from Taskly: ${connection.email}`, entityType: "gmail_disconnected", entityId: connection.id });
+    return res.json({ disconnected: true, email: connection.email, purgedMailMetadata: true });
+};
+
 export const disconnectGmail = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
-    const accountId = Array.isArray(req.params.accountId) ? req.params.accountId[0] : req.params.accountId;
-    if (!accountId) {
-        await prisma.$transaction([
-            prisma.mailActionItem.deleteMany({ where: { userId: user.id } }),
-            prisma.gmailConnection.deleteMany({ where: { userId: user.id } }),
-        ]);
-        await createActivityLog({ userId: user.id, action: "Disconnected all Gmail accounts from Taskly", entityType: "gmail_disconnected", entityId: user.id });
-        return res.json({ disconnected: true, purgedMailMetadata: true, remainingAccounts: 0 });
-    }
-
-    const [accounts, primaryEmail, items] = await Promise.all([
-        getGmailAccounts(user.id),
-        getGmailPrimaryEmail(user.id),
-        prisma.mailActionItem.findMany({ where: { userId: user.id }, select: { id: true, gmailMessageId: true } }),
+    await prisma.$transaction([
+        prisma.mailActionItem.deleteMany({ where: { userId: user.id } }),
+        prisma.gmailConnection.deleteMany({ where: { userId: user.id } }),
     ]);
-    const account = accounts.find((candidate) => candidate.id === accountId);
-    if (!account) return res.status(404).json({ message: "Connected Gmail account not found" });
-    const itemIds = items
-        .filter((item) => mailItemBelongsToAccount(item.gmailMessageId, account.email, primaryEmail))
-        .map((item) => item.id);
-    if (itemIds.length) await prisma.mailActionItem.deleteMany({ where: { id: { in: itemIds } } });
-    const result = await removeGmailAccount(user.id, account.id);
-    await createActivityLog({ userId: user.id, action: `Disconnected Gmail ${account.email} from Taskly`, entityType: "gmail_disconnected", entityId: account.id });
-    return res.json({ disconnected: true, account: account.email, purgedMailMetadata: true, remainingAccounts: result.remaining.length });
+    await createActivityLog({ userId: user.id, action: "Disconnected all Gmail accounts from Taskly", entityType: "gmail_disconnected", entityId: user.id });
+    return res.json({ disconnected: true, allAccounts: true, purgedMailMetadata: true });
 };
 
 export const syncMailNow = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
-    const accountId = typeof req.body?.accountId === "string" ? req.body.accountId : "";
     try {
-        const result = accountId ? await syncGmailAccount(user.id, accountId, false) : await syncGmailForUser(user.id, false);
+        const result = await syncGmailForUser(user.id, false);
         return res.json(result);
+    } catch (error) {
+        return res.status(400).json({ message: error instanceof Error ? error.message : "Unable to sync Gmail" });
+    }
+};
+
+export const syncMailConnectionNow = async (req: AuthedRequest, res: Response) => {
+    const user = requireUser(req, res); if (!user) return;
+    const connectionId = Array.isArray(req.params.connectionId) ? req.params.connectionId[0] : req.params.connectionId;
+    if (!connectionId) return res.status(400).json({ message: "connectionId is required" });
+    const owned = await prisma.gmailConnection.findFirst({ where: { id: connectionId, userId: user.id } });
+    if (!owned) return res.status(404).json({ message: "Gmail account not found" });
+    try {
+        return res.json(await syncGmailConnection(owned.id, false));
     } catch (error) {
         return res.status(400).json({ message: error instanceof Error ? error.message : "Unable to sync Gmail" });
     }
@@ -126,53 +136,56 @@ export const syncMailNow = async (req: AuthedRequest, res: Response) => {
 export const listMailActions = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
     const requested = typeof req.query.status === "string" ? req.query.status.toUpperCase() : "OPEN";
+    const connectionId = typeof req.query.connectionId === "string" ? req.query.connectionId : "";
     const allowed = ["OPEN", "TASK_CREATED", "WAITING_CREATED", "DONE", "DISMISSED"];
-    const where = requested === "ALL" ? { userId: user.id } : { userId: user.id, status: allowed.includes(requested) ? requested as any : "OPEN" as const };
-    const [items, accounts, primaryEmail] = await Promise.all([
-        prisma.mailActionItem.findMany({
-            where,
-            orderBy: [{ detectedDueAt: "asc" }, { receivedAt: "desc" }],
-            take: 150,
-            select: {
-                id: true, gmailMessageId: true, threadId: true, counterparty: true, subject: true, snippet: true, receivedAt: true, unread: true,
-                kind: true, confidence: true, detectedDueAt: true, status: true, taskId: true,
-            },
-        }),
-        getGmailAccounts(user.id),
-        getGmailPrimaryEmail(user.id),
-    ]);
-    return res.json({
-        items: items.map((item) => {
-            const account = resolveItemAccount(item.gmailMessageId, accounts, primaryEmail);
-            return {
-                id: item.id,
-                threadId: item.threadId,
-                counterparty: item.counterparty,
-                subject: item.subject,
-                snippet: item.snippet,
-                receivedAt: item.receivedAt.toISOString(),
-                unread: item.unread,
-                kind: item.kind,
-                confidence: item.confidence,
-                detectedDueAt: item.detectedDueAt?.toISOString() || null,
-                status: item.status,
-                taskId: item.taskId,
-                account: account ? { id: account.id, email: account.email } : null,
-                gmailUrl: account ? gmailWebUrl(account.email, item.threadId) : `https://mail.google.com/mail/#all/${encodeURIComponent(item.threadId)}`,
-            };
-        }),
+    const where: Record<string, unknown> = { userId: user.id };
+    if (requested !== "ALL") where.status = allowed.includes(requested) ? requested : "OPEN";
+    if (connectionId) where.gmailConnectionId = connectionId;
+    const items = await prisma.mailActionItem.findMany({
+        where: where as any,
+        orderBy: [{ detectedDueAt: "asc" }, { receivedAt: "desc" }],
+        take: 150,
+        select: {
+            id: true, threadId: true, counterparty: true, subject: true, snippet: true, receivedAt: true, unread: true,
+            kind: true, confidence: true, detectedDueAt: true, status: true, taskId: true, gmailConnectionId: true,
+            gmailConnection: { select: { email: true } },
+        },
     });
+    return res.json({
+        items: items.map((item) => ({
+            id: item.id,
+            threadId: item.threadId,
+            counterparty: item.counterparty,
+            subject: item.subject,
+            snippet: item.snippet,
+            receivedAt: item.receivedAt.toISOString(),
+            unread: item.unread,
+            kind: item.kind,
+            confidence: item.confidence,
+            detectedDueAt: item.detectedDueAt?.toISOString() || null,
+            status: item.status,
+            taskId: item.taskId,
+            gmailConnectionId: item.gmailConnectionId,
+            accountEmail: item.gmailConnection.email,
+            gmailUrl: gmailWebUrl(item.gmailConnection.email, item.threadId),
+        })),
+    });
+};
+
+const resolveConnectionForSettings = async (userId: string, connectionId?: string) => {
+    if (connectionId) return prisma.gmailConnection.findFirst({ where: { id: connectionId, userId } });
+    const connections = await prisma.gmailConnection.findMany({ where: { userId }, orderBy: { createdAt: "asc" }, take: 2 });
+    return connections.length === 1 ? connections[0] : null;
 };
 
 export const updateMailSettings = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
-    const accounts = await getGmailAccounts(user.id);
-    if (!accounts.length) return res.status(404).json({ message: "Connect Gmail first" });
-    const accountId = typeof req.body.accountId === "string" ? req.body.accountId : accounts[0].id;
-    const account = accounts.find((candidate) => candidate.id === accountId);
-    if (!account) return res.status(404).json({ message: "Connected Gmail account not found" });
+    const routeId = Array.isArray(req.params.connectionId) ? req.params.connectionId[0] : req.params.connectionId;
+    const bodyId = typeof req.body.connectionId === "string" ? req.body.connectionId : undefined;
+    const existing = await resolveConnectionForSettings(user.id, routeId || bodyId);
+    if (!existing) return res.status(404).json({ message: "Choose a connected Gmail account first" });
 
-    const data: Partial<GmailAccountSummary> = {};
+    const data: Record<string, unknown> = {};
     if (typeof req.body.monitoringEnabled === "boolean") data.monitoringEnabled = req.body.monitoringEnabled;
     if (typeof req.body.digestEnabled === "boolean") data.digestEnabled = req.body.digestEnabled;
     if (Number.isInteger(req.body.digestHour) && req.body.digestHour >= 0 && req.body.digestHour <= 23) data.digestHour = req.body.digestHour;
@@ -180,8 +193,8 @@ export const updateMailSettings = async (req: AuthedRequest, res: Response) => {
     if (typeof req.body.timezone === "string" && req.body.timezone.length <= 80) {
         try { new Intl.DateTimeFormat("en-US", { timeZone: req.body.timezone }).format(new Date()); data.timezone = req.body.timezone; } catch { /* ignore invalid timezone */ }
     }
-    const updated = await updateGmailAccount(user.id, account.id, data);
-    return res.json(updated);
+    const connection = await prisma.gmailConnection.update({ where: { id: existing.id }, data });
+    return res.json(accountSummary(connection));
 };
 
 export const setMailActionStatus = async (req: AuthedRequest, res: Response) => {
@@ -207,23 +220,16 @@ const ensureTag = async (workspaceId: string, name: string, color: string) => {
     return existing || prisma.tag.create({ data: { workspaceId, name, color } });
 };
 
-const getMailItemContext = async (userId: string, id: string) => {
-    const [item, accounts, primaryEmail] = await Promise.all([
-        prisma.mailActionItem.findFirst({ where: { id, userId } }),
-        getGmailAccounts(userId),
-        getGmailPrimaryEmail(userId),
-    ]);
-    if (!item) return { item: null, account: null };
-    return { item, account: resolveItemAccount(item.gmailMessageId, accounts, primaryEmail) };
-};
-
 export const createTaskFromMail = async (req: AuthedRequest, res: Response) => {
     const user = requireUser(req, res); if (!user) return;
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const workspaceId = req.body.workspaceId as string | undefined;
     if (!id || !workspaceId) return res.status(400).json({ message: "workspaceId is required" });
     if (!await ensureWorkspaceAccess(user.id, workspaceId, res)) return;
-    const { item, account } = await getMailItemContext(user.id, id);
+    const item = await prisma.mailActionItem.findFirst({
+        where: { id, userId: user.id },
+        include: { gmailConnection: { select: { email: true } } },
+    });
     if (!item) return res.status(404).json({ message: "Mail item not found" });
 
     const [emailTag, todoColumn] = await Promise.all([
@@ -231,12 +237,16 @@ export const createTaskFromMail = async (req: AuthedRequest, res: Response) => {
         prisma.boardColumn.findFirst({ where: { workspaceId, mapsToStatus: "TODO" }, orderBy: { order: "asc" } }),
     ]);
     const dueDate = item.detectedDueAt || (req.body.dueDate ? new Date(req.body.dueDate) : null);
-    const sourceUrl = account ? gmailWebUrl(account.email, item.threadId) : `https://mail.google.com/mail/#all/${encodeURIComponent(item.threadId)}`;
     const task = await prisma.task.create({
         data: {
             workspaceId,
             title: item.subject.slice(0, 240),
-            description: [`Email account: ${account?.email || "Gmail"}`, `Email from: ${item.counterparty || "Unknown sender"}`, item.snippet, `Open Gmail: ${sourceUrl}`].filter(Boolean).join("\n\n"),
+            description: [
+                `Email account: ${item.gmailConnection.email}`,
+                `Email from: ${item.counterparty || "Unknown sender"}`,
+                item.snippet,
+                `Open Gmail: ${gmailWebUrl(item.gmailConnection.email, item.threadId)}`,
+            ].filter(Boolean).join("\n\n"),
             priority: item.kind === "DEADLINE" ? "HIGH" : "MEDIUM",
             status: "TODO",
             columnId: todoColumn?.id || null,
@@ -258,20 +268,29 @@ export const createWaitingFromMail = async (req: AuthedRequest, res: Response) =
     const workspaceId = req.body.workspaceId as string | undefined;
     if (!id || !workspaceId) return res.status(400).json({ message: "workspaceId is required" });
     if (!await ensureWorkspaceAccess(user.id, workspaceId, res)) return;
-    const { item, account } = await getMailItemContext(user.id, id);
+    const item = await prisma.mailActionItem.findFirst({
+        where: { id, userId: user.id },
+        include: { gmailConnection: { select: { email: true, followUpDays: true } } },
+    });
     if (!item) return res.status(404).json({ message: "Mail item not found" });
     const [waitingTag, emailTag, todoColumn] = await Promise.all([
         ensureTag(workspaceId, "Waiting", "#0ea5e9"),
         ensureTag(workspaceId, "Email", "#2563eb"),
         prisma.boardColumn.findFirst({ where: { workspaceId, mapsToStatus: "TODO" }, orderBy: { order: "asc" } }),
     ]);
-    const followUpAt = req.body.followUpAt ? new Date(req.body.followUpAt) : new Date(Date.now() + Math.max(1, account?.followUpDays || 3) * 24 * 60 * 60 * 1000);
-    const sourceUrl = account ? gmailWebUrl(account.email, item.threadId) : `https://mail.google.com/mail/#all/${encodeURIComponent(item.threadId)}`;
+    const followUpAt = req.body.followUpAt
+        ? new Date(req.body.followUpAt)
+        : new Date(Date.now() + Math.max(1, item.gmailConnection.followUpDays) * 24 * 60 * 60 * 1000);
     const task = await prisma.task.create({
         data: {
             workspaceId,
             title: `Follow up: ${item.subject}`.slice(0, 240),
-            description: [`Email account: ${account?.email || "Gmail"}`, `Waiting for: ${item.counterparty || "Email reply"}`, item.snippet, `Open Gmail: ${sourceUrl}`].filter(Boolean).join("\n\n"),
+            description: [
+                `Email account: ${item.gmailConnection.email}`,
+                `Waiting for: ${item.counterparty || "Email reply"}`,
+                item.snippet,
+                `Open Gmail: ${gmailWebUrl(item.gmailConnection.email, item.threadId)}`,
+            ].filter(Boolean).join("\n\n"),
             priority: item.kind === "DEADLINE" ? "HIGH" : "MEDIUM",
             status: "TODO",
             columnId: todoColumn?.id || null,
