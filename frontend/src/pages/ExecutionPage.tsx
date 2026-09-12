@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { authFetch, jsonHeaders } from '../lib/api'
 import './ExecutionPage.css'
 
-type Workspace = { id: string; name: string }
+type Workspace = { id: string; name: string; type?: 'PERSONAL' | 'TEAM' }
 type PlanTask = {
   id: string
   title: string
@@ -76,7 +76,8 @@ export default function ExecutionPage() {
         if (!active) return
         const items = data.workspaces || []
         setWorkspaces(items)
-        if (items.length) setWorkspaceId(items[0].id)
+        const preferredWorkspace = items.find((workspace) => workspace.type === 'PERSONAL') || items[0]
+        if (preferredWorkspace) setWorkspaceId(preferredWorkspace.id)
         else setLoading(false)
       } catch (err) {
         if (!active) return
@@ -155,14 +156,18 @@ export default function ExecutionPage() {
     <main className="execution-page">
       <header className="execution-topbar">
         <div>
-          <p className="execution-eyebrow">TASKLY EXECUTION</p>
+          <p className="execution-eyebrow">MY TASKLY</p>
           <h1>Do what matters next.</h1>
-          <p className="execution-subtitle">Your deadlines, follow ups, and daily workload in one place.</p>
+          <p className="execution-subtitle">Your personal plan comes first. Team workspaces remain available when you need them.</p>
         </div>
         <div className="execution-topbar-actions">
           {workspaces.length > 1 && (
             <select value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} aria-label="Workspace">
-              {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+              {workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>
+                  {workspace.name}{workspace.type === 'TEAM' ? ' · Team' : ''}
+                </option>
+              ))}
             </select>
           )}
           <Link className="execution-back" to="/app">Back to Taskly</Link>
