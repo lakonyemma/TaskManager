@@ -6,7 +6,7 @@ import './MailActionPage.css'
 
 type Workspace = { id: string; name: string; type?: 'PERSONAL' | 'TEAM' }
 type MailCounts = { ACTION_REQUIRED: number; DEADLINE: number; WAITING_REPLY: number; total: number }
-type MailAccount = {
+type MailConnection = {
   id: string
   email: string
   monitoringEnabled: boolean
@@ -15,14 +15,13 @@ type MailAccount = {
   followUpDays: number
   timezone: string
   lastSyncedAt: string | null
-  lastDigestAt: string | null
   unreadCount: number
 }
 type MailStatus = {
   configured: { ready: boolean; hasClientId: boolean; hasClientSecret: boolean; hasRedirectUri: boolean; hasEncryptionKey: boolean }
   connected: boolean
-  accounts: MailAccount[]
-  connection: MailAccount | null
+  connections: MailConnection[]
+  connection: MailConnection | null
   unreadTotal: number
   counts: MailCounts
 }
@@ -39,7 +38,8 @@ type MailItem = {
   detectedDueAt: string | null
   status: 'OPEN' | 'TASK_CREATED' | 'WAITING_CREATED' | 'DONE' | 'DISMISSED'
   taskId: string | null
-  account: { id: string; email: string } | null
+  gmailConnectionId: string
+  accountEmail: string
   gmailUrl: string
 }
 
@@ -66,7 +66,7 @@ export default function MailActionPage() {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [settingsAccountId, setSettingsAccountId] = useState('')
+  const [settingsConnectionId, setSettingsConnectionId] = useState('')
 
   const load = useCallback(async () => {
     setError('')
@@ -87,15 +87,15 @@ export default function MailActionPage() {
         setItems(data.items || [])
         const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
         if (browserTimezone) {
-          const mismatched = mailStatus.accounts.filter((account) => account.timezone !== browserTimezone)
+          const mismatched = mailStatus.connections.filter((connection) => connection.timezone !== browserTimezone)
           if (mismatched.length) {
-            await Promise.all(mismatched.map((account) => authFetch('/api/mail/settings', {
+            await Promise.all(mismatched.map((connection) => authFetch(`/api/mail/connections/${encodeURIComponent(connection.id)}/settings`, {
               method: 'PATCH', headers: jsonHeaders,
-              body: JSON.stringify({ accountId: account.id, timezone: browserTimezone }),
+              body: JSON.stringify({ timezone: browserTimezone }),
             })))
             setStatus((current) => current ? {
               ...current,
-              accounts: current.accounts.map((account) => ({ ...account, timezone: browserTimezone })),
+              connections: current.connections.map((connection) => ({ ...connection, timezone: browserTimezone })),
             } : current)
           }
         }
@@ -122,7 +122,7 @@ export default function MailActionPage() {
 
   const visibleItems = useMemo(() => items.filter((item) => {
     if (filter !== 'ALL' && item.kind !== filter) return false
-    if (accountFilter !== 'ALL' && item.account?.id !== accountFilter) return false
+    if (accountFilter !== 'ALL' && item.gmailConnectionId !== accountFilter) return false
     return true
   }), [accountFilter, filter, items])
 
@@ -137,45 +137,44 @@ export default function MailActionPage() {
     }
   }
 
-  const sync = async (accountId?: string) => {
-    setBusy(accountId ? `sync:${accountId}` : 'sync:all'); setError(''); setMessage('')
+  const sync = async (connection?: MailConnection) => {
+    setBusy(connection ? `sync:${connection.id}` : 'sync:all'); setError(''); setMessage('')
     try {
-      const result = await authFetch('/api/mail/sync', {
-        method: 'POST', headers: jsonHeaders,
-        body: JSON.stringify(accountId ? { accountId } : {}),
-      }) as { newItems: number; scanned: number; email?: string; unreadTotal?: number; unreadCount?: number }
-      setMessage(accountId && result.email
-        ? `${result.email} checked. ${result.newItems} new actionable item${result.newItems === 1 ? '' : 's'} found.`
+      const endpoint = connection
+        ? `/api/mail/connections/${encodeURIComponent(connection.id)}/sync`
+        : '/api/mail/sync'
+      const result = await authFetch(endpoint, { method: 'POST' }) as { newItems: number; scanned: number; email?: string; unreadTotal?: number; unreadCount?: number }
+      setMessage(connection
+        ? `${connection.email} checked. ${result.newItems} new actionable item${result.newItems === 1 ? '' : 's'} found.`
         : `All Gmail accounts checked. ${result.newItems} new actionable item${result.newItems === 1 ? '' : 's'} found.`)
       await load()
     } catch (err) { setError(err instanceof Error ? err.message : 'Gmail sync failed') }
     finally { setBusy('') }
   }
 
-  const updateSettings = async (accountId: string, patch: Record<string, unknown>) => {
-    setBusy(`settings:${accountId}`); setError('')
+  const updateSettings = async (connection: MailConnection, patch: Record<string, unknown>) => {
+    setBusy(`settings:${connection.id}`); setError('')
     try {
-      const updated = await authFetch('/api/mail/settings', {
-        method: 'PATCH', headers: jsonHeaders,
-        body: JSON.stringify({ accountId, ...patch }),
-      }) as MailAccount
+      const updated = await authFetch(`/api/mail/connections/${encodeURIComponent(connection.id)}/settings`, {
+        method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(patch),
+      }) as MailConnection
       setStatus((current) => current ? {
         ...current,
-        accounts: current.accounts.map((account) => account.id === accountId ? { ...account, ...updated } : account),
+        connections: current.connections.map((item) => item.id === connection.id ? { ...item, ...updated } : item),
       } : current)
       setMessage(`Settings updated for ${updated.email}.`)
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not update settings') }
     finally { setBusy('') }
   }
 
-  const disconnect = async (account: MailAccount) => {
-    if (!window.confirm(`Disconnect ${account.email} and remove only this account's Taskly mail metadata? Your Gmail messages will not be deleted.`)) return
-    setBusy(`disconnect:${account.id}`); setError(''); setMessage('')
+  const disconnect = async (connection: MailConnection) => {
+    if (!window.confirm(`Disconnect ${connection.email} and remove only this account's Taskly mail metadata? Your Gmail messages will not be deleted.`)) return
+    setBusy(`disconnect:${connection.id}`); setError(''); setMessage('')
     try {
-      await authFetch(`/api/mail/google/disconnect/${encodeURIComponent(account.id)}`, { method: 'DELETE' })
-      setMessage(`${account.email} disconnected. Other Gmail accounts remain connected.`)
-      if (accountFilter === account.id) setAccountFilter('ALL')
-      if (settingsAccountId === account.id) setSettingsAccountId('')
+      await authFetch(`/api/mail/google/connections/${encodeURIComponent(connection.id)}`, { method: 'DELETE' })
+      setMessage(`${connection.email} disconnected. Other Gmail accounts remain connected.`)
+      if (accountFilter === connection.id) setAccountFilter('ALL')
+      if (settingsConnectionId === connection.id) setSettingsConnectionId('')
       await load()
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not disconnect Gmail') }
     finally { setBusy('') }
@@ -246,7 +245,7 @@ export default function MailActionPage() {
           <section className="mail-account-bar">
             <div>
               <span>Connected Gmail accounts</span>
-              <strong>{status.accounts.length} account{status.accounts.length === 1 ? '' : 's'} · {status.unreadTotal} unread email{status.unreadTotal === 1 ? '' : 's'}</strong>
+              <strong>{status.connections.length} account{status.connections.length === 1 ? '' : 's'} · {status.unreadTotal} unread email{status.unreadTotal === 1 ? '' : 's'}</strong>
               <small>{status.counts.total} email item{status.counts.total === 1 ? '' : 's'} currently need action</small>
             </div>
             <div className="mail-account-actions">
@@ -255,27 +254,27 @@ export default function MailActionPage() {
             </div>
           </section>
 
-          {status.accounts.map((account) => (
-            <Fragment key={account.id}>
+          {status.connections.map((connection) => (
+            <Fragment key={connection.id}>
               <section className="mail-account-bar">
                 <div>
                   <span>Gmail account</span>
-                  <strong>{account.email}</strong>
-                  <small>{account.unreadCount} unread · {account.lastSyncedAt ? `Last checked ${formatDate(account.lastSyncedAt)}` : 'Initial sync pending'}</small>
+                  <strong>{connection.email}</strong>
+                  <small>{connection.unreadCount} unread · {connection.lastSyncedAt ? `Last checked ${formatDate(connection.lastSyncedAt)}` : 'Initial sync pending'}</small>
                 </div>
                 <div className="mail-account-actions">
-                  <button className="mail-secondary" onClick={() => void sync(account.id)} disabled={busy === `sync:${account.id}`}><RefreshCw size={15} /> {busy === `sync:${account.id}` ? 'Checking…' : 'Check'}</button>
-                  <button className="mail-secondary" onClick={() => setSettingsAccountId((value) => value === account.id ? '' : account.id)}><Settings2 size={15} /> Settings</button>
+                  <button className="mail-secondary" onClick={() => void sync(connection)} disabled={busy === `sync:${connection.id}`}><RefreshCw size={15} /> {busy === `sync:${connection.id}` ? 'Checking…' : 'Check'}</button>
+                  <button className="mail-secondary" onClick={() => setSettingsConnectionId((value) => value === connection.id ? '' : connection.id)}><Settings2 size={15} /> Settings</button>
                 </div>
               </section>
 
-              {settingsAccountId === account.id && (
+              {settingsConnectionId === connection.id && (
                 <section className="mail-settings">
-                  <label><span>Background monitoring</span><input type="checkbox" checked={account.monitoringEnabled} onChange={(event) => void updateSettings(account.id, { monitoringEnabled: event.target.checked })} /></label>
-                  <label><span>Daily Mail Brief</span><input type="checkbox" checked={account.digestEnabled} onChange={(event) => void updateSettings(account.id, { digestEnabled: event.target.checked })} /></label>
-                  <label><span>Brief hour</span><input type="number" min={0} max={23} value={account.digestHour} onChange={(event) => void updateSettings(account.id, { digestHour: Number(event.target.value) })} /></label>
-                  <label><span>Follow up after days</span><input type="number" min={1} max={30} value={account.followUpDays} onChange={(event) => void updateSettings(account.id, { followUpDays: Number(event.target.value) })} /></label>
-                  <button className="mail-danger" type="button" onClick={() => void disconnect(account)} disabled={busy === `disconnect:${account.id}`}>{busy === `disconnect:${account.id}` ? 'Disconnecting…' : `Disconnect ${account.email}`}</button>
+                  <label><span>Background monitoring</span><input type="checkbox" checked={connection.monitoringEnabled} onChange={(event) => void updateSettings(connection, { monitoringEnabled: event.target.checked })} /></label>
+                  <label><span>Daily Mail Brief</span><input type="checkbox" checked={connection.digestEnabled} onChange={(event) => void updateSettings(connection, { digestEnabled: event.target.checked })} /></label>
+                  <label><span>Brief hour</span><input type="number" min={0} max={23} value={connection.digestHour} onChange={(event) => void updateSettings(connection, { digestHour: Number(event.target.value) })} /></label>
+                  <label><span>Follow up after days</span><input type="number" min={1} max={30} value={connection.followUpDays} onChange={(event) => void updateSettings(connection, { followUpDays: Number(event.target.value) })} /></label>
+                  <button className="mail-danger" type="button" onClick={() => void disconnect(connection)} disabled={busy === `disconnect:${connection.id}`}>{busy === `disconnect:${connection.id}` ? 'Disconnecting…' : `Disconnect ${connection.email}`}</button>
                 </section>
               )}
             </Fragment>
@@ -294,7 +293,7 @@ export default function MailActionPage() {
             <div className="mail-account-actions">
               <select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)} aria-label="Filter Gmail account">
                 <option value="ALL">All Gmail accounts</option>
-                {status.accounts.map((account) => <option key={account.id} value={account.id}>{account.email}</option>)}
+                {status.connections.map((connection) => <option key={connection.id} value={connection.id}>{connection.email}</option>)}
               </select>
               <select value={workspaceId} onChange={(event) => setWorkspaceId(event.target.value)} aria-label="Destination workspace">
                 {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}{workspace.type === 'TEAM' ? ' · Team' : ''}</option>)}
@@ -311,7 +310,7 @@ export default function MailActionPage() {
                   <div>
                     <span className="mail-kind">{kindLabel[item.kind]}</span>
                     {item.unread && <span className="mail-unread">Unread</span>}
-                    {item.account && <span className="mail-unread">{item.account.email}</span>}
+                    <span className="mail-unread">{item.accountEmail}</span>
                   </div>
                   <span className="mail-confidence">{item.confidence}% confidence</span>
                 </div>
