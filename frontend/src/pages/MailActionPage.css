@@ -137,7 +137,7 @@
 
 .mail-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -188,6 +188,10 @@
 .mail-empty, .mail-loading { text-align: center; padding: 70px 20px; color: #8fa0bb; }
 .mail-empty h2 { color: #d9e4f7; margin-bottom: 6px; }
 .mail-empty p { margin: 0; }
+
+@media (max-width: 1000px) {
+  .mail-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 
 @media (max-width: 900px) {
   .mail-settings { grid-template-columns: 1fr 1fr; }
