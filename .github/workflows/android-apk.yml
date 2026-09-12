@@ -1,0 +1,65 @@
+name: Build Taskly Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/taskly-android-apk
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-apk.yml'
+      - 'frontend/public/icons/**'
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android shell dependencies
+        working-directory: mobile
+        run: npm install --no-package-lock
+
+      - name: Create Android project
+        working-directory: mobile
+        run: npx cap add android
+
+      - name: Apply Taskly app icon
+        shell: bash
+        run: |
+          for dir in mobile/android/app/src/main/res/mipmap-*dpi; do
+            cp frontend/public/icons/icon-512.png "$dir/ic_launcher.png"
+            cp frontend/public/icons/icon-512.png "$dir/ic_launcher_round.png"
+            cp frontend/public/icons/icon-512-maskable.png "$dir/ic_launcher_foreground.png" || true
+          done
+
+      - name: Build installable debug APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: cp mobile/android/app/build/outputs/apk/debug/app-debug.apk Taskly-Android.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Taskly-Android-APK
+          path: Taskly-Android.apk
+          if-no-files-found: error
+          retention-days: 30
