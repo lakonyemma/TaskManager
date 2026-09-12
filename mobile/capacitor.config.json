@@ -1,0 +1,14 @@
+{
+  "appId": "com.lakonyemma.taskly",
+  "appName": "Taskly",
+  "webDir": "www",
+  "server": {
+    "url": "https://taskly-app.pages.dev",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#060b23"
+  }
+}
