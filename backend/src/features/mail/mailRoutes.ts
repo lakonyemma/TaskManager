@@ -21,6 +21,7 @@ router.get("/google/callback", googleCallback);
 router.get("/status", authenticate, getMailStatus);
 router.get("/google/connect", authenticate, startGoogleConnect);
 router.delete("/google/connections/:connectionId", authenticate, disconnectGmailConnection);
+router.delete("/google/disconnect/:accountId", authenticate, disconnectGmailConnection);
 router.delete("/google/disconnect", authenticate, disconnectGmail);
 router.post("/sync", authenticate, syncMailNow);
 router.post("/connections/:connectionId/sync", authenticate, syncMailConnectionNow);
