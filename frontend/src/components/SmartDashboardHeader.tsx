@@ -48,7 +48,7 @@ export default function SmartDashboardHeader({
       <div className="smart-header-glow" aria-hidden="true" />
       <div className="smart-header-main">
         <p className="smart-header-eyebrow">{greeting}</p>
-        <h1>{firstname} <span className="smart-header-wave">🫠</span></h1>
+        <h1>{firstname}</h1>
         {completedYesterdayCount > 0 && (
           <p className="smart-header-yesterday">
             <CheckCircle2 size={13} strokeWidth={1.8} /> You completed {completedYesterdayCount} task{completedYesterdayCount !== 1 ? 's' : ''} yesterday.
