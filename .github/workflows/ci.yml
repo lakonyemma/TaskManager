@@ -30,7 +30,7 @@ jobs:
       - name: TypeScript build
         run: npm run build
       - name: Backend behavior tests
-        run: npx tsx --test tests/executionPlanner.test.ts tests/nlpParser.test.ts
+        run: npx tsx --test tests/executionPlanner.test.ts tests/nlpParser.test.ts tests/mailClassifier.test.ts
 
   frontend:
     runs-on: ubuntu-latest
