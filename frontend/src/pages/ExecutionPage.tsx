@@ -5,6 +5,7 @@ import { authFetch, jsonHeaders } from '../lib/api'
 import { checkForTasklyUpdate, openTasklyUpdatePage, type TasklyVersionInfo } from '../lib/appUpdate'
 import { scheduleNativeExecutionNotifications } from '../lib/nativeRuntime'
 import './ExecutionPage.css'
+import './ExecutionEnhancements.css'
 
 type Workspace = { id: string; name: string; type?: 'PERSONAL' | 'TEAM' }
 type PlanTask = {
