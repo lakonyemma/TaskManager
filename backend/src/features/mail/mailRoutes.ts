@@ -18,6 +18,7 @@ const router = express.Router();
 router.get("/google/callback", googleCallback);
 router.get("/status", authenticate, getMailStatus);
 router.get("/google/connect", authenticate, startGoogleConnect);
+router.delete("/google/disconnect/:accountId", authenticate, disconnectGmail);
 router.delete("/google/disconnect", authenticate, disconnectGmail);
 router.post("/sync", authenticate, syncMailNow);
 router.get("/items", authenticate, listMailActions);
