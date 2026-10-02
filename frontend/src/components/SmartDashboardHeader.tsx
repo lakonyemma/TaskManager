@@ -27,6 +27,13 @@ export default function SmartDashboardHeader({
   const greeting = greetingFor(new Date().getHours(), translations)
   const hasAnyStat = dueTodayCount > 0 || overdueCount > 0 || upcomingCount > 0
   const [mailOverview, setMailOverview] = useState<MailOverview | null>(null)
+  const [today, setToday] = useState(() => new Date())
+  const formattedDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setToday(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -84,7 +91,10 @@ export default function SmartDashboardHeader({
           </p>
         )}
       </div>
-      <AnalogClock />
+      <div className="smart-header-clock-date">
+        <span className="smart-header-date" aria-label={`Current date: ${formattedDate}`}>{formattedDate}</span>
+        <AnalogClock />
+      </div>
     </div>
   )
 }
