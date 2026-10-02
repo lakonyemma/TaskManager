@@ -2443,6 +2443,22 @@ textarea:focus { border-color: var(--accent-primary-light); }
   flex: 1;
 }
 
+.smart-header-clock-date {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.smart-header-date {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 .smart-header-glow {
   position: absolute;
   top: -55%;
