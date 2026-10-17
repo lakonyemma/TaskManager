@@ -95,7 +95,7 @@ const removeFromOutbox = async (localId: number): Promise<void> => {
     const tx = db.transaction(OUTBOX_STORE, 'readwrite')
     tx.objectStore(OUTBOX_STORE).delete(localId)
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error) })
-  } catch { /* ignore */ }
+  } catch { throw new Error('Could not mark an offline change as synced; retrying later.') }
 }
 
 export const getOutboxCount = async (): Promise<number> => (await getOutbox()).length
