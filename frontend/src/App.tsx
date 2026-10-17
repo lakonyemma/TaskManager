@@ -21,6 +21,17 @@ const ExecutionPage = lazy(() => import('./pages/ExecutionPage'))
 const MailActionPage = lazy(() => import('./pages/MailActionPage'))
 const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage'))
 
+function RouteLoading() {
+  return (
+    <div className="route-loading-skeleton" role="status" aria-label="Loading page">
+      <span className="route-loading-skeleton-title" />
+      <span className="route-loading-skeleton-line" />
+      <span className="route-loading-skeleton-line route-loading-skeleton-line-short" />
+      <span className="sr-only">Loading page…</span>
+    </div>
+  )
+}
+
 function App() {
   return (
     <AuthProvider>
@@ -38,19 +49,19 @@ function App() {
             <Route path="/terms" element={<TermsPage />} />
             <Route
               path="/app/execution"
-              element={<ProtectedRoute><Suspense fallback={<div className="route-loading">Loading…</div>}><ExecutionPage /></Suspense></ProtectedRoute>}
+              element={<ProtectedRoute><Suspense fallback={<RouteLoading />}><ExecutionPage /></Suspense></ProtectedRoute>}
             />
             <Route
               path="/app/mail"
-              element={<ProtectedRoute><Suspense fallback={<div className="route-loading">Loading…</div>}><MailActionPage /></Suspense></ProtectedRoute>}
+              element={<ProtectedRoute><Suspense fallback={<RouteLoading />}><MailActionPage /></Suspense></ProtectedRoute>}
             />
             <Route
               path="/app/*"
-              element={<ProtectedRoute><Suspense fallback={<div className="route-loading">Loading…</div>}><DashboardApp /></Suspense></ProtectedRoute>}
+              element={<ProtectedRoute><Suspense fallback={<RouteLoading />}><DashboardApp /></Suspense></ProtectedRoute>}
             />
             <Route
               path="/admin"
-              element={<SuperAdminRoute><Suspense fallback={<div className="route-loading">Loading…</div>}><SuperAdminPage /></Suspense></SuperAdminRoute>}
+              element={<SuperAdminRoute><Suspense fallback={<RouteLoading />}><SuperAdminPage /></Suspense></SuperAdminRoute>}
             />
             <Route path="*" element={<EntryRedirect />} />
           </Routes>
