@@ -2552,14 +2552,6 @@ export default function DashboardApp() {
                 <TranslationControl />
                 <form className="stack-form" onSubmit={handleSaveSettings}>
                   <label>
-                    {t('language', settingsLang)}
-                    <select value={settingsLang} onChange={e => handleLanguageChange(e.target.value)}>
-                      {Object.entries(LANGUAGES).map(([code, name]) => (
-                        <option key={code} value={code}>{name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
                     {t('fontStyle', settingsLang)}
                     <select value={settingsFont} onChange={e => { setSettingsFont(e.target.value); document.documentElement.setAttribute('data-font', e.target.value) }}>
                       {FONTS.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
