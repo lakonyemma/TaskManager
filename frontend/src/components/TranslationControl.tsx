@@ -10,6 +10,8 @@ type Translator = {
 declare global { interface Window { translate?: Translator } }
 const CONSENT_KEY = 'taskly.translation.externalConsent.v1'
 const LANGUAGE_KEY = 'taskly.translation.language.v1'
+// Presentation-only: translation never writes to application state, APIs, or PostgreSQL.
+// Editing fields retain their original text; translated DOM text is for reading only.
 const SCRIPT_URL = 'https://res.wang.market/translate/translate.js'
 
 function read(key: string) { try { return localStorage.getItem(key) } catch { return null } }
@@ -69,7 +71,7 @@ export default function TranslationControl() {
         </>
       ) : (
         <>
-          <label htmlFor="taskly-translation-language">Translation language</label>
+          <label htmlFor="taskly-translation-language">Display language (original content is preserved)</label>
           <select id="taskly-translation-language" value={language} disabled={!ready} onChange={e => changeLanguage(e.target.value)} style={{ display: 'block', width: '100%', margin: '6px 0', color: '#111' }}>
             <option value="english">English</option>
             <option value="chinese_simplified">Chinese (Simplified)</option>
@@ -81,6 +83,7 @@ export default function TranslationControl() {
             <option value="swahili">Swahili (availability varies)</option>
           </select>
           {error && <p role="alert">{error}</p>}
+          <button type="button" onClick={() => changeLanguage('english')} disabled={!ready || language === 'english'}>Show original language</button>{' '}
           <button type="button" onClick={revoke}>Disable translation and revoke consent</button>
         </>
       )}
