@@ -760,8 +760,31 @@ export default function DashboardApp() {
   }, [showNotifs])
 
   useEffect(() => {
-    const interval = setInterval(loadNotifs, 30000)
-    return () => clearInterval(interval)
+    // Avoid background network requests while the PWA is suspended or offline.
+    // Refresh once when visible again, then resume the normal 30s cadence.
+    let interval: ReturnType<typeof setInterval> | undefined
+    const stopPolling = () => {
+      if (interval !== undefined) clearInterval(interval)
+      interval = undefined
+    }
+    const updatePolling = () => {
+      stopPolling()
+      if (document.hidden || !navigator.onLine) return
+      void loadNotifs()
+      interval = setInterval(() => {
+        if (!document.hidden && navigator.onLine) void loadNotifs()
+      }, 30000)
+    }
+    document.addEventListener('visibilitychange', updatePolling)
+    window.addEventListener('online', updatePolling)
+    window.addEventListener('offline', updatePolling)
+    updatePolling()
+    return () => {
+      stopPolling()
+      document.removeEventListener('visibilitychange', updatePolling)
+      window.removeEventListener('online', updatePolling)
+      window.removeEventListener('offline', updatePolling)
+    }
   }, [loadNotifs])
 
   // Offline sync: replay whatever's queued the moment the browser reports
