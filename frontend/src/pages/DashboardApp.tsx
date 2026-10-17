@@ -1532,6 +1532,13 @@ export default function DashboardApp() {
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to export', 'error') }
   }
 
+  // Keep the lightweight workspace task projection stable across unrelated
+  // navigation, notification and form-state renders.
+  const workspaceTaskSummaries = useMemo(
+    () => tasks.map(tk => ({ id: tk.id, title: tk.title, status: tk.status })),
+    [tasks],
+  )
+
   const trendData: TrendPoint[] = useMemo(() => {
     const days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date()
@@ -2904,7 +2911,7 @@ export default function DashboardApp() {
             dependsOn={selectedTask.dependsOn || []}
             blocks={selectedTask.blocks || []}
             relatedTo={selectedTask.relatedTo || []}
-            workspaceTasks={tasks.map(tk => ({ id: tk.id, title: tk.title, status: tk.status }))}
+            workspaceTasks={workspaceTaskSummaries}
             recurrence={taskToRecurrence(selectedTask)}
             onTaskUpdated={() => { loadTasks(); }}
             taskTags={selectedTask.tags || []}
