@@ -105,7 +105,7 @@ export default function TranslationControl() {
       ) : (
         <>
           <label htmlFor="taskly-translation-language">Display language (original content is preserved)</label>
-          <select id="taskly-translation-language" value={language} disabled={!ready} onChange={e => changeLanguage(e.target.value)} style={{ display: 'block', width: '100%', margin: '6px 0', color: '#111' }}>
+          <select id="taskly-translation-language" value={language} onChange={e => changeLanguage(e.target.value)} style={{ display: 'block', width: '100%', margin: '6px 0', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,.35)', backgroundColor: '#11172e', color: '#ffffff', WebkitTextFillColor: '#ffffff', opacity: 1, fontSize: 16 }}>
             <option value="english">English</option>
             <option value="chinese_simplified">Chinese (Simplified)</option>
             <option value="spanish">Spanish</option>
@@ -115,7 +115,7 @@ export default function TranslationControl() {
             <option value="korean">Korean</option>
             <option value="swahili">Swahili (availability varies)</option>
           </select>
-          {error && <p role="alert">{error}</p>}
+          {error && <p role="status" style={{ color: '#e5e7eb' }}>{error} Your selected language is saved and will apply when translation becomes available.</p>}
           <button type="button" onClick={() => changeLanguage('english')} disabled={!ready || language === 'english'}>Show original language</button>{' '}
           <button type="button" onClick={revoke}>Disable translation and revoke consent</button>
         </>
