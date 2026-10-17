@@ -30,6 +30,9 @@ jobs:
       - name: Verify clean install
         working-directory: frontend
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build React frontend and validate TypeScript
+        working-directory: frontend
+        run: npm run build
       - name: Commit generated lockfile to translation branch
         run: |
           git config user.name "github-actions[bot]"
