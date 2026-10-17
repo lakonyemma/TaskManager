@@ -1,3 +1,4 @@
+import TranslationControl from '../components/TranslationControl'
 import { Suspense, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { List } from 'react-window'
@@ -2548,6 +2549,7 @@ export default function DashboardApp() {
 
               <div className="panel">
                 <h2>{t('preferences', settingsLang)}</h2>
+                <TranslationControl />
                 <form className="stack-form" onSubmit={handleSaveSettings}>
                   <label>
                     {t('language', settingsLang)}
