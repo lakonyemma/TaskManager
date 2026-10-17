@@ -1,56 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import SplashScreen from './SplashScreen'
 
-const SPLASH_DELAY_MS = 3000
+// Keep a brief branded handoff on a fresh launch without making users wait
+// through a fixed three-second animation before interacting with the app.
+const INITIAL_SPLASH_MS = 900
 
-// Below this, a hidden->visible flip is just a quick glance away (a
-// notification, a lock-screen tap, switching apps for a second) — not a
-// real "reopen," and re-showing a 3s full-screen splash for it made the
-// *entire app* feel like it was constantly hanging. Only genuine returns
-// (past this threshold) get the splash treatment again.
-const MIN_HIDDEN_MS_TO_RESPLASH = 10000
-
-// Mobile PWAs are almost always resumed from a suspended background tab
-// when the user taps the app icon, not reloaded from scratch — so a splash
-// that only shows once on mount would never reappear, leaving whatever
-// screen was frozen before backgrounding ("stale screen") visible instead.
-// This re-shows the splash over whatever's currently rendered when the app
-// comes back to the foreground after a real gap, giving App Lock's own
-// visibilitychange check (see AppLockGate) a moment to decide — invisibly,
-// underneath — whether to reveal the PIN screen or the dashboard once it
-// fades.
 export default function AppSplashGate({ children }: { children: React.ReactNode }) {
   const [showSplash, setShowSplash] = useState(true)
-  const hiddenAtRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!showSplash) return
-    const timer = setTimeout(() => setShowSplash(false), SPLASH_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [showSplash])
+    const timer = window.setTimeout(() => setShowSplash(false), INITIAL_SPLASH_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
 
-  // index.html paints a static lookalike of this splash (#boot-splash)
-  // before the JS bundle even loads, closing the gap after Android's own
-  // native app-launch screen hands off. Once React's own splash has
-  // rendered in its place, the static one is redundant — drop it.
+  // The HTML boot splash covers the interval before React first paints.
   useEffect(() => {
     document.getElementById('boot-splash')?.remove()
   }, [])
 
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        hiddenAtRef.current = Date.now()
-      } else if (hiddenAtRef.current !== null) {
-        const elapsedMs = Date.now() - hiddenAtRef.current
-        hiddenAtRef.current = null
-        if (elapsedMs >= MIN_HIDDEN_MS_TO_RESPLASH) setShowSplash(true)
-      }
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-  }, [])
-
+  // Resuming an already-running PWA should return users directly to their
+  // existing page. AppLockGate independently handles security on resume.
   return (
     <>
       {children}
