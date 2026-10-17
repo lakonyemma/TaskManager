@@ -2115,16 +2115,19 @@ export default function DashboardApp() {
                 // matching status into the first column that means it.
                 const firstColumnIdForStatus = new Map<string, string>()
                 for (const col of sortedColumns) if (!firstColumnIdForStatus.has(col.mapsToStatus)) firstColumnIdForStatus.set(col.mapsToStatus, col.id)
+                // Filter once per board render rather than once for every column.
+                const visibleBoardTasks = tasks.filter(tk =>
+                  (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter)) &&
+                  (!boardPriorityFilter || tk.priority === boardPriorityFilter) &&
+                  (!boardTagFilter || tk.tags?.some(tg => tg.id === boardTagFilter))
+                )
                 const activeDragTask = activeDragTaskId ? tasks.find(tk => tk.id === activeDragTaskId) : null
 
                 return (
                   <DndContext sensors={boardDragSensors} onDragStart={handleBoardDragStart} onDragEnd={handleBoardDragEnd}>
                     <div className="kanban-board">
                       {sortedColumns.map(col => {
-                        const columnTasks = tasks.filter(tk => (tk.columnId ? tk.columnId === col.id : firstColumnIdForStatus.get(tk.status) === col.id)
-                          && (!boardAssigneeFilter || (boardAssigneeFilter === 'unassigned' ? !tk.assignedToId : tk.assignedToId === boardAssigneeFilter))
-                          && (!boardPriorityFilter || tk.priority === boardPriorityFilter)
-                          && (!boardTagFilter || tk.tags?.some(tg => tg.id === boardTagFilter)))
+                        const columnTasks = visibleBoardTasks.filter(tk => tk.columnId ? tk.columnId === col.id : firstColumnIdForStatus.get(tk.status) === col.id)
                         return (
                           <DroppableKanbanColumn key={col.id} columnId={col.id} className="kanban-column">
                             {manageColumns ? (
