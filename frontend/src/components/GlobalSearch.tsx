@@ -55,23 +55,48 @@ export default function GlobalSearch({
   const [priorityFilter, setPriorityFilter] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchSequence = useRef(0)
 
-  const runSearch = useCallback(async (q: string) => {
-    if (q.trim().length < 2) { setResults(EMPTY); return }
+  const runSearch = useCallback(async (q: string, sequence: number) => {
+    if (q.trim().length < 2) {
+      if (sequence === searchSequence.current) {
+        setResults(EMPTY)
+        setLoading(false)
+      }
+      return
+    }
     setLoading(true)
     try {
       const params = new URLSearchParams({ q, workspaceId })
       if (statusFilter) params.set('status', statusFilter)
       if (priorityFilter) params.set('priority', priorityFilter)
       const d = await authFetch(`/api/search?${params.toString()}`) as SearchResults
+      // An older request must never overwrite results from newer input,
+      // filters, or workspace selection.
+      if (sequence !== searchSequence.current) return
       setResults({ tasks: d.tasks || [], workspaces: d.workspaces || [], comments: d.comments || [], members: d.members || [], files: d.files || [] })
-    } catch { setResults(EMPTY) } finally { setLoading(false) }
+    } catch {
+      if (sequence === searchSequence.current) setResults(EMPTY)
+    } finally {
+      if (sequence === searchSequence.current) setLoading(false)
+    }
   }, [workspaceId, statusFilter, priorityFilter])
 
   useEffect(() => {
+    // Invalidate in-flight requests immediately when the query or filters
+    // change, not only after the debounce timer fires.
+    const sequence = ++searchSequence.current
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => runSearch(query), 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+    if (query.trim().length < 2) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setResults(EMPTY)
+      setLoading(false)
+    } else {
+      debounceRef.current = setTimeout(() => runSearch(query, sequence), 300)
+    }
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
   }, [query, runSearch])
 
   useEffect(() => {
