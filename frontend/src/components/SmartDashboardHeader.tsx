@@ -68,7 +68,7 @@ export default function SmartDashboardHeader({
             {upcomingCount > 0 && <span className="smart-stat"><CalendarRange size={13} strokeWidth={1.8} /> {upcomingCount} upcoming this week</span>}
           </div>
         ) : (
-          <p className="smart-header-empty">Nothing urgent on your plate right now — stay focused.</p>
+          <p className="smart-header-empty">Nothing urgent on your plate right now. Stay focused.</p>
         )}
         <div className="smart-header-stats">
           <Link to="/app/execution" className="smart-stat"><Target size={13} strokeWidth={1.8} /> Open execution plan</Link>
