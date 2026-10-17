@@ -1538,18 +1538,20 @@ export default function DashboardApp() {
       d.setDate(d.getDate() - (6 - i))
       return d
     })
-    // Bucket by when a task was actually completed (completedAt), not its
-    // due date — a task due Monday but finished Thursday is a Thursday
-    // completion, and a completed task with no due date should still show
-    // up somewhere. completedAt is only missing for tasks completed before
-    // that column existed; updatedAt is the closest fallback signal for those.
-    return days.map(d => ({
-      label: d.toLocaleDateString(undefined, { weekday: 'short' }),
-      completed: tasks.filter(tk => {
-        if (tk.status !== 'COMPLETED') return false
-        const completedOn = tk.completedAt || tk.updatedAt
-        return !!completedOn && new Date(completedOn).toDateString() === d.toDateString()
-      }).length,
+    // Bucket completed tasks in one pass instead of scanning every task
+    // once for each of the seven chart days.
+    const dayIndex = new Map(days.map((day, index) => [day.toDateString(), index]))
+    const counts = Array<number>(days.length).fill(0)
+    for (const task of tasks) {
+      if (task.status !== 'COMPLETED') continue
+      const completedOn = task.completedAt || task.updatedAt
+      if (!completedOn) continue
+      const index = dayIndex.get(new Date(completedOn).toDateString())
+      if (index !== undefined) counts[index] += 1
+    }
+    return days.map((day, index) => ({
+      label: day.toLocaleDateString(undefined, { weekday: 'short' }),
+      completed: counts[index],
     }))
   }, [tasks])
 
