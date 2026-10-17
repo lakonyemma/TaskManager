@@ -770,6 +770,11 @@ export default function DashboardApp() {
   useEffect(() => {
     const handleOnline = async () => {
       setIsOffline(false)
+      // No queued edits means no replay or task refetch is necessary.
+      // This is especially important for frequent Android app switches.
+      const pending = await getOutboxCount()
+      setPendingSyncCount(pending)
+      if (pending === 0) return
       const { synced, failed } = await syncOutbox(request)
       if (synced > 0) {
         showMessage(`Synced ${synced} offline change${synced === 1 ? '' : 's'}`, 'success')
