@@ -5,6 +5,7 @@ import {
     buildTodayPlan,
     buildWeeklyReview,
     computeExecutionScore,
+    explainTodayCapacity,
     selectNextAction,
     suggestSmartReschedule,
     type ExecutionTask,
@@ -158,4 +159,30 @@ test("completed and waiting work never takes capacity in today's plan", () => {
 
     assert.deepEqual(plan.tasks.map(item => item.title), ["Available"]);
     assert.equal(plan.plannedMinutes, 120);
+});
+
+test("capacity insight identifies available time and a fully booked day", () => {
+    const available = explainTodayCapacity(buildTodayPlan([task({ estimatedMinutes: 120 })], NOW, 360));
+    assert.equal(available.state, "AVAILABLE");
+    assert.equal(available.remainingMinutes, 240);
+    assert.equal(available.overflowMinutes, 0);
+
+    const full = explainTodayCapacity(buildTodayPlan([task({ estimatedMinutes: 360 })], NOW, 360));
+    assert.equal(full.state, "FULL");
+    assert.equal(full.remainingMinutes, 0);
+});
+
+test("capacity insight describes overdue overload without negative remaining time", () => {
+    const overdue = task({ dueDate: new Date("2026-09-11T12:00:00.000Z"), estimatedMinutes: 420 });
+    const insight = explainTodayCapacity(buildTodayPlan([overdue], NOW, 360));
+    assert.equal(insight.state, "OVERLOADED");
+    assert.equal(insight.remainingMinutes, 0);
+    assert.equal(insight.overflowMinutes, 60);
+    assert.match(insight.message, /60 minutes/i);
+});
+
+test("capacity insight reports an empty plan clearly", () => {
+    const insight = explainTodayCapacity(buildTodayPlan([], NOW, 360));
+    assert.equal(insight.state, "CLEAR");
+    assert.equal(insight.remainingMinutes, 360);
 });
