@@ -47,12 +47,11 @@ export const updateProfile = async (req: Request, res: Response) => {
             return res.status(401).json({ message: "Authentication required" });
         }
 
-        const { firstname, lastName, avatarUrl, bio, language, fontStyle, colorTheme, taskNotificationsEnabled, emailNotificationsEnabled } = req.body;
+        const { firstname, lastName, bio, language, fontStyle, colorTheme, taskNotificationsEnabled, emailNotificationsEnabled } = req.body;
 
         const data: Record<string, unknown> = {};
         if (firstname !== undefined) data.firstname = firstname;
         if (lastName !== undefined) data.lastName = lastName;
-        if (avatarUrl !== undefined) data.avatarUrl = avatarUrl;
         if (bio !== undefined) data.bio = bio;
         if (language !== undefined) data.language = language;
         if (fontStyle !== undefined) data.fontStyle = fontStyle;

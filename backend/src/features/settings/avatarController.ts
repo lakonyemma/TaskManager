@@ -81,9 +81,8 @@ export const deleteAvatar = async (req: AuthedRequest, res: Response) => {
 
         const existing = await prisma.user.findUnique({ where: { id: authUser.id }, select: { avatarUrl: true } });
         const oldStoredName = storedNameFromAvatarUrl(existing?.avatarUrl ?? null);
-        if (oldStoredName) await deleteObject(`avatars/${oldStoredName}`);
-
         const user = await prisma.user.update({ where: { id: authUser.id }, data: { avatarUrl: null }, select: SETTINGS_SELECT });
+        if (oldStoredName) await deleteObject(`avatars/${oldStoredName}`).catch(error => console.warn("Could not delete removed profile photo", error));
         return res.status(200).json({ user });
     } catch (error) {
         console.error(error);
