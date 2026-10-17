@@ -1600,7 +1600,7 @@ export default function DashboardApp() {
         case 'COMPLETED': statusCounts.completed++; break
         case 'IN_PROGRESS': statusCounts.inProgress++; break
         case 'TODO': statusCounts.todo++; break
-        case 'REVIEW': statusCounts.review++; break
+        case 'REVIEW': statusCounts.review = (statusCounts.review ?? 0) + 1; break
       }
     }
     const reviewTasks = statusCounts.review
