@@ -14,7 +14,6 @@ import InvitationAcceptPage from './pages/InvitationAcceptPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsPage from './pages/TermsPage'
 import './styles/brand.css'
-import TranslationControl from './components/TranslationControl'
 
 const DashboardApp = lazy(() => import('./pages/DashboardApp'))
 const ExecutionPage = lazy(() => import('./pages/ExecutionPage'))
@@ -24,7 +23,6 @@ const SuperAdminPage = lazy(() => import('./pages/SuperAdminPage'))
 function App() {
   return (
     <AuthProvider>
-      <TranslationControl />
       <AppSplashGate>
         <DialogProvider>
           <Routes>

@@ -1,3 +1,4 @@
+import TranslationControl from '../components/TranslationControl'
 import { Suspense, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { List } from 'react-window'
@@ -2548,15 +2549,8 @@ export default function DashboardApp() {
 
               <div className="panel">
                 <h2>{t('preferences', settingsLang)}</h2>
+                <TranslationControl />
                 <form className="stack-form" onSubmit={handleSaveSettings}>
-                  <label>
-                    {t('language', settingsLang)}
-                    <select value={settingsLang} onChange={e => handleLanguageChange(e.target.value)}>
-                      {Object.entries(LANGUAGES).map(([code, name]) => (
-                        <option key={code} value={code}>{name}</option>
-                      ))}
-                    </select>
-                  </label>
                   <label>
                     {t('fontStyle', settingsLang)}
                     <select value={settingsFont} onChange={e => { setSettingsFont(e.target.value); document.documentElement.setAttribute('data-font', e.target.value) }}>
