@@ -779,10 +779,20 @@ export default function DashboardApp() {
       setPendingSyncCount(await getOutboxCount())
     }
     const handleOffline = () => setIsOffline(true)
+    // Some Android PWAs miss the 'online' event while suspended. Retry
+    // pending edits when the app becomes visible again, without a reload.
+    const handleVisibility = () => {
+      if (!document.hidden && navigator.onLine) void handleOnline()
+    }
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    document.addEventListener('visibilitychange', handleVisibility)
     getOutboxCount().then(setPendingSyncCount)
-    return () => { window.removeEventListener('online', handleOnline); window.removeEventListener('offline', handleOffline) }
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request])
 
