@@ -57,8 +57,10 @@ export const listAuditLogs = async (req: AuthedRequest, res: Response) => {
         const userId = req.query.userId as string | undefined;
         const from = req.query.from ? new Date(req.query.from as string) : undefined;
         const to = req.query.to ? new Date(req.query.to as string) : undefined;
-        const limit = Math.min(Number(req.query.limit) || 50, 200);
-        const page = Math.max(Number(req.query.page) || 1, 1);
+        const rawLimit = Number(req.query.limit);
+        const rawPage = Number(req.query.page);
+        const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 50;
+        const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.min(Math.floor(rawPage), 100000) : 1;
 
         const where = await buildAuditWhere(authUser, { workspaceId, entityType, userId, from, to });
 
