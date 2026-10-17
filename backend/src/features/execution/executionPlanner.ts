@@ -130,6 +130,21 @@ export const buildTodayPlan = (
     };
 };
 
+export const explainTodayCapacity = (plan: ReturnType<typeof buildTodayPlan>) => {
+    const remainingMinutes = Math.max(0, plan.capacityMinutes - plan.plannedMinutes);
+    const overflowMinutes = Math.max(0, plan.plannedMinutes - plan.capacityMinutes);
+    if (plan.tasks.length === 0) {
+        return { state: "CLEAR" as const, remainingMinutes, overflowMinutes, message: "No active tasks are scheduled for today." };
+    }
+    if (overflowMinutes > 0) {
+        return { state: "OVERLOADED" as const, remainingMinutes, overflowMinutes, message: `Today's plan exceeds your available time by ${overflowMinutes} minutes. Consider splitting or rescheduling lower-priority work.` };
+    }
+    if (remainingMinutes === 0) {
+        return { state: "FULL" as const, remainingMinutes, overflowMinutes, message: "Today's plan uses all your available working time." };
+    }
+    return { state: "AVAILABLE" as const, remainingMinutes, overflowMinutes, message: `You have ${remainingMinutes} minutes of unallocated working time today.` };
+};
+
 export const selectNextAction = (plan: ReturnType<typeof buildTodayPlan>, now = new Date()): NextAction | null => {
     const task = plan.tasks[0];
     if (!task) return null;
