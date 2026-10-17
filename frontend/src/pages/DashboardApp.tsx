@@ -1589,12 +1589,21 @@ export default function DashboardApp() {
     const myMembership = members.find(m => m.userId === user?.id)
     const canManageMembers = myMembership && (myMembership.role === 'OWNER' || myMembership.role === 'ADMIN')
 
-    const totalTasks = tasks.length
-    const completedTasks = tasks.filter(tk => tk.status === 'COMPLETED').length
-    const inProgressTasks = tasks.filter(tk => tk.status === 'IN_PROGRESS').length
-    const todoTasks = tasks.filter(tk => tk.status === 'TODO').length
-    const reviewTasks = tasks.filter(tk => tk.status === 'REVIEW').length
-    const statusCounts: StatusCounts = { total: totalTasks, completed: completedTasks, inProgress: inProgressTasks, todo: todoTasks, overdue: overdueTasks.length, review: reviewTasks }
+    // Aggregate status counts in one pass, avoiding four extra task scans
+    // whenever the memoized dashboard summary needs updating.
+    const statusCounts: StatusCounts = {
+      total: tasks.length, completed: 0, inProgress: 0, todo: 0,
+      overdue: overdueTasks.length, review: 0,
+    }
+    for (const task of tasks) {
+      switch (task.status) {
+        case 'COMPLETED': statusCounts.completed++; break
+        case 'IN_PROGRESS': statusCounts.inProgress++; break
+        case 'TODO': statusCounts.todo++; break
+        case 'REVIEW': statusCounts.review++; break
+      }
+    }
+    const reviewTasks = statusCounts.review
     const reportStatusCounts: StatusCounts = reportsSummary
       ? { total: reportsSummary.total, completed: reportsSummary.completed, inProgress: reportsSummary.inProgress, todo: Math.max(reportsSummary.total - reportsSummary.completed - reportsSummary.inProgress, 0), overdue: reportsSummary.overdue }
       : statusCounts
