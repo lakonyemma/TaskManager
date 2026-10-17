@@ -909,7 +909,12 @@ export default function DashboardApp() {
         // Offline: queue the create and show it locally right away — synced
         // automatically once connectivity returns (see the 'online' effect).
         const clientId = crypto.randomUUID()
-        await queueMutation({ type: 'create', clientId, workspaceId: selectedWorkspaceId, payload: body })
+        try {
+          await queueMutation({ type: 'create', clientId, workspaceId: selectedWorkspaceId, payload: body })
+        } catch (queueError) {
+          showMessage(queueError instanceof Error ? queueError.message : 'Could not save offline change', 'error')
+          return
+        }
         const optimisticTask: Task = {
           id: `offline-${clientId}`, title: taskTitle, description: taskDescription, status: 'TODO', priority: taskPriority,
           workspaceId: selectedWorkspaceId, dueDate: dueDateTime, assignedToId: taskAssignedTo || null,
@@ -956,7 +961,13 @@ export default function DashboardApp() {
         return
       }
       // Offline: queue the status change — local state already reflects it.
-      await queueMutation({ type: 'update', taskId, payload: { status: nextStatus } })
+      try {
+        await queueMutation({ type: 'update', taskId, payload: { status: nextStatus } })
+      } catch (queueError) {
+        setTasks(previous)
+        showMessage(queueError instanceof Error ? queueError.message : 'Could not save offline change', 'error')
+        return
+      }
       const changed = tasks.find(tk => tk.id === taskId)
       if (changed) await upsertCachedTask({ ...changed, status: nextStatus } as unknown as Record<string, unknown> & { id: string; workspaceId: string })
       setPendingSyncCount(await getOutboxCount())
@@ -1002,7 +1013,13 @@ export default function DashboardApp() {
         showMessage(err instanceof Error ? err.message : 'Unable to move task', 'error')
         return
       }
-      await queueMutation({ type: 'update', taskId, payload: { columnId } })
+      try {
+        await queueMutation({ type: 'update', taskId, payload: { columnId } })
+      } catch (queueError) {
+        setTasks(previous)
+        showMessage(queueError instanceof Error ? queueError.message : 'Could not save offline change', 'error')
+        return
+      }
       const changed = tasks.find(tk => tk.id === taskId)
       if (changed) await upsertCachedTask({ ...changed, columnId } as unknown as Record<string, unknown> & { id: string; workspaceId: string })
       setPendingSyncCount(await getOutboxCount())
