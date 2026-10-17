@@ -77,3 +77,38 @@
   overflow-y: auto;
   min-height: 0;
 }
+
+/* Dialogs stay reachable above Android keyboards and inside display cutouts. */
+.modal-overlay {
+  padding:
+    max(16px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal-card {
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+}
+.modal-close {
+  min-width: 40px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+}
+.modal-close:focus-visible {
+  outline: 2px solid var(--accent-primary-light, #a78bfa);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay, .modal-card { animation: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .modal-overlay, .modal-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .modal-card { background: var(--surface-1, #0c1130); }
+}
