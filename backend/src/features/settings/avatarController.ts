@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import crypto from "node:crypto";
 import path from "node:path";
 import prisma from "../../lib/prisma.js";
-import { deleteObject, getObject, putObject } from "../files/storage.js";
+import { deleteObject, getObject, putObject, isDurableStorageConfigured } from "../files/storage.js";
 
 type AuthedRequest = Request & { user?: { id: string; email: string } };
 type UploadedRequest = AuthedRequest & { file?: Express.Multer.File };
@@ -48,6 +48,9 @@ export const uploadAvatar = async (req: UploadedRequest, res: Response) => {
             return res.status(400).json({ message: "Image must be under 5MB" });
         }
 
+        if (process.env.NODE_ENV === "production" && !isDurableStorageConfigured()) {
+            return res.status(503).json({ message: "Profile photo storage is unavailable. The administrator must configure durable object storage." });
+        }
         const existing = await prisma.user.findUnique({ where: { id: authUser.id }, select: { avatarUrl: true } });
 
         const ext = path.extname(file.originalname).slice(0, 20);
@@ -55,11 +58,15 @@ export const uploadAvatar = async (req: UploadedRequest, res: Response) => {
         await putObject(`avatars/${storedName}`, file.buffer, file.mimetype);
 
         const oldStoredName = storedNameFromAvatarUrl(existing?.avatarUrl ?? null);
-        if (oldStoredName) await deleteObject(`avatars/${oldStoredName}`);
-
         const avatarUrl = `/api/settings/avatar/${storedName}`;
-        const user = await prisma.user.update({ where: { id: authUser.id }, data: { avatarUrl }, select: SETTINGS_SELECT });
-
+        let user;
+        try {
+            user = await prisma.user.update({ where: { id: authUser.id }, data: { avatarUrl }, select: SETTINGS_SELECT });
+        } catch (error) {
+            await deleteObject(`avatars/${storedName}`);
+            throw error;
+        }
+        if (oldStoredName) await deleteObject(`avatars/${oldStoredName}`);
         return res.status(200).json({ user });
     } catch (error) {
         console.error(error);
