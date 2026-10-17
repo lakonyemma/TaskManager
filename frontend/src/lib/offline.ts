@@ -75,7 +75,7 @@ export const queueMutation = async (mutation: OutboxMutation): Promise<void> => 
     const tx = db.transaction(OUTBOX_STORE, 'readwrite')
     tx.objectStore(OUTBOX_STORE).add({ ...mutation, createdAt: Date.now() })
     await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error) })
-  } catch { /* ignore */ }
+  } catch { throw new Error('Could not save this change offline. Please retry before closing Taskly.') }
 }
 
 const getOutbox = async (): Promise<OutboxEntry[]> => {
@@ -109,7 +109,9 @@ export const getOutboxCount = async (): Promise<number> => (await getOutbox()).l
 // server-assigned id once that create resolves — the "resolve conflicts
 // safely" case that actually happens in practice: edit an item you just
 // created offline, before ever going back online.
-export const syncOutbox = async (
+let activeSync: Promise<{ synced: number; failed: number }> | null = null
+
+const replayOutbox = async (
   authFetch: (url: string, init?: RequestInit) => Promise<unknown>,
 ): Promise<{ synced: number; failed: number }> => {
   const entries = await getOutbox()
@@ -146,4 +148,15 @@ export const syncOutbox = async (
   }
 
   return { synced, failed }
+}
+
+/** Coalesce concurrent reconnect/manual sync triggers into one ordered replay. */
+export const syncOutbox = (
+  authFetch: (url: string, init?: RequestInit) => Promise<unknown>,
+): Promise<{ synced: number; failed: number }> => {
+  if (activeSync) return activeSync
+  const current = replayOutbox(authFetch)
+  activeSync = current
+  void current.finally(() => { if (activeSync === current) activeSync = null }).catch(() => {})
+  return current
 }
