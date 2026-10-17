@@ -30,21 +30,24 @@ export default function Modal({ title, onClose, children }: { title: string; onC
       if (e.key === 'Escape') { onCloseRef.current(); return }
       if (e.key !== 'Tab' || !card) return
       const items = Array.from(card.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(el => el.offsetParent !== null)
-      if (items.length === 0) return
+      if (items.length === 0) { e.preventDefault(); card.focus(); return }
       const first = items[0]
       const last = items[items.length - 1]
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', handleKeyDown)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousOverflow
       previouslyFocused.current?.focus?.()
     }
   }, [])
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} ref={cardRef} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3 id={titleId}>{title}</h3>
