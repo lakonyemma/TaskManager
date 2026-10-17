@@ -20,7 +20,7 @@ const pushRecent = (q: string) => {
   const trimmed = q.trim()
   if (!trimmed) return
   const next = [trimmed, ...getRecent().filter(r => r.toLowerCase() !== trimmed.toLowerCase())].slice(0, 6)
-  localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)) } catch { /* Search remains usable if storage is blocked or full */ }
 }
 
 // Bolds the substring of `text` matching `query` (case-insensitive) — the
@@ -132,7 +132,7 @@ export default function GlobalSearch({
       </div>
 
       {open && (
-        <div className="global-search-dropdown">
+        <div className="global-search-dropdown" role="region" aria-label="Search results">
           {hasQuery && (
             <div className="global-search-filters">
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter search by status">
@@ -157,9 +157,9 @@ export default function GlobalSearch({
             </div>
           )}
 
-          {hasQuery && loading && <p className="empty-column">Searching…</p>}
+          {hasQuery && loading && <p className="empty-column" role="status" aria-live="polite">Searching…</p>}
 
-          {hasQuery && !loading && !hasResults && <p className="empty-column">No results for "{query}"</p>}
+          {hasQuery && !loading && !hasResults && <p className="empty-column" role="status" aria-live="polite">No results for "{query}"</p>}
 
           {hasQuery && !loading && results.tasks.length > 0 && (
             <div className="global-search-section">
