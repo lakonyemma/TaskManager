@@ -31,6 +31,7 @@ async function callGemini(prompt: string): Promise<string> {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        signal: AbortSignal.timeout(15000),
     });
 
     if (!geminiRes.ok) {
@@ -223,7 +224,10 @@ export const parseTaskWithAssistant = async (req: AuthedRequest, res: Response) 
         let proposal: ParsedTaskProposal;
         try {
             proposal = parseJsonReply<ParsedTaskProposal>(reply);
-            if (!proposal.title) throw new Error("missing title");
+            if (!proposal || typeof proposal.title !== "string" || !proposal.title.trim() || proposal.title.length > 200) throw new Error("invalid title");
+            if (proposal.description !== null && typeof proposal.description !== "string") throw new Error("invalid description");
+            if (!["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(proposal.priority)) throw new Error("invalid priority");
+            if (proposal.dueDate !== null && (typeof proposal.dueDate !== "string" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(proposal.dueDate) || Number.isNaN(Date.parse(proposal.dueDate)))) throw new Error("invalid due date");
         } catch {
             console.error("[assistant] parse-task reply was not valid JSON:", reply);
             return res.status(502).json({ message: "The AI assistant couldn't understand that task. Try rephrasing it." });
