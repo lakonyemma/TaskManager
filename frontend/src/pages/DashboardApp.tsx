@@ -711,7 +711,8 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews(); loadBoardColumns(); loadMilestones() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews, loadBoardColumns, loadMilestones])
+  // loadTasks refreshes milestones after loading task data; avoid a duplicate milestones request on every workspace change.
+  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews(); loadBoardColumns() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews, loadBoardColumns])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'reports') { loadReports(); loadFocusSessions() } }, [navPage, loadReports, loadFocusSessions])
   // eslint-disable-next-line react-hooks/set-state-in-effect
