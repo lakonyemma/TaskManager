@@ -57,6 +57,20 @@ import { SkeletonChart, SkeletonList, SkeletonStatCards } from '../components/Sk
 import '../App.css'
 
 type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports' | 'activity' | 'notifications' | 'settings' | 'workload' | 'assistant'
+const LAST_PAGE_KEY = 'taskly.lastPage.v1'
+const LAST_WORKSPACE_KEY = 'taskly.lastWorkspace.v1'
+function storedValue(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+function rememberValue(key: string, value: string) {
+  try { localStorage.setItem(key, value) } catch { /* storage unavailable */ }
+}
+function restoredPage(): NavPage {
+  const saved = storedValue(LAST_PAGE_KEY)
+  const allowed: NavPage[] = ['dashboard', 'tasks', 'boards', 'calendar', 'team', 'reports', 'activity', 'notifications', 'settings', 'workload', 'assistant']
+  return allowed.find(page => page === saved) || 'dashboard'
+}
+
 
 type DigestFrequency = 'OFF' | 'DAILY' | 'WEEKLY'
 type NotificationPreferences = { pushEnabled: boolean; soundEnabled: boolean; vibrationEnabled: boolean; defaultReminderMinutes: number[]; digestFrequency: DigestFrequency }
@@ -307,7 +321,7 @@ export default function DashboardApp() {
   const { confirm, prompt } = useDialog()
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('')
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(() => storedValue(LAST_WORKSPACE_KEY) || '')
   const [tasks, setTasks] = useState<Task[]>([])
   const [boardColumns, setBoardColumns] = useState<BoardColumn[]>([])
   const [milestones, setMilestones] = useState<MilestoneRef[]>([])
@@ -331,7 +345,7 @@ export default function DashboardApp() {
   const [workspaceInvitations, setWorkspaceInvitations] = useState<Invitation[]>([])
   const [members, setMembers] = useState<Member[]>([])
   const [tags, setTags] = useState<(TagRef & { _count?: { tasks: number } })[]>([])
-  const [navPage, setNavPage] = useState<NavPage>('dashboard')
+  const [navPage, setNavPage] = useState<NavPage>(restoredPage)
   const [boardAssigneeFilter, setBoardAssigneeFilter] = useState('')
   const [boardPriorityFilter, setBoardPriorityFilter] = useState('')
   const [boardTagFilter, setBoardTagFilter] = useState('')
@@ -433,7 +447,7 @@ export default function DashboardApp() {
     try {
       const d = await request('/api/workspaces') as { workspaces: Workspace[] }
       setWorkspaces(d.workspaces || [])
-      setSelectedWorkspaceId(prev => prev || d.workspaces?.[0]?.id || '')
+      setSelectedWorkspaceId(prev => d.workspaces?.some(w => w.id === prev) ? prev : (d.workspaces?.[0]?.id || ''))
     } catch { setWorkspaces([]) }
     finally { setWorkspacesLoaded(true) }
   }, [request])
@@ -697,6 +711,13 @@ export default function DashboardApp() {
     } catch (err) { showMessage(err instanceof Error ? err.message : 'Unable to export audit log', 'error') }
   }
 
+  // Restore the last visited section after a WebView reload or process restart.
+  // Only navigation metadata is stored; task content and credentials are not.
+  useEffect(() => { rememberValue(LAST_PAGE_KEY, navPage) }, [navPage])
+  useEffect(() => {
+    if (selectedWorkspaceId) rememberValue(LAST_WORKSPACE_KEY, selectedWorkspaceId)
+  }, [selectedWorkspaceId])
+
   // These fetch-on-mount / fetch-on-tab-change effects call async loaders whose
   // setState calls happen after an await, not synchronously during the effect —
   // safe, but the lint rule can't distinguish that from a genuine sync setState.
@@ -711,7 +732,8 @@ export default function DashboardApp() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setLoadingDashboard(true) }, [selectedWorkspaceId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews(); loadBoardColumns(); loadMilestones() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews, loadBoardColumns, loadMilestones])
+  // loadTasks refreshes milestones after loading task data; avoid a duplicate milestones request on every workspace change.
+  useEffect(() => { loadTasks(); loadMembers(); loadWorkspaceInvitations(); loadTags(); loadSavedViews(); loadBoardColumns() }, [loadTasks, loadMembers, loadWorkspaceInvitations, loadTags, loadSavedViews, loadBoardColumns])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (navPage === 'reports') { loadReports(); loadFocusSessions() } }, [navPage, loadReports, loadFocusSessions])
   // eslint-disable-next-line react-hooks/set-state-in-effect
