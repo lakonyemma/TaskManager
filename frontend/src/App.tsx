@@ -6,15 +6,16 @@ import ProtectedRoute from './components/ProtectedRoute'
 import SuperAdminRoute from './components/SuperAdminRoute'
 import AppSplashGate from './components/AppSplashGate'
 import EntryRedirect from './pages/EntryRedirect'
-import LoginPage from './pages/LoginPage'
-import RegisterPage from './pages/RegisterPage'
-import VerifyEmailPage from './pages/VerifyEmailPage'
-import ResendVerificationPage from './pages/ResendVerificationPage'
-import InvitationAcceptPage from './pages/InvitationAcceptPage'
-import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
-import TermsPage from './pages/TermsPage'
 import './styles/brand.css'
 import { TranslationRuntime } from './components/TranslationControl'
+
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const RegisterPage = lazy(() => import('./pages/RegisterPage'))
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
+const ResendVerificationPage = lazy(() => import('./pages/ResendVerificationPage'))
+const InvitationAcceptPage = lazy(() => import('./pages/InvitationAcceptPage'))
+const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'))
+const TermsPage = lazy(() => import('./pages/TermsPage'))
 
 const DashboardApp = lazy(() => import('./pages/DashboardApp'))
 const ExecutionPage = lazy(() => import('./pages/ExecutionPage'))
@@ -40,13 +41,13 @@ function App() {
         <DialogProvider>
           <Routes>
             <Route path="/" element={<EntryRedirect />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/verify-email" element={<VerifyEmailPage />} />
-            <Route path="/resend-verification" element={<ResendVerificationPage />} />
-            <Route path="/invite/:token" element={<InvitationAcceptPage />} />
-            <Route path="/privacy" element={<PrivacyPolicyPage />} />
-            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/login" element={<Suspense fallback={<RouteLoading />}><LoginPage /></Suspense>} />
+            <Route path="/register" element={<Suspense fallback={<RouteLoading />}><RegisterPage /></Suspense>} />
+            <Route path="/verify-email" element={<Suspense fallback={<RouteLoading />}><VerifyEmailPage /></Suspense>} />
+            <Route path="/resend-verification" element={<Suspense fallback={<RouteLoading />}><ResendVerificationPage /></Suspense>} />
+            <Route path="/invite/:token" element={<Suspense fallback={<RouteLoading />}><InvitationAcceptPage /></Suspense>} />
+            <Route path="/privacy" element={<Suspense fallback={<RouteLoading />}><PrivacyPolicyPage /></Suspense>} />
+            <Route path="/terms" element={<Suspense fallback={<RouteLoading />}><TermsPage /></Suspense>} />
             <Route
               path="/app/execution"
               element={<ProtectedRoute><Suspense fallback={<RouteLoading />}><ExecutionPage /></Suspense></ProtectedRoute>}
