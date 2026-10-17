@@ -415,3 +415,24 @@
     grid-template-columns: 1fr;
   }
 }
+
+.execution-capacity-insight {
+  max-width: 1280px;
+  margin: 0 auto 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  padding: 14px 18px;
+  border: 1px solid rgba(96, 165, 250, .28);
+  border-radius: 14px;
+  background: rgba(37, 99, 235, .10);
+  color: #cfe1ff;
+}
+.execution-capacity-insight strong { color: #eff6ff; font-size: .88rem; }
+.execution-capacity-insight span { font-size: .85rem; line-height: 1.5; }
+.execution-capacity-insight.is-overloaded {
+  border-color: rgba(251, 146, 60, .35);
+  background: rgba(154, 52, 18, .13);
+  color: #fed7aa;
+}

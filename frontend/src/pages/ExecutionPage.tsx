@@ -46,7 +46,7 @@ type ExecutionOverview = {
   capacityMinutes: number
   nextAction: NextAction | null
   attention: { dueToday: number; overdue: number; atRisk: number; followUpsDue: number; total: number }
-  todayPlan: { tasks: PlanTask[]; plannedMinutes: number; capacityMinutes: number; overloaded: boolean }
+  todayPlan: { tasks: PlanTask[]; plannedMinutes: number; capacityMinutes: number; overloaded: boolean; capacityInsight?: { state: 'CLEAR' | 'OVERLOADED' | 'FULL' | 'AVAILABLE'; remainingMinutes: number; overflowMinutes: number; message: string } }
   risks: RiskItem[]
   waiting: WaitingItem[]
   weeklyReview: WeeklyReview
@@ -355,6 +355,13 @@ export default function ExecutionPage() {
               <b>{formatMinutes(capacityMinutes)}</b>
             </label>
           </section>
+
+          {overview.todayPlan.capacityInsight && (
+            <div className={`execution-capacity-insight ${overview.todayPlan.capacityInsight.state === 'OVERLOADED' ? 'is-overloaded' : ''}`} role="status">
+              <strong>{overview.todayPlan.capacityInsight.state === 'OVERLOADED' ? 'Your schedule needs attention' : 'Your capacity outlook'}</strong>
+              <span>{overview.todayPlan.capacityInsight.message}</span>
+            </div>
+          )}
 
           <section className="execution-metrics" aria-label="Execution summary">
             <article className="execution-score-card">
