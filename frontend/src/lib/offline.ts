@@ -6,7 +6,7 @@
 // "no extra library needed" reason.
 
 const DB_NAME = 'taskly-offline'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const TASKS_STORE = 'tasks'
 const OUTBOX_STORE = 'outbox'
 
@@ -14,7 +14,10 @@ const openDb = (): Promise<IDBDatabase> => new Promise((resolve, reject) => {
   const req = indexedDB.open(DB_NAME, DB_VERSION)
   req.onupgradeneeded = () => {
     const db = req.result
-    if (!db.objectStoreNames.contains(TASKS_STORE)) db.createObjectStore(TASKS_STORE, { keyPath: 'id' })
+    const tasksStore = db.objectStoreNames.contains(TASKS_STORE)
+      ? req.transaction!.objectStore(TASKS_STORE)
+      : db.createObjectStore(TASKS_STORE, { keyPath: 'id' })
+    if (!tasksStore.indexNames.contains('workspaceId')) tasksStore.createIndex('workspaceId', 'workspaceId', { unique: false })
     if (!db.objectStoreNames.contains(OUTBOX_STORE)) db.createObjectStore(OUTBOX_STORE, { keyPath: 'localId', autoIncrement: true })
   }
   req.onsuccess = () => resolve(req.result)
@@ -39,7 +42,7 @@ export const cacheTasks = async (workspaceId: string, tasks: CachedTask[]): Prom
     const tx = db.transaction(TASKS_STORE, 'readwrite')
     const store = tx.objectStore(TASKS_STORE)
     const existing: CachedTask[] = await new Promise((resolve, reject) => {
-      const req = store.getAll(); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error)
+      const req = store.index('workspaceId').getAll(workspaceId); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error)
     })
     for (const t of existing) if (t.workspaceId === workspaceId) store.delete(t.id)
     for (const t of tasks) store.put(t)
@@ -52,9 +55,9 @@ export const getCachedTasks = async (workspaceId: string): Promise<CachedTask[]>
     const db = await openDb()
     const tx = db.transaction(TASKS_STORE, 'readonly')
     const all: CachedTask[] = await new Promise((resolve, reject) => {
-      const req = tx.objectStore(TASKS_STORE).getAll(); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error)
+      const req = tx.objectStore(TASKS_STORE).index('workspaceId').getAll(workspaceId); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error)
     })
-    return all.filter((t) => t.workspaceId === workspaceId)
+    return all
   } catch { return [] }
 }
 
