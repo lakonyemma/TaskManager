@@ -280,10 +280,15 @@ export const suggestSmartReschedule = (
 
     const fallback = addDays(now, 14);
     fallback.setHours(originalHour, originalMinute, 0, 0);
+    const fallbackLoad = active
+        .filter((candidate) => candidate.dueDate && daysBetween(fallback, candidate.dueDate) === 0)
+        .reduce((total, candidate) => total + taskEffortMinutes(candidate), 0);
     return {
         dueDate: fallback,
-        reason: "The next two weeks are heavily loaded, so Taskly moved it to the furthest planning day.",
-        dayLoadMinutes: capacity,
+        reason: effort > capacity
+            ? "This task exceeds your daily capacity. Split it into smaller tasks before relying on this date."
+            : "No day with enough free capacity was found in the next two weeks. Review this suggested date before applying it.",
+        dayLoadMinutes: fallbackLoad,
         capacityMinutes: capacity,
     };
 };

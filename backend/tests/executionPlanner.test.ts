@@ -124,3 +124,38 @@ test("execution score rewards recent on-time completion and penalizes overdue wo
     assert.equal(score.overdueOpen, 1);
     assert.ok(score.score > 60 && score.score < 100);
 });
+
+test("smart reschedule warns when a task is larger than daily capacity", () => {
+    const oversized = task({ title: "Large migration", estimatedMinutes: 900 });
+    const suggestion = suggestSmartReschedule(oversized, [oversized], NOW, 360);
+
+    assert.equal(suggestion.dueDate.toISOString().slice(0, 10), "2026-09-26");
+    assert.match(suggestion.reason, /exceeds your daily capacity/i);
+    assert.equal(suggestion.dayLoadMinutes, 0);
+    assert.equal(suggestion.capacityMinutes, 360);
+});
+
+test("smart reschedule reports the real fallback-day load when no day fits", () => {
+    const target = task({ title: "Long task", estimatedMinutes: 300 });
+    const busy = Array.from({ length: 14 }, (_, index) => task({
+        title: `Scheduled task ${index + 1}`,
+        dueDate: new Date(Date.UTC(2026, 8, 13 + index, 17)),
+        estimatedMinutes: 120,
+    }));
+    const suggestion = suggestSmartReschedule(target, [target, ...busy], NOW, 360);
+
+    assert.equal(suggestion.dueDate.toISOString().slice(0, 10), "2026-09-26");
+    assert.equal(suggestion.dayLoadMinutes, 120);
+    assert.match(suggestion.reason, /no day with enough free capacity/i);
+});
+
+test("completed and waiting work never takes capacity in today's plan", () => {
+    const plan = buildTodayPlan([
+        task({ title: "Done", status: "COMPLETED", estimatedMinutes: 300 }),
+        task({ title: "Blocked", isWaiting: true, estimatedMinutes: 300 }),
+        task({ title: "Available", estimatedMinutes: 120 }),
+    ], NOW, 360);
+
+    assert.deepEqual(plan.tasks.map(item => item.title), ["Available"]);
+    assert.equal(plan.plannedMinutes, 120);
+});
