@@ -234,6 +234,18 @@ const AvatarThumb = ({ url }: { url?: string | null }) => (
 
 const FONTS = ['default', 'serif', 'mono', 'georgia', 'impact', 'comic', 'courier', 'fantasy', 'trebuchet']
 const COLORS = ['purple', 'blue', 'green', 'orange', 'red', 'pink', 'teal', 'yellow', 'indigo']
+const APPEARANCES = [
+  ['modern-blue', 'Modern Blue', '#0c3c96'], ['emerald-green', 'Emerald Green', '#065f46'],
+  ['sunset-orange', 'Sunset Orange', '#9a3412'], ['purple-luxe', 'Purple Luxe', '#581c87'],
+  ['rose-pink', 'Rose Pink', '#9d174d'], ['teal-ocean', 'Teal Ocean', '#155e75'],
+  ['slate-gray', 'Slate Gray', '#cbd5e1'], ['ivory-light', 'Ivory Light', '#faf5e9'],
+  ['midnight-dark', 'Midnight Dark', '#0b1020'], ['custom-gradient', 'Custom Gradient', '#6d28d9'],
+] as const
+const APPEARANCE_KEY = 'taskly.appearance.v1'
+const getSavedAppearance = () => {
+  try { const saved = localStorage.getItem(APPEARANCE_KEY); return APPEARANCES.some(([id]) => id === saved) ? saved! : 'midnight-dark' }
+  catch { return 'midnight-dark' }
+}
 const ASSIGNABLE_ROLES = ['ADMIN', 'MANAGER', 'MEMBER']
 
 // One board card, draggable (via a dedicated grab handle, not the whole
@@ -423,6 +435,7 @@ export default function DashboardApp() {
   const [settingsLang, setSettingsLang] = useState(() => user?.language || 'en')
   const [settingsFont, setSettingsFont] = useState(() => user?.fontStyle || 'default')
   const [settingsColor, setSettingsColor] = useState(() => user?.colorTheme || 'purple')
+  const [appearance, setAppearance] = useState(getSavedAppearance)
   const [taskNotificationsEnabled, setTaskNotificationsEnabled] = useState(() => user?.taskNotificationsEnabled ?? true)
   const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(() => user?.emailNotificationsEnabled ?? true)
 
@@ -2666,6 +2679,20 @@ export default function DashboardApp() {
                       <div key={c} className={`theme-swatch ${settingsColor === c ? 'active' : ''} swatch-${c}`}
                         onClick={() => { setSettingsColor(c); document.documentElement.setAttribute('data-theme', c) }} />
                     ))}
+                  </div>
+                  <div className="appearance-settings">
+                    <strong>App appearance</strong>
+                    <p>Choose one of ten complete color styles. Your selection applies immediately and is remembered on this device.</p>
+                    <div className="appearance-grid" role="group" aria-label="App appearance">
+                      {APPEARANCES.map(([id, name, preview]) => (
+                        <button key={id} type="button" className={`appearance-choice ${appearance === id ? 'selected' : ''}`}
+                          aria-pressed={appearance === id}
+                          onClick={() => { setAppearance(id); document.documentElement.setAttribute('data-appearance', id); try { localStorage.setItem(APPEARANCE_KEY, id) } catch { /* storage unavailable */ } }}>
+                          <span className="appearance-preview" style={{ background: preview }} aria-hidden="true"><span /><span /><span /></span>
+                          <span>{name}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <button type="submit">{t('savePrefs', settingsLang)}</button>
                 </form>
