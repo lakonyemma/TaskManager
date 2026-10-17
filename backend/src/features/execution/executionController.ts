@@ -10,6 +10,7 @@ import {
     clampCapacityMinutes,
     computeExecutionScore,
     daysBetween,
+    explainTodayCapacity,
     selectNextAction,
     suggestSmartReschedule,
     type ExecutionTask,
@@ -141,6 +142,7 @@ export const getExecutionOverview = async (req: AuthedRequest, res: Response) =>
             nextAction: nextAction ? { ...serializeTask(nextAction), reason: nextAction.reason } : null,
             todayPlan: {
                 ...todayPlan,
+                capacityInsight: explainTodayCapacity(todayPlan),
                 tasks: todayPlan.tasks.map(serializeTask),
             },
             risks: risks.map((risk) => ({
