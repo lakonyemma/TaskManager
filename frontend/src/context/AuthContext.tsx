@@ -51,6 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string, remember = true) => {
     const res = await fetch('/api/auth/login', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ email, password }) })
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      throw new Error('Taskly API is unavailable on this deployment. Check the API proxy configuration (API_ORIGIN).')
+    }
     const data = await res.json()
     if (!res.ok) {
       if (data.emailNotVerified) throw new EmailNotVerifiedError(data.message || 'Please verify your email before signing in')
