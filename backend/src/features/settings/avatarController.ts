@@ -66,7 +66,7 @@ export const uploadAvatar = async (req: UploadedRequest, res: Response) => {
             await deleteObject(`avatars/${storedName}`);
             throw error;
         }
-        if (oldStoredName) await deleteObject(`avatars/${oldStoredName}`);
+        if (oldStoredName) await deleteObject(`avatars/${oldStoredName}`).catch(error => console.warn("Could not delete previous profile photo", error));
         return res.status(200).json({ user });
     } catch (error) {
         console.error(error);
