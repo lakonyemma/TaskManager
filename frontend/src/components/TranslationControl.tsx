@@ -29,36 +29,69 @@ function loadTranslator(): Promise<Translator> {
   })
 }
 
+// The translation engine stays mounted outside Settings, so language persists
+// across route changes and after reloading a dashboard URL.
+let initialization: Promise<Translator> | null = null
+function initialize(): Promise<Translator> {
+  if (!initialization) {
+    initialization = loadTranslator().then(translate => {
+      translate.service.use('client.edge')
+      translate.language.setLocal('english')
+      translate.listener.start()
+      translate.execute()
+      return translate
+    }).catch(err => { initialization = null; throw err })
+  }
+  return initialization
+}
+
+export function TranslationRuntime() {
+  useEffect(() => {
+    let mounted = true
+    const sync = () => {
+      if (read(CONSENT_KEY) !== 'yes') return
+      void initialize().then(translate => {
+        if (!mounted) return
+        translate.changeLanguage(read(LANGUAGE_KEY) || 'english')
+        window.dispatchEvent(new Event('taskly:translation-ready'))
+      }).catch(() => {
+        // Settings can retry; no external translation service is loaded without consent.
+      })
+    }
+    window.addEventListener('taskly:translation-change', sync)
+    sync()
+    return () => {
+      mounted = false
+      window.removeEventListener('taskly:translation-change', sync)
+    }
+  }, [])
+  return null
+}
+
 export default function TranslationControl() {
   const [consented, setConsented] = useState(() => read(CONSENT_KEY) === 'yes')
   const [language, setLanguage] = useState(() => read(LANGUAGE_KEY) || 'english')
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   useEffect(() => {
-    if (!consented) return
-    let active = true
-    loadTranslator().then(translate => {
-      if (!active) return
-      translate.service.use('client.edge')
-      translate.language.setLocal('english')
-      translate.listener.start()
-      translate.execute()
-      if (language !== 'english') translate.changeLanguage(language)
-      setReady(true)
-    }).catch(err => { if (active) setError(String(err)) })
-    return () => { active = false }
-    // Only initialize once per consent grant; language changes are handled separately.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [consented])
+    const sync = () => {
+      setReady(Boolean(window.translate))
+      setError(window.translate ? '' : 'Translation is loading. Please try again shortly.')
+    }
+    window.addEventListener('taskly:translation-ready', sync)
+    sync()
+    return () => window.removeEventListener('taskly:translation-ready', sync)
+  }, [])
   function changeLanguage(next: string) {
     setLanguage(next)
     save(LANGUAGE_KEY, next)
-    if (ready) window.translate?.changeLanguage(next)
+    window.dispatchEvent(new Event('taskly:translation-change'))
   }
   function revoke() {
     save(CONSENT_KEY, 'no')
     setConsented(false)
     // Remove previously translated DOM state and disable translation observers on a clean reload.
+    window.dispatchEvent(new Event('taskly:translation-change'))
     window.location.reload()
   }
   return (
@@ -67,7 +100,7 @@ export default function TranslationControl() {
         <>
           <strong>Language & translation</strong>
           <p>Translation may send all visible text, including private tasks, comments, names and workspace content, to an external translation service. Do not enable for confidential data without permission from the people involved.</p>
-          <button type="button" onClick={() => { save(CONSENT_KEY, 'yes'); setConsented(true) }}>I agree — enable translation</button>
+          <button type="button" onClick={() => { save(CONSENT_KEY, 'yes'); setConsented(true); window.dispatchEvent(new Event('taskly:translation-change')) }}>I agree — enable translation</button>
         </>
       ) : (
         <>
