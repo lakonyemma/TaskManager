@@ -20,6 +20,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [sessionNotice, setSessionNotice] = useState('')
 
+  // Restore the complete appearance independently of the account's accent color.
+  useEffect(() => {
+    try {
+      const appearance = localStorage.getItem('taskly.appearance.v1')
+      if (appearance && ['modern-blue','emerald-green','sunset-orange','purple-luxe','rose-pink','teal-ocean','slate-gray','ivory-light','midnight-dark','custom-gradient'].includes(appearance)) {
+        document.documentElement.setAttribute('data-appearance', appearance)
+      }
+    } catch { /* storage unavailable */ }
+  }, [])
+
   const loadProfile = useCallback(async () => {
     if (!getStoredToken()) { setLoading(false); return }
     try {
