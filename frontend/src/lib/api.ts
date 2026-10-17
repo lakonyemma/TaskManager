@@ -45,29 +45,49 @@ export class EmailNotVerifiedError extends Error {
 // Performs an authenticated JSON fetch. Transparently retries once with a
 // refreshed access token on 401, and throws SessionExpiredError if the
 // refresh itself fails so callers can redirect to /login.
+let refreshInFlight: Promise<string> | null = null
+
+const refreshAccessToken = (): Promise<string> => {
+  if (refreshInFlight) return refreshInFlight
+  const current = (async () => {
+    const refreshToken = getStoredRefreshToken()
+    if (!refreshToken) throw new SessionExpiredError()
+    const response = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    })
+    const data = await response.json().catch(() => ({})) as { accessToken?: string }
+    if (!response.ok || !data.accessToken) throw new SessionExpiredError()
+    persistTokens(data.accessToken, refreshToken, activeStorage() === localStorage)
+    return data.accessToken
+  })()
+  refreshInFlight = current
+  void current.finally(() => { if (refreshInFlight === current) refreshInFlight = null }).catch(() => {})
+  return current
+}
+
 export const authFetch = async (input: string, init?: RequestInit): Promise<unknown> => {
   const headers = new Headers(init?.headers)
   const token = getStoredToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   let response = await fetch(input, { ...init, headers })
-
   if (response.status === 401) {
-    const refreshToken = getStoredRefreshToken()
-    if (!refreshToken) throw new SessionExpiredError()
     try {
-      const refreshResponse = await fetch('/api/auth/refresh', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      })
-      const refreshData = await refreshResponse.json().catch(() => ({}))
-      if (!refreshResponse.ok || !refreshData.accessToken) throw new SessionExpiredError()
-      persistTokens(refreshData.accessToken, refreshToken, activeStorage() === localStorage)
-      headers.set('Authorization', `Bearer ${refreshData.accessToken}`)
+      // A sibling request may have refreshed our token while this one was in flight.
+      const latestToken = getStoredToken()
+      const accessToken = latestToken && latestToken !== token
+        ? latestToken
+        : await refreshAccessToken()
+      headers.set('Authorization', `Bearer ${accessToken}`)
       response = await fetch(input, { ...init, headers })
-    } catch {
-      clearTokens()
-      throw new SessionExpiredError()
+    } catch (error) {
+      // A temporary network failure is not proof that a session expired.
+      if (error instanceof SessionExpiredError) {
+        clearTokens()
+      }
+      throw error
     }
   }
 
