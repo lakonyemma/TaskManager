@@ -16,7 +16,8 @@ export const search = async (req: AuthedRequest, res: Response) => {
         const authUser = req.user;
         if (!authUser) return res.status(401).json({ message: "Authentication required" });
 
-        const q = ((req.query.q as string) || "").trim();
+        const q = (typeof req.query.q === "string" ? req.query.q : "").trim();
+        if (q.length > 200) return res.status(400).json({ message: "Search query must be 200 characters or fewer" });
         if (q.length < 2) return res.status(200).json({ tasks: [], workspaces: [], comments: [], members: [], files: [], query: q });
 
         const workspaceId = req.query.workspaceId as string | undefined;
