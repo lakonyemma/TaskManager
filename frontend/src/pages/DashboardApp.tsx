@@ -60,10 +60,10 @@ type NavPage = 'dashboard' | 'tasks' | 'boards' | 'calendar' | 'team' | 'reports
 const LAST_PAGE_KEY = 'taskly.lastPage.v1'
 const LAST_WORKSPACE_KEY = 'taskly.lastWorkspace.v1'
 function storedValue(key: string): string | null {
-  try { return sessionStorage.getItem(key) } catch { return null }
+  try { return localStorage.getItem(key) } catch { return null }
 }
 function rememberValue(key: string, value: string) {
-  try { sessionStorage.setItem(key, value) } catch { /* storage unavailable */ }
+  try { localStorage.setItem(key, value) } catch { /* storage unavailable */ }
 }
 function restoredPage(): NavPage {
   const saved = storedValue(LAST_PAGE_KEY)
