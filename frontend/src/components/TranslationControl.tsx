@@ -62,10 +62,10 @@ export default function TranslationControl() {
     window.location.reload()
   }
   return (
-    <aside aria-label="Translation settings" style={{ position: 'fixed', bottom: 'max(12px, env(safe-area-inset-bottom))', right: 12, zIndex: 9000, maxWidth: 290, padding: 10, borderRadius: 12, background: '#181b30', color: '#fff', boxShadow: '0 4px 22px #0007', fontSize: 12 }}>
+    <aside aria-label="Translation settings" style={{ width: '100%', padding: 16, borderRadius: 12, background: 'var(--card-bg, #181b30)', color: '#fff', fontSize: 14 }}>
       {!consented ? (
         <>
-          <strong>Translate Taskly</strong>
+          <strong>Language & translation</strong>
           <p>Translation may send all visible text, including private tasks, comments, names and workspace content, to an external translation service. Do not enable for confidential data without permission from the people involved.</p>
           <button type="button" onClick={() => { save(CONSENT_KEY, 'yes'); setConsented(true) }}>I agree — enable translation</button>
         </>
